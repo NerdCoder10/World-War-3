@@ -6,7 +6,7 @@
 <title>World War 3 Theatre Command</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=Saira+Condensed:wght@600;700&display=swap">
-<link rel="stylesheet" href="css/style.css?v=9">
+<link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
 <header class="topbar">
@@ -19,6 +19,7 @@
     <button data-mode="soft" aria-pressed="false">Soft power</button>
     <button data-mode="value" aria-pressed="false">Value</button>
   </nav>
+  <button id="endturn" class="endturn" disabled>End turn <small>T<span id="turnno">1</span></small></button>
   <div class="wallet">
     <span class="coins" title="Coins"><span class="coin" aria-hidden="true"></span><b id="coins">0</b></span>
     <button id="promo-btn" class="promo-btn">Promo code</button>
@@ -55,16 +56,16 @@
 </main>
 <div class="toast" hidden></div>
 
-<script src="vendor/d3.min.js?v=9"></script>
-<script src="vendor/topojson-client.min.js?v=9"></script>
-<script src="vendor/world-50m.js?v=9"></script>
-<script src="js/data.js?v=9"></script>
-<script src="js/intel.js?v=9"></script>
-<script src="js/economy.js?v=9"></script>
-<script src="js/deployments.js?v=9"></script>
-<script src="js/model.js?v=9"></script>
-<script src="js/traits.js?v=9"></script>
-<script src="js/game.js?v=9"></script>
-<script src="js/app.js?v=9"></script>
+<script src="vendor/d3.min.js?v=10"></script>
+<script src="vendor/topojson-client.min.js?v=10"></script>
+<script src="vendor/world-50m.js?v=10"></script>
+<script src="js/data.js?v=10"></script>
+<script src="js/intel.js?v=10"></script>
+<script src="js/economy.js?v=10"></script>
+<script src="js/deployments.js?v=10"></script>
+<script src="js/model.js?v=10"></script>
+<script src="js/traits.js?v=10"></script>
+<script src="js/game.js?v=10"></script>
+<script src="js/app.js?v=10"></script>
 </body>
 </html>

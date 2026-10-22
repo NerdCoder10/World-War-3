@@ -59,6 +59,12 @@
   // militaries actually are, not an optimal defensive spread.
   const mainFeat = {};
   features.forEach(f => { if (!f.iso) return; f._a = d3.geoArea(f); if (!mainFeat[f.iso] || f._a > mainFeat[f.iso]._a) mainFeat[f.iso] = f; });
+  // Country centres for army routes and travel times.
+  window.CENTROIDS = {};
+  C.forEach(c => {
+    const f = mainFeat[c.iso3], m = markers.find(x => x.c.iso3 === c.iso3);
+    window.CENTROIDS[c.iso3] = f ? d3.geoCentroid(f) : m ? m.at : null;
+  });
   function centroidOf(iso) {
     if (mainFeat[iso]) return d3.geoCentroid(mainFeat[iso]);
     const m = markers.find(x => x.c.iso3 === iso);
@@ -207,6 +213,7 @@
     .on("mousemove", (e, m) => showTip(e, { iso: m.c.iso3 }))
     .on("mouseleave", hideTip);
   const deployLayer = root.append("g").attr("class", "deploy-layer");
+  const armyLayer = root.append("g").attr("class", "army-layer");
   let pickedZone = null;
   const baseCard = document.createElement("div");
   baseCard.className = "basecard";
@@ -231,6 +238,7 @@
     root.attr("transform", e.transform);
     markerSel.attr("r", 3.2 / Math.sqrt(k));
     deployLayer.selectAll("circle").attr("r", garrR);
+    armyLayer.selectAll("circle").attr("r", 6 / Math.sqrt(k));
   });
   svg.call(zoom).on("dblclick.zoom", null);
 
@@ -242,6 +250,26 @@
     markerSel.attr("cx", m => projection(m.at)[0]).attr("cy", m => projection(m.at)[1]).attr("r", 3.2 / Math.sqrt(k));
     zoom.translateExtent([[-w * 0.2, -h * 0.2], [w * 1.2, h * 1.2]]);
     drawDeploy();
+    drawArmies();
+  }
+  // Army routes (dashed lines) and markers for battles, revolts and stationed armies.
+  function drawArmies() {
+    const s = G.state, P = window.CENTROIDS, pt = iso => projection(P[iso]);
+    const moving = s.armies.filter(a => !G.arrived(a) && P[a.from] && P[a.to]);
+    armyLayer.selectAll("path").data(moving).join("path").attr("class", "route")
+      .attr("d", a => path({ type: "LineString", coordinates: [P[a.from], P[a.to]] }));
+    const spots = new Map();
+    s.armies.filter(G.arrived).forEach(a => {
+      const kind = !G.owns(a.to) ? "war" : G.inRevolt(a.to) ? "revolt" : a.to === a.nat ? null : "station";
+      if (kind && !spots.has(a.to)) spots.set(a.to, { iso: a.to, kind });
+    });
+    Object.keys(s.revolts).forEach(iso => spots.set(iso, { iso, kind: "revolt" }));
+    const label = { war: "Battle", revolt: "Revolt", station: "Your army is stationed here" };
+    armyLayer.selectAll("circle").data([...spots.values()].filter(d => P[d.iso])).join("circle")
+      .attr("class", d => "spot " + d.kind).attr("cx", d => pt(d.iso)[0]).attr("cy", d => pt(d.iso)[1]).attr("r", 6 / Math.sqrt(k))
+      .on("click", (e, d) => { e.stopPropagation(); select(d.iso); })
+      .on("mousemove", (e, d) => { tip.innerHTML = `<b>${esc(BY[d.iso].name)}</b><div class="k">${label[d.kind]}</div>`; placeTip(e); })
+      .on("mouseleave", hideTip);
   }
   window.addEventListener("resize", layout);
   layout();
@@ -407,15 +435,122 @@
       return `<button class="btn primary" data-act="choose">Play as ${esc(c.name)} <small>start campaign</small></button>`;
     }
     if (s.over) return `<p class="hint">Campaign finished. Start a new one from the Campaign tab.</p>`;
-    if (G.owns(c.iso3)) return `<p class="hint">Part of your empire. Garrison at ${pct(s.garrison[c.iso3])} strength.</p>`;
-    const a = G.attackOdds(c.iso3), d = G.diplomacyOdds(c.iso3);
-    const allies = a.D.allies.blocs.length ? `<p class="hint">Defended by ${esc(a.D.allies.blocs.join(", "))} allies (+${a.D.allies.strength.toFixed(1)} strength).</p>` : "";
-    const reach = a.adjacent ? "shares a border with your empire" : `overseas strike at ${pct(a.proj)} force projection`;
-    return `${allies}
-      <button class="btn attack" data-act="attack">Invade <small>${pct(a.p)} win odds</small></button>
-      <button class="btn diplo" data-act="influence" ${d.p <= 0 ? "disabled" : ""}>Diplomatic union <small>${d.p > 0 ? pct(d.p) + " odds" : "impossible"}</small></button>
-      <p class="hint">Target ${reach}. Your strength ${a.A.toFixed(1)} vs defence ${a.D.total.toFixed(1)}.${c.nukes ? " ☢️ Nuclear power: a winning invasion may trigger retaliation." : ""}</p>
+    if (G.owns(c.iso3)) return `<p class="hint">Part of your empire. Order at ${pct(s.garrison[c.iso3])}${G.inRevolt(c.iso3) ? ", in revolt" : ""}.</p>`;
+    const d = G.diplomacyOdds(c.iso3), tried = s.courted[c.iso3] === s.turn;
+    return `<button class="btn diplo" data-act="influence" ${d.p <= 0 || tried ? "disabled" : ""}>Diplomatic union <small>${tried ? "tried this turn" : d.p > 0 ? pct(d.p) + " odds" : "impossible"}</small></button>
+      ${d.p <= 0 && d.why ? `<p class="hint">${esc(d.why)}</p>` : ""}
       ${buyHtml(c)}`;
+  }
+
+  // ── Armies: send forces, battles, revolts ──────────────────
+  const unitFmt = (k, v) => (k === "troops" ? kPers(v) : num(Math.floor(v)));
+  let sendSrc = null, sendAmt = {}, sendTo = null;
+  function sendHtml(c) {
+    const s = G.state, mine = G.owns(c.iso3);
+    if (!s.player || s.over) return "";
+    if (sendTo !== c.iso3) { sendTo = c.iso3; sendAmt = {}; }
+    const srcs = G.sources(c.iso3);
+    const title = mine ? (G.inRevolt(c.iso3) ? "Send forces to crush the revolt" : "Move forces here") : "Send an invasion force";
+    if (!srcs.length) return `<div class="section"><h3>${title}</h3><p class="hint">No units are free to send. Unlock weapons in a nation's dossier, wait for forces to regrow, or bring armies home.</p></div>`;
+    if (!srcs.some(x => x.key === sendSrc)) { sendSrc = srcs[0].key; sendAmt = {}; }
+    const src = srcs.find(x => x.key === sendSrc);
+    const rows = window.UNITS.filter(u => src.avail[u.key] > 0).map(u => `<div class="srow"><label for="amt-${u.key}">${u.label}</label>
+        <span class="avail">of ${unitFmt(u.key, src.avail[u.key])}</span>
+        <input id="amt-${u.key}" type="number" inputmode="decimal" min="0" step="${u.key === "troops" ? 0.1 : 1}" data-amt="${u.key}" value="${sendAmt[u.key] ?? ""}" placeholder="0">
+        <button class="mini" data-max="${u.key}" data-v="${u.key === "troops" ? +src.avail[u.key].toFixed(1) : Math.floor(src.avail[u.key])}">All</button></div>`).join("");
+    return `<div class="section"><h3>${title} <small>arrives over the next turns</small></h3>
+      <div class="send">
+        <label class="srcl">From<select id="send-src">${srcs.map(x => `<option value="${x.key}" ${x.key === sendSrc ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
+        <div class="srows">${rows}</div>
+        <div class="row2"><button class="mini" id="send-all">Select everything</button><button class="mini" id="send-none">Clear</button></div>
+        <p class="hint" id="send-preview"></p>
+        <button class="btn ${mine ? "diplo" : "attack"}" id="send-go">${mine ? "Send forces" : "Launch invasion"} <small id="send-eta"></small></button>
+      </div>
+      <p class="hint">Only troops and unlocked weapon types can be sent. Ground units crossing the sea need sealift from ships, carriers or transport aircraft in the same army. Armies fight once per turn when you press End turn.</p></div>`;
+  }
+  function sendPreview(c) {
+    const out = $("#send-preview"); if (!out) return;
+    const p = G.preview(sendSrc, c.iso3, sendAmt);
+    const go = $("#send-go"), eta = $("#send-eta");
+    if (p.err || p.empty) { out.textContent = p.err || "Enter how many of each unit to send."; go.disabled = true; eta.textContent = ""; return; }
+    const r = p.route, by = r.sea ? "by sea" : r.land ? "by land" : "by air";
+    let vs = "";
+    if (!G.owns(c.iso3)) {
+      const D = G.defenceOf(c.iso3);
+      vs = ` Army strength ${p.power.toFixed(0)} vs defence ${D.total.toFixed(0)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies)` : ""}.`;
+    } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
+    const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
+    out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${by}, arrives turn ${G.state.turn + r.turns}.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">Not enough sealift.</b>`}`;
+    go.disabled = !r.ok; eta.textContent = `${r.turns} turn${r.turns === 1 ? "" : "s"}`;
+  }
+  function wireSend(pane, c) {
+    const sel = pane.querySelector("#send-src");
+    if (!sel) return;
+    sel.onchange = () => { sendSrc = sel.value; sendAmt = {}; dossier(); };
+    pane.querySelectorAll("[data-amt]").forEach(i => (i.oninput = () => { sendAmt[i.dataset.amt] = i.value; sendPreview(c); }));
+    pane.querySelectorAll("[data-max]").forEach(b => (b.onclick = () => { const i = pane.querySelector(`#amt-${b.dataset.max}`); i.value = b.dataset.v; sendAmt[b.dataset.max] = b.dataset.v; sendPreview(c); }));
+    pane.querySelector("#send-all").onclick = () => pane.querySelectorAll("[data-max]").forEach(b => b.click());
+    pane.querySelector("#send-none").onclick = () => { sendAmt = {}; pane.querySelectorAll("[data-amt]").forEach(i => (i.value = "")); sendPreview(c); };
+    pane.querySelector("#send-go").onclick = () => {
+      const err = G.dispatch(sendSrc, c.iso3, sendAmt);
+      if (err) return toast(err);
+      sendAmt = {}; toast(G.state.log[0].msg); refresh();
+    };
+    sendPreview(c);
+  }
+
+  function armyLi(a) {
+    const to = esc(BY[a.to].name);
+    const st = !G.arrived(a) ? `en route to ${to}, arrives turn ${a.eta}` : !G.owns(a.to) ? `fighting in ${to}` :
+      G.inRevolt(a.to) ? `fighting rebels in ${to}` : a.to === a.nat ? "home" : `stationed in ${to}`;
+    return `<li><div class="z-h"><b>Army ${a.id}</b><span>${G.armyPower(a).toFixed(0)} strength</span></div>
+      <div class="z-stats">${esc(BY[a.nat].name)} units · ${st}</div>
+      <p class="z-note">${esc(G.unitList(a.units))}</p>
+      <div class="arow"><button class="mini" data-goto="${a.to}">Show ${to}</button><button class="mini" data-recall="${a.id}">Recall home</button></div></li>`;
+  }
+  function wireArmies(pane) {
+    pane.querySelectorAll("[data-goto]").forEach(b => (b.onclick = () => select(b.dataset.goto)));
+    pane.querySelectorAll("[data-recall]").forEach(b => (b.onclick = () => {
+      const err = G.recall(+b.dataset.recall);
+      if (err) return toast(err);
+      toast(G.state.log[0].msg); refresh();
+    }));
+  }
+
+  // Battle or revolt status plus the armies heading to / sitting in this country.
+  function frontHtml(c) {
+    const s = G.state, here = s.armies.filter(a => a.to === c.iso3);
+    let front = "";
+    if (s.wars[c.iso3] || (!G.owns(c.iso3) && here.some(G.arrived))) {
+      const D = G.defenceOf(c.iso3), A = G.armiesAt(c.iso3).reduce((x, a) => x + G.armyPower(a), 0), prog = G.warProgress(c.iso3);
+      front = `<div class="front"><h4>⚔️ At war${s.wars[c.iso3] ? ` since turn ${s.wars[c.iso3].start}` : ""}</h4>
+        <div class="bar"><i style="width:${prog * 100}%;background:${COL.danger}"></i></div>
+        <p class="hint">Defences ${Math.round(prog * 100)}% broken (conquest at 100%). Your strength here ${A.toFixed(0)} vs defence ${D.total.toFixed(0)}.</p>
+        <p class="hint">Remaining defenders: ${esc(G.unitList(G.forces(c.iso3)) || "almost none")}.</p></div>`;
+    } else if (G.inRevolt(c.iso3)) {
+      const rv = s.revolts[c.iso3], R = G.rawPower(rv.units, c.iso3) * 1.1 + 5, L = G.loyalPower(c.iso3);
+      front = `<div class="front revolt"><h4>🔥 Revolt since turn ${rv.start}</h4>
+        <div class="bar"><i style="width:${Math.min(100, rv.progress)}%;background:#f0a03c"></i></div>
+        <p class="hint">Rebels are ${Math.round(rv.progress)}% of the way to independence. Loyal strength ${L.toFixed(0)} vs rebels ${R.toFixed(0)} (${esc(G.unitList(rv.units))}). Crush 85% of the rebels to end it, or send more forces.</p></div>`;
+    } else if (!G.owns(c.iso3) && s.player) {
+      const D = G.defenceOf(c.iso3);
+      front = `<p class="hint">Defence strength ${D.total.toFixed(0)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(G.unitList(G.forces(c.iso3)) || "none")}.${c.nukes ? " ☢️ Nuclear power: it may strike your armies before it falls." : ""}</p>`;
+    }
+    const list = here.length ? `<ul class="armies">${here.map(armyLi).join("")}</ul>` : "";
+    if (!front && !list) return "";
+    return `<div class="section"><h3>${G.owns(c.iso3) ? "Security" : "War room"}</h3>${front}${list}</div>`;
+  }
+
+  // Home forces of one of your nations: ready, deployed, and locked.
+  function forcesHtml(c) {
+    const f = G.forces(c.iso3), b = G.baseForces(c), dep = {};
+    G.state.armies.filter(a => a.nat === c.iso3).forEach(a => window.UNITS.forEach(u => (dep[u.key] = (dep[u.key] || 0) + (a.units[u.key] || 0))));
+    const tiles = window.UNITS.filter(u => b[u.key] > 0 || f[u.key] > 0).map(u => {
+      const ok = G.usable(c.iso3, u.key);
+      return `<div class="${ok ? "" : "lockedw"}"><dt>${ok ? "" : "🔒 "}${u.label}</dt><dd>${unitFmt(u.key, f[u.key])}</dd>${dep[u.key] ? `<small class="hint">+${unitFmt(u.key, dep[u.key])} deployed</small>` : ""}</div>`;
+    }).join("");
+    return `<div class="section"><h3>Home forces <small>regrow each turn</small></h3><dl class="assets">${tiles}</dl>
+      <p class="hint">Units at home are free to send. Open any country's dossier to send them there. Locked types (🔒) must be unlocked above first.</p></div>`;
   }
 
   function techHtml(c, mine) {
@@ -476,6 +611,11 @@
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
         <div><h2>${esc(c.name)}</h2><div class="sub">${esc(c.region)} · ${c.iso3}${allies.length ? " · " + esc(allies.join(", ")) : ""}</div>${statusPill(c)}</div></div>
 
+      ${frontHtml(c)}
+      ${mine ? forcesHtml(c) : ""}
+      ${sendHtml(c)}
+      <div class="section actions">${actionsHtml(c)}</div>
+
       <div class="section"><h3>Economy <small>2025 est.</small></h3>
         <dl class="kv">
           <div><dt>GDP (nominal)</dt><dd>${money(c.gdp)} <small>#${c.gdpRank}</small></dd></div>
@@ -533,7 +673,9 @@
       <div class="section"><h3>Technology <small>${mine ? "research with coins" : "your empire only"}</small></h3>
         ${techHtml(c, mine)}</div>
 
-      <div class="section actions">${actionsHtml(c)}</div>`;
+`;
+    wireSend(pane, c);
+    wireArmies(pane);
     pane.querySelectorAll("[data-tech]").forEach(b => (b.onclick = () => {
       const err = G.upgradeTech(c.iso3, b.dataset.tech);
       if (err) return toast(err);
@@ -554,7 +696,7 @@
   }
 
   function act(kind, iso) {
-    const err = kind === "choose" ? G.choose(iso) : kind === "buy" ? G.buy(iso) : kind === "attack" ? G.attack(iso) : G.influence(iso);
+    const err = kind === "choose" ? G.choose(iso) : kind === "buy" ? G.buy(iso) : G.influence(iso);
     if (err) return toast(err);
     const last = G.state.log[0];
     if (last) toast(last.msg);
@@ -608,8 +750,8 @@
           <div><dt>Territories</dt><dd>${e.length}</dd></div>
           <div><dt>Empire GDP</dt><dd>${money(G.empireGdp())}</dd></div>
           <div><dt>World GDP share</dt><dd>${(share * 100).toFixed(1)}% <small>goal 50%</small></dd></div>
-          <div><dt>Strike strength</dt><dd>${G.empireStrength().toFixed(1)}</dd></div>
-          <div><dt>Force projection</dt><dd>${pct(G.projection())}</dd></div>
+          <div><dt>Armies</dt><dd>${s.armies.length} <small>${s.armies.reduce((x, a) => x + G.armyPower(a), 0).toFixed(0)} strength</small></dd></div>
+          <div><dt>Wars · revolts</dt><dd>${Object.keys(s.wars).length} · ${Object.keys(s.revolts).length}</dd></div>
           <div><dt>Soft power</dt><dd>${G.empireSoft().toFixed(0)}</dd></div>
           <div><dt>Warheads</dt><dd>${G.empireNukes() || "None"}</dd></div>
           <div><dt>Coins</dt><dd>${G.fmtCoins(s.coins)} <small>+${G.income()}/turn</small></dd></div>
@@ -620,7 +762,12 @@
           return Object.keys(fx).length ? `<ul class="fx">${fxList(fx)}</ul>` : `<p class="hint">None of your nations has an empire-wide trait yet.</p>`; })()}
         <div class="bar" style="margin-top:10px"><i style="width:${Math.min(100, share * 200)}%;background:${COL.brass}"></i></div></div>`;
     }
-    pane.innerHTML = `${empire}
+    const ops = s.player ? `<div class="section"><h3>Operations <small>turn ${s.turn}</small></h3>
+        ${Object.keys(s.revolts).map(iso => `<p class="hint">🔥 <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a> is in revolt: rebels ${Math.round(s.revolts[iso].progress)}% of the way to independence.</p>`).join("")}
+        ${Object.keys(s.wars).map(iso => `<p class="hint">⚔️ War in <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a>: defences ${Math.round(G.warProgress(iso) * 100)}% broken.</p>`).join("")}
+        ${s.armies.length ? `<ul class="armies">${s.armies.map(armyLi).join("")}</ul>` : `<p class="hint">No armies in the field. Open any country's dossier and use "Send an invasion force" to pick units and launch an attack.</p>`}
+        <button class="btn attack" id="endturn2" style="margin-top:10px" ${s.over ? "disabled" : ""}>End turn <small>+${G.income()} coins</small></button></div>` : "";
+    pane.innerHTML = `${empire}${ops}
       <div class="${s.player ? "section" : ""}"><h3>Playable nations <small>${s.unlocked.length} of ${C.length} unlocked</small></h3>
       <p class="hint">Rules: 4 random African nations (never South Africa), 3 random European, Argentina plus 2 random South American (never Brazil), and Mexico, Mongolia, Kazakhstan and Bangladesh. Every other country is locked until you buy it at its national value (1 coin = $1).</p>
       ${roster}</div>
@@ -628,7 +775,7 @@
         <button class="btn ghost" id="reroll" ${s.player ? "disabled" : ""}>Reroll random picks</button>
         <button class="btn ghost" id="newgame">New campaign</button></div>
       <div class="section"><h3>How to play</h3>
-        <p class="hint">Pick a playable nation. Each turn, take one action against any other country: <b>Invade</b> (military strength vs. defence, with home advantage, morale from soft power and help from treaty allies) or <b>Diplomatic union</b> (your soft power and GDP vs. theirs). Bordering targets get your full strength; overseas targets depend on your navy, carriers and air force. Weakly held territories can revolt. Control 50% of world GDP to win.</p>
+        <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Armies take turns to arrive, by land if the target borders your territory, otherwise by sea, which needs enough sealift. Each <b>End turn</b>, every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
         <p class="hint"><b>Coins & weapons.</b> Every nation you control starts with its weapons locked: only troops, budget and nukes fight. Open a nation's dossier and spend coins to unlock each weapon category (tanks, aircraft, ships and so on). Prices scale with the hardware's real replacement value. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
       ${s.log.length ? `<div class="section"><h3>War log</h3><ul class="log">${s.log.map(l => `<li class="${l.kind}"><span>T${l.t}</span>${esc(l.msg)}</li>`).join("")}</ul></div>` : ""}
       <div class="section method"><details><summary>Methodology & sources</summary>
@@ -639,6 +786,9 @@
         <p>Secret assets: nobody outside governments knows the real numbers. Researched profiles (${C.filter(c => !c.secret.estimated).length} countries) draw on published think-tank, SIPRI, FAS, World Gold Council and SWF Institute estimates; the rest are extrapolated from budget and economy. Treat all figures as informed estimates for gameplay.</p>
       </details></div>`;
     pane.querySelectorAll(".roster button").forEach(b => (b.onclick = () => select(b.dataset.iso)));
+    wireArmies(pane);
+    pane.querySelectorAll("a[data-goto]").forEach(a => (a.onclick = e => { e.preventDefault(); select(a.dataset.goto); }));
+    if ($("#endturn2")) $("#endturn2").onclick = () => $("#endturn").click();
     $("#reroll").onclick = () => { G.newGame(false); toast("New random nations unlocked."); refresh(); };
     let armed = false;
     $("#newgame").onclick = e => {
@@ -655,8 +805,19 @@
     render();
   }
   function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : campaign(); }
-  function refresh() { paint(); render(); coinChip(); }
-  function coinChip() { $("#coins").textContent = G.fmtCoins(G.state.coins); }
+  function refresh() { paint(); render(); coinChip(); drawArmies(); }
+  function coinChip() {
+    $("#coins").textContent = G.fmtCoins(G.state.coins);
+    $("#turnno").textContent = G.state.turn;
+    $("#endturn").disabled = !G.state.player || G.state.over;
+  }
+  $("#endturn").onclick = () => {
+    const err = G.endTurn();
+    if (err) return toast(err);
+    const news = G.state.log.filter(l => l.t === G.state.turn && !l.msg.startsWith("📍"));
+    toast(news.length ? news.slice(0, 2).map(l => l.msg).join("  ") + (news.length > 2 ? `  (+${news.length - 2} more in the war log)` : "") : `Turn ${G.state.turn}. +${G.income()} coins.`);
+    refresh();
+  };
 
   // ── Promo codes ────────────────────────────────────────────
   const promo = $("#promo"), promoIn = $("#promo-code"), promoMsg = $("#promo-msg");
