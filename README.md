@@ -4,6 +4,8 @@ An interactive war-games map of **196 countries**: the 195 recognised states (19
 
 ## Run it
 
+**Play online:** https://nerdcoder10.github.io/World-War-3/
+
 No build step and no install needed. Open `index.html` in a browser. Everything except the web fonts is vendored, so it also works offline. You can also serve the folder, for example with `python3 -m http.server`.
 
 ## What's in it
