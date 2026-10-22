@@ -40,7 +40,7 @@
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
     return {
       seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false,
-      coins: window.START_COINS, arsenal: {}, redeemed: [], purchased: [],
+      coins: window.START_COINS, arsenal: {}, tech: {}, redeemed: [], purchased: [],
     };
   }
 
@@ -59,15 +59,27 @@
 
   // Weapon categories the player has bought for one of their nations.
   const arsenal = iso => G.state.arsenal[iso] || [];
-  const usableStrength = c => window.truePowerWith(c, arsenal(c.iso3));
+  // Researched technology levels for one of their nations.
+  const TSTEP = Object.fromEntries(window.TECH.map(t => [t.key, t.step]));
+  const techLvl = (iso, k) => ((G.state.tech || {})[iso] || {})[k] || 0;
+  const usableStrength = c => window.truePowerWith(c, arsenal(c.iso3)) * (1 + TSTEP.weapons * techLvl(c.iso3, "weapons"));
+
+  // National traits: a nation's own effect, and empire-wide bonuses summed over every nation you control (capped).
+  const fx = (iso, k) => BY[iso].trait.fx[k] || 0;
+  function bonus(k) {
+    const sum = empire().reduce((s, c) => s + fx(c.iso3, k), 0);
+    return k in window.TRAIT_CAPS ? Math.min(window.TRAIT_CAPS[k], sum) : sum;
+  }
+  const techSum = k => empire().reduce((s, c) => s + techLvl(c.iso3, k), 0);
+  const industryCoins = c => Math.max(2, c.gdp * TSTEP.industry) * techLvl(c.iso3, "industry");
 
   function empireStrength() {
     // Home nation at full weight; occupied lands contribute 60% of their (remaining) strength.
     // Only unlocked weapon categories count.
     return empire().reduce((s, c) => s + usableStrength(c) * G.state.garrison[c.iso3] * (c.iso3 === G.state.player ? 1 : 0.6), 0);
   }
-  const income = () => Math.round(20 + empireGdp() * 0.02);
-  const loot = t => Math.round(25 + t.gdp * 0.05);
+  const income = () => Math.round(20 + empireGdp() * 0.02 + bonus("inc") + empire().reduce((s, c) => s + industryCoins(c), 0));
+  const loot = t => Math.round((25 + t.gdp * 0.05) * (1 + bonus("loot")));
   function empireSoft() {
     const e = empire();
     return Math.max(...e.map(c => c.soft)) + 3 * Math.log2(e.length);
@@ -81,7 +93,8 @@
     const sum = k => e.reduce((s, c) => s + (arsenal(c.iso3).includes(k) ? c[k] : 0) * G.state.garrison[c.iso3], 0);
     const p = 0.35 * Math.sqrt(Math.min(1, sum("ships") / 440)) + 0.35 * Math.min(1, sum("carriers") / 11) +
       0.3 * Math.sqrt(Math.min(1, sum("aircraft") / 13000));
-    return Math.max(0.15, Math.min(1, 0.15 + 1.6 * p));
+    const tech = Math.min(window.TECH_PROJ_CAP, TSTEP.logistics * techSum("logistics"));
+    return Math.max(0.15, Math.min(1, 0.15 + 1.6 * p + bonus("proj") + tech));
   }
 
   function bordersEmpire(iso) {
@@ -107,7 +120,7 @@
 
   function defenceOf(iso) {
     const c = BY[iso];
-    const base = c.truePower * G.state.garrison[iso] * 1.25 * (1 + c.soft / 400) + 0.3; // home advantage & morale
+    const base = c.truePower * G.state.garrison[iso] * 1.25 * (1 + c.soft / 400) * (1 + fx(iso, "def")) + 0.3; // home advantage, morale & trait
     const allies = alliedSupport(iso);
     return { base, allies, total: base + allies.strength };
   }
@@ -115,7 +128,7 @@
   function attackOdds(iso) {
     const adjacent = bordersEmpire(iso);
     const proj = adjacent ? 1 : projection();
-    const A = empireStrength() * proj;
+    const A = empireStrength() * proj * (1 + bonus("atk"));
     const D = defenceOf(iso);
     const p = Math.pow(A, 1.5) / (Math.pow(A, 1.5) + Math.pow(D.total, 1.5));
     return { A, D, p, adjacent, proj };
@@ -129,6 +142,7 @@
     let p = 0.75 * (S / (S + t.soft)) * (Gp / (Gp + t.gdp)) * (A / (A + D));
     if (!bordersEmpire(iso)) p *= 0.6;
     if ((window.ALLIES_OF[iso] || []).length) p *= 0.5;
+    p *= (1 + bonus("dip")) * (1 - fx(iso, "res"));
     return { p: Math.min(0.9, p) };
   }
 
@@ -191,12 +205,13 @@
     // Recovery: home 8%/turn up to 100%, occupied 5%/turn up to 85%.
     C.forEach(c => {
       const cap = owns(c.iso3) && c.iso3 !== s.player ? 0.85 : 1;
-      s.garrison[c.iso3] = Math.min(cap, s.garrison[c.iso3] + (cap === 1 ? 0.08 : 0.05));
+      s.garrison[c.iso3] = Math.min(cap, s.garrison[c.iso3] + (cap === 1 ? 0.08 : 0.05) + fx(c.iso3, "rec") + 0.01 * techLvl(c.iso3, "governance"));
     });
     // Occupied territories may revolt when weakly held.
     empire().forEach(c => {
       if (c.iso3 === s.player || (s.purchased || []).includes(c.iso3)) return; // bought nations don't revolt
-      if (Math.random() < 0.06 * (1 - s.garrison[c.iso3]) + 0.01) {
+      const calm = (1 - fx(c.iso3, "stab")) * (1 - TSTEP.governance * techLvl(c.iso3, "governance"));
+      if (Math.random() < (0.06 * (1 - s.garrison[c.iso3]) + 0.01) * calm) {
         s.owner[c.iso3] = c.iso3; s.garrison[c.iso3] = 0.6;
         log(`🔥 ${c.name} revolted and regained independence.`, "bad");
       }
@@ -254,6 +269,22 @@
     return null;
   }
 
+  function upgradeTech(iso, key) {
+    const s = G.state, c = BY[iso], t = window.TECH.find(x => x.key === key);
+    if (!owns(iso)) return "You can only research technology for nations in your empire.";
+    if (!t) return "Unknown technology.";
+    const lvl = techLvl(iso, key);
+    if (lvl >= window.TECH_MAX) return `${t.label} is already at the maximum level.`;
+    const cost = window.techCost(c, lvl);
+    if (s.coins < cost) return `You need ${fmtCoins(cost - s.coins)} more coins to research ${t.label.toLowerCase()}.`;
+    s.coins -= cost;
+    s.tech = s.tech || {};
+    s.tech[iso] = Object.assign({}, s.tech[iso], { [key]: lvl + 1 });
+    log(`🔬 ${c.name} researched ${t.label.toLowerCase()} level ${lvl + 1} for ${fmtCoins(cost)} coins.`, "good");
+    save();
+    return null;
+  }
+
   function redeem(raw) {
     const code = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
     if (!code) return { err: "Type a promo code first." };
@@ -278,7 +309,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, projection, income, arsenal,
+    owns, empire, empireStrength, bonus, techLvl, upgradeTech, industryCoins, empireSoft, empireGdp, empireNukes, projection, income, arsenal,
     attackOdds, diplomacyOdds, attack, influence, choose, newGame, bordersEmpire, unlockWeapon, redeem, buy, fmtCoins,
   });
 })();
