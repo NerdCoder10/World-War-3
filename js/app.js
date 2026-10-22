@@ -585,7 +585,31 @@
     if (!r.err) { promoIn.value = ""; refresh(); }
   };
   document.addEventListener("keydown", e => { if (e.key === "Escape") promo.hidden = true; });
-  function select(iso) { selected = iso; paint(); drawDeploy(); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
+  function select(iso) { selected = iso; paint(); drawDeploy(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
+
+  // Fly the map to a country, framing its largest landmass (e.g. the contiguous US, metropolitan France).
+  function zoomTo(iso) {
+    const f = mainFeat[iso];
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    let cx, cy, kk;
+    if (f) {
+      let geo = f;
+      if (f.geometry.type === "MultiPolygon") {
+        const polys = f.geometry.coordinates.map(c => ({ type: "Feature", geometry: { type: "Polygon", coordinates: c } }));
+        geo = polys.reduce((a, b) => (d3.geoArea(b) > d3.geoArea(a) ? b : a));
+      }
+      const [[x0, y0], [x1, y1]] = path.bounds(geo);
+      kk = Math.max(1, Math.min(14, 0.8 / Math.max((x1 - x0) / w, (y1 - y0) / h)));
+      cx = (x0 + x1) / 2; cy = (y0 + y1) / 2;
+    } else {
+      const m = markers.find(x => x.c.iso3 === iso);
+      if (!m) return;
+      [cx, cy] = projection(m.at); kk = 10;
+    }
+    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(kk).translate(-cx, -cy);
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    (reduce ? svg : svg.transition().duration(750)).call(zoom.transform, t);
+  }
   document.querySelectorAll(".tabs button").forEach(b => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll(".modes button").forEach(b => (b.onclick = () => {
     mode = b.dataset.mode;
