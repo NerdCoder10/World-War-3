@@ -17,7 +17,6 @@
     const gdpPcK = c.gdp / Math.max(c.pop, 0.001);
     return clamp(0.6 + 0.4 * Math.log10(1 + gdpPcK) / Math.log10(81), 0.6, 1);
   };
-  window.unitQuality = quality;
 
   // `disabled` (optional Set) zeroes capabilities, e.g. weapons a player has not unlocked yet.
   function rawPower(c, budget, disabled) {
@@ -59,7 +58,10 @@
     // Threshold / host states (latency 6-9) get a breakout premium; intel, cyber and proxies multiply force.
     const breakout = c.nukes === 0 && s.latency >= 6 ? 0.08 * (s.latency - 5) : 0;
     c._mult = 1 + 0.01 * s.intel + 0.01 * s.cyber + 0.01 * s.proxies + breakout;
-    c._rawTrue = rawPower(c, s.trueBudget) * c._mult;
+    // Readiness (js/techlevels.js) discounts true strength: well-specified kit that is poorly
+    // maintained or never fully fielded fights below its paper value.
+    c._ready = 0.4 + 0.6 * c.tech.ready;
+    c._rawTrue = rawPower(c, s.trueBudget) * c._mult * c._ready;
     // Secret Assets Index: intelligence, cyber, nuclear latency, deniable forces, hidden money.
     c._secretRaw =
       0.22 * s.intel / 10 + 0.20 * s.cyber / 10 + 0.20 * s.latency / 10 + 0.13 * s.proxies / 10 +
@@ -90,7 +92,7 @@
   const WEAPON_KEYS = window.WEAPONS.map(w => w.key);
   window.truePowerWith = (c, unlocked) => {
     const disabled = new Set(WEAPON_KEYS.filter(k => !unlocked.includes(k)));
-    return (rawPower(c, c.secret.trueBudget, disabled) * c._mult / tTrue) * 100;
+    return (rawPower(c, c.secret.trueBudget, disabled) * c._mult * c._ready / tTrue) * 100;
   };
 
   // ── Valuation: value the world's assets, then give each country its share ──
