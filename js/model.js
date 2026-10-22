@@ -17,6 +17,7 @@
     const gdpPcK = c.gdp / Math.max(c.pop, 0.001);
     return clamp(0.6 + 0.4 * Math.log10(1 + gdpPcK) / Math.log10(81), 0.6, 1);
   };
+  window.unitQuality = quality;
 
   // `disabled` (optional Set) zeroes capabilities, e.g. weapons a player has not unlocked yet.
   function rawPower(c, budget, disabled) {

@@ -313,3 +313,37 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .pips { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
 .pips i { width: 14px; height: 6px; background: var(--line); border-radius: 1px; }
 .pips i.on { background: var(--brass); }
+
+/* Turns, armies and battles */
+.endturn {
+  margin-left: auto; display: inline-flex; align-items: baseline; gap: 6px; background: var(--danger); color: #250a05; border: 0;
+  border-radius: 4px; padding: 6px 12px; font: 700 14px var(--font-display); letter-spacing: .1em; text-transform: uppercase;
+}
+.endturn small { font: 600 11px var(--font-data); letter-spacing: 0; opacity: .8; }
+.endturn:disabled { background: var(--line); color: var(--muted); }
+.endturn + .wallet { margin-left: 0; }
+.route { fill: none; stroke: var(--brass); stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.spot { stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.spot.war { fill: #e2654f99; stroke: var(--danger); }
+.spot.revolt { fill: #f0a03c99; stroke: #f0a03c; }
+.spot.station { fill: #d6a84e66; stroke: var(--brass); }
+.send { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 4px; padding: 10px; }
+.send select { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 6px; font: 13px var(--font-body); }
+.srcl { display: grid; gap: 4px; font: 11px var(--font-data); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.srows { display: grid; gap: 4px; }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) auto 84px auto; align-items: center; gap: 6px; font-size: 13px; }
+.srow .avail { font: 11px var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; }
+.srow input { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px; font: 13px var(--font-data); }
+.mini { background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 3px; padding: 3px 8px; font: 600 12px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.mini:hover { border-color: var(--brass); color: var(--brass); }
+.armies { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.armies li { border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
+.armies .arow { display: flex; gap: 6px; margin-top: 6px; }
+.front { border: 1px solid var(--danger); border-radius: 4px; padding: 10px; margin-bottom: 10px; }
+.front.revolt { border-color: #f0a03c; }
+.front h4 { margin: 0 0 6px; font: 600 15px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+@media (max-width: 860px) { .endturn { margin-left: 0; } }
+.armies .z-h { display: flex; justify-content: space-between; gap: 8px; }
+.armies .z-h span { font: 11px var(--font-data); color: var(--muted); }
+.armies .z-stats { font: 11px var(--font-data); color: var(--muted); }
+.armies .z-note { margin: 4px 0 0; font-size: 13px; }
