@@ -1,0 +1,1 @@
+(window.ADMIN1 = window.ADMIN1 || {})["TUV"] = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Tuvalu","type":"Province"},"geometry":{"type":"Polygon","coordinates":[[[179.191,-8.542],[179.218,-8.521],[179.204,-8.519],[179.191,-8.542]]]}}]};

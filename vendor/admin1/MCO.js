@@ -1,0 +1,1 @@
+(window.ADMIN1 = window.ADMIN1 || {})["MCO"] = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Monaco","type":"Province"},"geometry":{"type":"Polygon","coordinates":[[[7.437,43.743],[7.407,43.764],[7.366,43.723],[7.437,43.743]]]}}]};

@@ -125,7 +125,11 @@
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
   const rawPower = (units, iso) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power, 0) * window.combatQuality(BY[iso]);
   const techMult = iso => 1 + TSTEP.weapons * techLvl(iso, "weapons");
-  const armyPower = a => rawPower(a.units, a.nat) * techMult(a.nat) * (1 + bonus("atk"));
+  // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
+  // logistics when fighting away from home (near = overland, far = across the sea).
+  const ms = iso => BY[iso].milStats;
+  const reach = (iso, sea) => (sea ? ms(iso).far : ms(iso).near);
+  const armyPower = a => rawPower(a.units, a.nat) * techMult(a.nat) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea);
   const total = units => UNITS.reduce((s, u) => s + (units[u.key] || 0), 0);
   function scaleUnits(units, f) {
     UNITS.forEach(u => {
@@ -139,7 +143,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * 1.25 * (1 + c.soft / 400) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -209,7 +213,7 @@
     if (!src) return { err: "Choose where the units come from." };
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat);
-    const power = rawPower(u, src.nat) * techMult(src.nat) * (1 + bonus("atk"));
+    const power = rawPower(u, src.nat) * techMult(src.nat) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea);
     return { src, units: u, route: r, power, empty: total(u) === 0 };
   }
 
@@ -239,9 +243,9 @@
       const f = forces(src.at);
       UNITS.forEach(u => (f[u.key] -= p.units[u.key] || 0));
     }
-    const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, sent: s.turn };
+    const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, sent: s.turn, sea: p.route.sea };
     s.armies.push(a);
-    if (!owns(to)) provoke(to);
+    if (!owns(to)) provoke(s.owner[to]);
     const t = BY[to];
     const goal = owns(to) ? (inRevolt(to) ? "to put down the revolt in" : "to") : "to invade";
     log(`🚚 Army ${a.id} (${unitList(p.units)}) left ${BY[src.at].name} ${goal} ${t.name}. Arrives turn ${eta} by ${p.route.sea ? "sea" : p.route.land ? "land" : "air"}.`, "info");
@@ -361,7 +365,7 @@
   function loyalPower(iso) {
     const f = forces(iso), u = {};
     UNITS.forEach(x => { if (usable(iso, x.key)) u[x.key] = f[x.key]; });
-    return rawPower(u, iso) * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
+    return rawPower(u, iso) * ms(iso).skill * ms(iso).defend * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
   }
 
   function startRevolt(c) {
@@ -415,7 +419,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => rawPower(e.units, e.nat);
+  const enemyPower = e => rawPower(e.units, e.nat) * ms(e.nat).skill * reach(e.nat, e.sea);
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
     const d = {};
@@ -426,15 +430,17 @@
   function homeDefence(iso) {
     const f = forces(iso), u = {};
     UNITS.forEach(x => { if (usable(iso, x.key)) u[x.key] = f[x.key]; });
-    return rawPower(u, iso) * techMult(iso) * 1.25 * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+    return rawPower(u, iso) * techMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + 10;
   }
 
+  // Defence of any target: yours (homeDefence) or an AI country's (defenceOf).
+  const targetDefence = T => (owns(T) ? homeDefence(T) : defenceOf(T).total);
   function launchEnemy(A, T) {
-    const s = G.state, f = forces(A), land = (window.NEIGHBORS[A] || []).includes(T);
+    const s = G.state, f = forces(A), land = (window.NEIGHBORS[A] || []).includes(T), vsPlayer = owns(T);
     // Send roughly 0.9–2× what defends the target, within a share of the army that grows with hostility.
-    const cap = isHostile(A) ? 0.45 : 0.3;
-    const want = homeDefence(T) * (0.9 + 1.1 * Math.random()) / Math.max(1, rawPower(f, A));
+    const cap = !vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3;
+    const want = targetDefence(T) * (0.9 + 1.1 * Math.random()) / Math.max(1, rawPower(f, A) * ms(A).skill);
     const share = Math.max(0.03, Math.min(cap, want));
     const units = {};
     UNITS.forEach(u => { if (u.kind !== "naval" || !land) units[u.key] = (f[u.key] || 0) * share; });
@@ -448,10 +454,12 @@
     if (rawPower(units, A) < 30) return;
     UNITS.forEach(u => (f[u.key] -= units[u.key] || 0));
     const km = distKm(A, T), eta = s.turn + (land ? 1 + Math.floor(km / 2500) : 1 + Math.ceil(km / 4000));
-    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, sent: s.turn };
+    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, sent: s.turn, sea: !land, vsPlayer };
     s.enemies.push(e);
-    s.hostile[A] = s.turn;
-    log(`🚨 ${BY[A].name} launched an attack on ${BY[T].name}: ${unitList(units)}. Arrives turn ${eta}. Send forces to defend it.`, "bad");
+    if (vsPlayer) {
+      s.hostile[A] = s.turn;
+      log(`🚨 ${BY[A].name} launched an attack on ${BY[T].name}: ${unitList(units)}. Arrives turn ${eta}. Send forces to defend it.`, "bad");
+    } else log(`🌍 ${BY[A].name} invaded ${BY[T].name} with ${unitList(units)}. Arrives turn ${eta}.`, "world");
   }
 
   function aiTurn() {
@@ -473,6 +481,62 @@
       const p = hostile ? 0.25 * Math.min(1.5, Math.max(0.4, ratio)) : ratio > 2 ? Math.min(0.03, 0.005 * ratio) : 0;
       if (Math.random() < p) launchEnemy(A, T);
     });
+    aiWorldTurn();
+  }
+
+  // ── Wars between AI countries ───────────────────────────────
+  // Long-running rivalries flare up now and then; elsewhere a much stronger neighbour may pick
+  // on a weak one. At most six such wars run at once.
+  const RIVALS = [["RUS", "UKR"], ["IND", "PAK"], ["ARM", "AZE"], ["ETH", "ERI"], ["SDN", "SSD"], ["KOR", "PRK"], ["CHN", "TWN"],
+    ["ISR", "IRN"], ["SAU", "YEM"], ["GRC", "TUR"], ["COD", "RWA"], ["VEN", "GUY"], ["MAR", "DZA"], ["AFG", "PAK"], ["CHN", "IND"], ["THA", "KHM"], ["EGY", "ETH"]];
+  const RIVAL = new Map();
+  RIVALS.forEach(([a, b]) => { RIVAL.set(a, (RIVAL.get(a) || []).concat(b)); RIVAL.set(b, (RIVAL.get(b) || []).concat(a)); });
+  const aiFree = iso => !owns(iso) && G.state.owner[iso] === iso;
+  function aiWorldTurn() {
+    const s = G.state;
+    if (s.turn < 3) return;
+    let active = s.enemies.filter(e => !e.vsPlayer).length;
+    C.forEach(c => {
+      const A = c.iso3;
+      if (active >= 6 || !aiFree(A) || s.enemies.some(e => e.nat === A)) return;
+      const pa = rawPower(forces(A), A) * ms(A).skill;
+      if (pa < 80) return;
+      const nb = window.NEIGHBORS[A] || [];
+      const rivals = (RIVAL.get(A) || []).filter(T => !owns(T) && s.owner[T] !== A);
+      // Opportunism skips treaty allies and pairs of stable, well-liked countries (no France–Luxembourg wars).
+      const allied = T => (window.ALLIES_OF[A] || []).some(({ members }) => members.includes(T));
+      const weak = nb.filter(T => !owns(T) && s.owner[T] !== A && T !== A && !allied(T) && !(c.soft >= 45 && BY[T].soft >= 35) &&
+        pa * 0.4 > 2 * defenceOf(T).total);
+      let T = null;
+      if (rivals.length && Math.random() < 0.025) T = rivals[Math.floor(Math.random() * rivals.length)];
+      else if (weak.length && Math.random() < 0.004) T = weak[Math.floor(Math.random() * weak.length)];
+      if (!T) return;
+      const before = s.enemies.length;
+      launchEnemy(A, T);
+      if (s.enemies.length > before) active++;
+    });
+  }
+
+  // One round of a war between AI countries.
+  function aiWarRound(T) {
+    const s = G.state, c = BY[T], foes = enemiesAt(T);
+    const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0), D = defenceOf(T).total, r = E / (E + D);
+    foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r) * noise())));
+    scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r * noise()));
+    s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
+    const left = enemiesAt(T), by = BY[w.by].name;
+    if (!left.length) {
+      delete s.aiWars[T];
+      log(`🌍 ${c.name} defeated the invasion by ${by}.`, "world");
+    } else if (rawPower(forces(T), T) <= 0.2 * w.p0) {
+      const f = forces(T);
+      UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) * 0.3 + left.reduce((x, e) => x + (e.units[u.key] || 0), 0)));
+      s.enemies = s.enemies.filter(e => !left.includes(e));
+      s.owner[T] = s.owner[w.by] || w.by; s.garrison[T] = 0.6;
+      delete s.aiWars[T];
+      log(`🌍 ${by} conquered ${c.name} after ${s.turn - w.start + 1} turn(s) of war.`, "world");
+    }
   }
 
   // One round of an enemy assault on one of your nations.
@@ -531,8 +595,8 @@
       if (a.to === a.nat && owns(a.nat)) { disband(a.id); log(`🏠 Army ${a.id} is home in ${BY[a.nat].name} and back in reserve.`, "info"); }
       else log(`📍 Army ${a.id} arrived in ${BY[a.to].name}.`, "info");
     });
-    // Enemy armies whose target is no longer yours go home.
-    s.enemies.filter(e => arrived(e) && !owns(e.to)).forEach(e => {
+    // Enemy armies go home when their target changed hands (no longer yours, now yours, or already theirs).
+    s.enemies.filter(e => arrived(e) && (e.vsPlayer ? !owns(e.to) : owns(e.to) || s.owner[e.to] === e.nat)).forEach(e => {
       const f = forces(e.nat);
       UNITS.forEach(u => (f[u.key] += e.units[u.key] || 0));
       s.enemies = s.enemies.filter(x => x !== e);
@@ -540,15 +604,17 @@
     // Fighting: invasions, then revolts.
     [...new Set(s.armies.filter(a => arrived(a) && !owns(a.to)).map(a => a.to))].forEach(warRound);
     Object.keys(s.revolts).forEach(revoltRound);
-    [...new Set(s.enemies.filter(arrived).map(e => e.to))].forEach(iso => { if (owns(iso)) defendRound(iso); });
+    [...new Set(s.enemies.filter(arrived).map(e => e.to))].forEach(iso => (owns(iso) ? defendRound(iso) : aiWarRound(iso)));
+    Object.keys(s.aiWars || {}).forEach(iso => { if (!s.enemies.some(e => e.to === iso)) delete s.aiWars[iso]; });
     Object.keys(s.wars).forEach(iso => (s.hostile[iso] = s.turn));
     // A war ends when you have no armies fighting in or heading to that country.
+    // (If an AI army is also fighting there, yours and theirs both fight the defender.)
     Object.keys(s.wars).forEach(iso => { if (!s.armies.some(x => x.to === iso)) delete s.wars[iso]; });
     // Recovery: home 8%/turn up to 100%, occupied 5%/turn up to 85%.
     C.forEach(c => {
       const iso = c.iso3, cap = owns(iso) && iso !== s.player ? 0.85 : 1;
       if (!inRevolt(iso)) s.garrison[iso] = Math.min(cap, s.garrison[iso] + (cap === 1 ? 0.08 : 0.05) + fx(iso, "rec") + 0.01 * techLvl(iso, "governance"));
-      if (!s.forces[iso] || inRevolt(iso) || s.wars[iso]) return;
+      if (!s.forces[iso] || inRevolt(iso) || s.wars[iso] || (s.aiWars || {})[iso]) return;
       if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TSTEP.logistics * techLvl(iso, "logistics")), deployedFrom(iso));
       else regrow(c, 0.05 + fx(iso, "rec"), enemyDeployed(iso));
     });
