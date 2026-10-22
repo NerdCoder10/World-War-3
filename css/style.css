@@ -99,7 +99,10 @@ aside { border-left: 1px solid var(--line); background: var(--panel); display: f
   letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid transparent;
 }
 .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--brass); }
-.pane { flex: 1; overflow-y: auto; padding: 16px; min-height: 0; }
+.pane {
+  flex: 1; overflow-y: auto; min-height: 0; padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
 .empty { color: var(--muted); }
 .empty h2 { color: var(--fg); }
 
