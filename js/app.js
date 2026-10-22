@@ -5,7 +5,7 @@
   const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
   const css = getComputedStyle(document.documentElement);
   const T = k => css.getPropertyValue(k).trim();
-  const VALUE_COL = { human: "#e9c46a", realEstate: "#8fb3c9", business: "#b49ae0", infrastructure: "#6f8f96", natural: "#7fbf7a", gold: "#f3e3a2", hardware: "#e2654f" };
+  const VALUE_COL = { human: "#e9c46a", realEstate: "#8fb3c9", business: "#b49ae0", cultural: "#d98fb0", infrastructure: "#6f8f96", natural: "#7fbf7a", gold: "#f3e3a2", hardware: "#e2654f" };
   const COL = { land: T("--land"), locked: T("--locked"), brass: T("--brass"), teal: T("--teal"), danger: T("--danger"), muted: T("--muted") };
 
   let mode = "campaign";
@@ -48,6 +48,67 @@
     if (d3.geoArea(f) < 4e-5) markers.push({ c, at: d3.geoCentroid(f) });
   });
 
+  // ── Force disposition ──────────────────────────────────────
+  // Best-guess peacetime basing: forces sit mostly at home garrisons near the capital and along
+  // borders in proportion to real tension, with the fleet at its main ports. This models where
+  // militaries actually are, not an optimal defensive spread.
+  const mainFeat = {};
+  features.forEach(f => { if (!f.iso) return; f._a = d3.geoArea(f); if (!mainFeat[f.iso] || f._a > mainFeat[f.iso]._a) mainFeat[f.iso] = f; });
+  function centroidOf(iso) {
+    if (mainFeat[iso]) return d3.geoCentroid(mainFeat[iso]);
+    const m = markers.find(x => x.c.iso3 === iso);
+    return m ? m.at : [0, 0];
+  }
+  function towardInside(feat, from, to) {
+    for (let t = 0.5; t >= 0.1; t -= 0.05) {
+      const p = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+      if (d3.geoContains(feat, p)) return p;
+    }
+    return from;
+  }
+  function coastalPoint(feat, refs) {
+    const geo = feat.geometry, pts = [];
+    (geo.type === "Polygon" ? [geo.coordinates] : geo.coordinates).forEach(poly => poly[0].forEach(p => pts.push(p)));
+    if (!pts.length) return d3.geoCentroid(feat);
+    const r = refs.length ? refs : [d3.geoCentroid(feat)];
+    // The boundary point farthest from land neighbours is the one facing open sea.
+    let best = pts[0], score = -1;
+    pts.forEach(p => { const sc = r.reduce((a, q) => a + d3.geoDistance(p, q), 0); if (sc > score) { score = sc; best = p; } });
+    return best;
+  }
+  function computeDeployment(iso) {
+    const c = BY[iso], feat = mainFeat[iso], cen = centroidOf(iso);
+    const nbs = (window.NEIGHBORS[iso] || []).filter(n => BY[n]);
+    const allies = new Set();
+    (window.ALLIES_OF[iso] || []).forEach(a => a.members.forEach(m => allies.add(m)));
+    const borders = nbs.map(n => ({ n, allied: allies.has(n), threat: (BY[n].truePower || 5) * (allies.has(n) ? 0.2 : 1) }));
+    const totalThreat = borders.reduce((a, b) => a + b.threat, 0);
+    const hasNavy = c.ships + c.subs + c.carriers > 0;
+    const home = nbs.length ? 0.4 : hasNavy ? 0.7 : 0.9;
+    const coast = hasNavy ? 0.12 : 0;
+    const borderBudget = Math.max(0, 1 - home - coast);
+    // Token or ceremonial forces (under ~1,000 troops) are all at the capital.
+    if (c.active < 1) return [{ name: "Capital", at: cen, ground: 1, air: 1, naval: 1, groundPct: 1, airPct: 1, navalPct: 1,
+      note: c.active > 0 ? "A small ceremonial or police-style force kept entirely in the capital." : "No standing army. Security is handled by police or a coast guard based in the capital." }];
+    const zones = [{ name: "Capital region & central reserve", at: cen, ground: home, air: 0.6, naval: 0,
+      note: "Command HQ, reserve and training formations and most peacetime garrisons sit in the interior near the capital." }];
+    borders.forEach(b => {
+      if (totalThreat <= 0) return;
+      const sh = borderBudget * b.threat / totalThreat;
+      if (sh < 0.03) return;
+      zones.push({ name: `${BY[b.n].name} frontier`, at: feat ? towardInside(feat, cen, centroidOf(b.n)) : cen, ground: sh, air: 0.3, naval: 0,
+        note: b.allied ? `Light screening force only. ${BY[b.n].name} is a treaty partner.` : `Units facing ${BY[b.n].name}, sized to that border's tension rather than to ideal coverage.` });
+    });
+    if (hasNavy) {
+      const at = feat ? coastalPoint(feat, nbs.map(centroidOf)) : cen;
+      zones.push({ name: "Coastal & naval bases", at, ground: nbs.length ? 0 : 1 - home, air: 0.1, naval: 1,
+        note: nbs.length ? "Fleet, naval aviation and coastal-defence units at the main ports." : "Fleet plus marines and coastal-defence brigades at the main ports and outlying islands." });
+    }
+    const norm = key => { const t = zones.reduce((a, z) => a + z[key], 0) || 1; zones.forEach(z => (z[key + "Pct"] = z[key] / t)); };
+    norm("ground"); norm("air"); norm("naval");
+    return zones;
+  }
+
   // ── SVG ────────────────────────────────────────────────────
   const wrap = $(".mapwrap");
   const svg = d3.select(wrap).append("svg").attr("role", "img").attr("aria-label", `World map of ${C.length} countries`);
@@ -71,12 +132,21 @@
     .on("click", (e, m) => select(m.c.iso3))
     .on("mousemove", (e, m) => showTip(e, { iso: m.c.iso3 }))
     .on("mouseleave", hideTip);
+  const deployLayer = root.append("g").attr("class", "deploy-layer");
 
   let k = 1;
+  function garrR(z) { return (3 + 14 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, 0.02))) / Math.sqrt(k); }
+  function drawDeploy() {
+    const zones = selected ? computeDeployment(selected) : [];
+    deployLayer.selectAll("circle").data(zones).join("circle")
+      .attr("class", z => "garrison" + (z.naval > 0.5 ? " naval" : ""))
+      .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR);
+  }
   const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
     k = e.transform.k;
     root.attr("transform", e.transform);
     markerSel.attr("r", 3.2 / Math.sqrt(k));
+    deployLayer.selectAll("circle").attr("r", garrR);
   });
   svg.call(zoom).on("dblclick.zoom", null);
 
@@ -87,6 +157,7 @@
     sphere.attr("d", path); grat.attr("d", path); countryPaths.attr("d", path);
     markerSel.attr("cx", m => projection(m.at)[0]).attr("cy", m => projection(m.at)[1]).attr("r", 3.2 / Math.sqrt(k));
     zoom.translateExtent([[-w * 0.2, -h * 0.2], [w * 1.2, h * 1.2]]);
+    drawDeploy();
   }
   window.addEventListener("resize", layout);
   layout();
@@ -221,6 +292,7 @@
     });
     const lockedCount = mine ? c.weapons.filter(w => w.count && !have.includes(w.key)).length : 0;
     const v = c.value, vt = v.total;
+    const zones = computeDeployment(c.iso3);
     const allies = (window.ALLIES_OF[c.iso3] || []).map(a => a.bloc);
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -239,7 +311,7 @@
         <div class="stack" role="img" aria-label="Value breakdown">${window.VALUE_PARTS.map(([k]) => `<i style="width:${v[k] / vt * 100}%;background:${VALUE_COL[k]}"></i>`).join("")}</div>
         <dl class="kv">${window.VALUE_PARTS.map(([k, label]) => `<div><dt><span class="sw" style="background:${VALUE_COL[k]}"></span>${label}</dt><dd>${money(v[k])}</dd></div>`).join("")}
           <div><dt>Value per citizen</dt><dd>$${num(c.valuePerCap)}</dd></div>
-        </dl></div>
+        </dl>${c.valueNote ? `<p class="note">${esc(c.valueNote)}</p>` : ""}</div>
 
       <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/${C.length}</small></h3>
         <div class="big"><strong>${c.power}</strong><span>/ 100 power index</span></div>
@@ -247,6 +319,19 @@
         ${mine ? `<p class="hint armory">${lockedCount ? `${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} locked. Locked weapons don't fight. You have <b>${G.state.coins.toLocaleString("en-US")}</b> coins.` : "All weapons unlocked and ready."} Usable strength ${window.truePowerWith(c, have).toFixed(1)} of ${c.truePower}.</p>` : ""}
         <dl class="assets">${base.join("")}${weaponTiles.join("")}
           <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
+
+      <div class="section"><h3>Force disposition <small>estimated basing</small></h3>
+        <p class="hint">Where this military is stationed in peacetime, shown as rings on the map: mostly home garrisons near the capital and units on tense borders. This is where the forces actually sit, not an ideal spread.</p>
+        <ul class="zones">${zones.map(z => `<li>
+          <div class="z-h"><b>${esc(z.name)}</b><span>${z.groundPct > 0 ? Math.round(z.groundPct * 100) + "% of troops" : Math.round(z.navalPct * 100) + "% of navy"}</span></div>
+          <div class="z-bar"><i style="width:${Math.max(z.groundPct, z.navalPct) * 100}%;background:${z.naval > 0.5 ? COL.teal : COL.brass}"></i></div>
+          <div class="z-stats">${[
+            z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
+            z.groundPct > 0 && c.tanks ? `${num(Math.round(c.tanks * z.groundPct))} tanks` : "",
+            c.aircraft ? `${num(Math.round(c.aircraft * z.airPct))} aircraft` : "",
+            z.navalPct > 0 && c.ships ? `${num(Math.round(c.ships * z.navalPct))} vessels` : "",
+          ].filter(Boolean).join(" · ")}</div>
+          <p class="z-note">${esc(z.note)}</p></li>`).join("")}</ul></div>
 
       <div class="section"><h3>Secret assets <span class="tag">${s.estimated ? "modelled estimate" : "researched profile"}</span></h3>
         <div class="big"><strong>${c.secretIndex}</strong><span>/ 100 secret-assets index · #${c.secretRank}</span></div>
@@ -351,7 +436,8 @@
       <div class="section method"><details><summary>Methodology & sources</summary>
         <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Warheads: FAS Nuclear Notebook. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>
         <p>Military power index: square-root-scaled share of the world maximum across 14 weighted capabilities (budget 20%, fighters 10%, troops, armour, artillery, air, naval, submarines, carriers, GDP and population), discounted for equipment age using GDP per capita, plus a nuclear deterrent bonus.</p>
-        <p>National value is the gross value of everything a country owns. It adds up global asset estimates: human capital ($1,620trn, 40 years of labour income), real estate and land ($410trn), business equity ($165trn), infrastructure ($85trn), resources in the ground (about $477trn), gold (about $26trn) and military hardware (about $3trn). That gives a world value of ${money(window.WORLD_VALUE)}. Each country gets its share of each pool, weighted by GDP, population and income level, plus its own resources, gold and arsenal. Business equity partly overlaps the property companies own, so treat the total as gross.</p>
+        <p>National value is the gross value of everything a country owns. It adds up global asset estimates: human capital ($1,620trn, 40 years of labour income), real estate and land ($410trn), business equity ($165trn), infrastructure ($85trn), resources in the ground (about $477trn), gold (about $26trn) and military hardware (about $3trn). That gives a world value of ${money(window.WORLD_VALUE)}. Each country gets its share of each pool, weighted by GDP, population and income level, plus its own resources, gold and arsenal. Business equity partly overlaps the property companies own, so treat the total as gross. A $70trn cultural and brand pool is shared out by soft power, and the Vatican gets a hand-set estimate for its property, art and faith brand.</p>
+        <p>Soft power also counts toward military power (5% weight), as cultural pull, alliances and morale. Force disposition is a best guess at peacetime basing: about 40% of ground forces near the capital, the rest on borders in proportion to each neighbour's strength (treaty allies count for one fifth), and the fleet at the coast facing open sea.</p>
         <p>Secret assets: nobody outside governments knows the real numbers. Researched profiles (${C.filter(c => !c.secret.estimated).length} countries) draw on published think-tank, SIPRI, FAS, World Gold Council and SWF Institute estimates; the rest are extrapolated from budget and economy. Treat all figures as informed estimates for gameplay.</p>
       </details></div>`;
     pane.querySelectorAll(".roster button").forEach(b => (b.onclick = () => select(b.dataset.iso)));
@@ -359,7 +445,7 @@
     let armed = false;
     $("#newgame").onclick = e => {
       if (s.player && !armed) { armed = true; e.currentTarget.textContent = "Click again to confirm"; return; }
-      G.newGame(false); selected = null; toast("New campaign started with fresh random picks."); refresh();
+      G.newGame(false); selected = null; drawDeploy(); toast("New campaign started with fresh random picks."); refresh();
     };
   }
 
@@ -387,7 +473,7 @@
     if (!r.err) { promoIn.value = ""; refresh(); }
   };
   document.addEventListener("keydown", e => { if (e.key === "Escape") promo.hidden = true; });
-  function select(iso) { selected = iso; paint(); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
+  function select(iso) { selected = iso; paint(); drawDeploy(); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
   document.querySelectorAll(".tabs button").forEach(b => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll(".modes button").forEach(b => (b.onclick = () => {
     mode = b.dataset.mode;

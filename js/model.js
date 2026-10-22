@@ -7,7 +7,7 @@
   // Weighted, square-root scaled share of the global maximum for each capability.
   const WEIGHTS = {
     mil: 0.20, fighters: 0.10, active: 0.08, tanks: 0.07, aircraft: 0.07, carriers: 0.07, gdp: 0.07,
-    arty: 0.06, subs: 0.06, afv: 0.05, ships: 0.05, pop: 0.05, helis: 0.04, reserve: 0.03,
+    arty: 0.06, subs: 0.06, afv: 0.05, ships: 0.05, pop: 0.05, helis: 0.04, reserve: 0.03, soft: 0.05,
   };
   const MAX = {};
   Object.keys(WEIGHTS).concat(["nukes"]).forEach(k => (MAX[k] = max(k)));
@@ -25,7 +25,7 @@
     for (const k in WEIGHTS) {
       if (disabled && disabled.has(k)) continue;
       const v = k === "mil" ? budget : c[k];
-      const w = k === "mil" || k === "gdp" || k === "pop" ? 1 : q;
+      const w = k === "mil" || k === "gdp" || k === "pop" || k === "soft" ? 1 : q;
       s += WEIGHTS[k] * w * Math.sqrt(Math.min(1, v / MAX[k]));
     }
     if (c.nukes > 0) s += 0.08 + 0.06 * Math.sqrt(c.nukes / MAX.nukes);
@@ -105,6 +105,7 @@
     business: shareBy(c => c.gdp * clamp(Math.pow(gdpPc10k(c), 0.3), 0.4, 2.2)),     // deeper capital markets in rich economies
     infrastructure: shareBy(c => c.gdp),
     privateGold: shareBy(c => Math.sqrt(c.gdp * c.pop)),                              // household gold: India, China, Gulf
+    cultural: shareBy(c => c.soft * Math.sqrt(c.gdp)),                                // brand capital follows soft power
   };
   C.forEach(c => (c.natural = window.NATURAL_RESOURCES[c.iso3] ?? Math.min(0.15, 0.0015 * c.pop + 0.0002 * c.gdp)));
   C.forEach((c, i) => {
@@ -118,13 +119,17 @@
       human: WA.human * 1000 * S.human[i],
       realEstate: WA.realEstate * 1000 * S.realEstate[i],
       business: WA.business * 1000 * S.business[i],
+      cultural: WA.cultural * 1000 * S.cultural[i],
       infrastructure: WA.infrastructure * 1000 * S.infrastructure[i],
       natural: c.natural * 1000,
       gold: c.secret.gold * window.GOLD_BN_PER_TONNE + WA.privateGold * 1000 * S.privateGold[i],
       hardware: c.weapons.reduce((a, w) => a + w.valueBn, 0),
       swf: c.secret.swf,
     });
-    v.total = v.human + v.realEstate + v.business + v.infrastructure + v.natural + v.gold + v.hardware;
+    const VK = ["human", "realEstate", "business", "cultural", "infrastructure", "natural", "gold", "hardware"];
+    const ov = window.VALUE_OVERRIDES && window.VALUE_OVERRIDES[c.iso3];
+    if (ov) { for (const k of VK) if (k in ov) v[k] = ov[k]; c.valueNote = ov.note; }
+    v.total = VK.reduce((a, k) => a + v[k], 0);
     c.nationalValue = v.total;
     c.valuePerCap = (v.total * 1e9) / (c.pop * 1e6);
   });
@@ -132,7 +137,8 @@
   window.WORLD_VALUE = C.reduce((a, c) => a + c.nationalValue, 0);
   window.VALUE_PARTS = [
     ["human", "Human capital"], ["realEstate", "Real estate & land"], ["business", "Business equity"],
-    ["infrastructure", "Infrastructure"], ["natural", "Natural resources"], ["gold", "Gold"], ["hardware", "Military hardware"],
+    ["cultural", "Cultural & brand"], ["infrastructure", "Infrastructure"], ["natural", "Natural resources"],
+    ["gold", "Gold"], ["hardware", "Military hardware"],
   ];
 
 

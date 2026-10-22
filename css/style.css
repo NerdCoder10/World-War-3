@@ -96,6 +96,16 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-
 .country.selected { stroke: #fff; stroke-width: 1.6; }
 .marker { stroke: var(--bg); stroke-width: .8; vector-effect: non-scaling-stroke; cursor: pointer; }
 .marker.selected { stroke: #fff; stroke-width: 1.6; }
+.garrison { fill: #d6a84e40; stroke: var(--brass); stroke-width: 1.4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.garrison.naval { fill: #4cb5a840; stroke: var(--teal); }
+.zones { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.zones .z-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.zones .z-h b { font: 600 15px var(--font-display); letter-spacing: .03em; }
+.zones .z-h span { font: 12px var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.z-bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin: 4px 0; }
+.z-bar i { display: block; height: 100%; }
+.z-stats { font: 12px var(--font-data); color: var(--fg); font-variant-numeric: tabular-nums; }
+.z-note { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 .graticule { fill: none; stroke: #ffffff0c; stroke-width: .5; vector-effect: non-scaling-stroke; }
 .sphere { fill: var(--ocean); }
 

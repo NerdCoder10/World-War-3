@@ -11,7 +11,18 @@
 // Natural resources (gross value of reserves in the ground), central-bank gold and military
 // hardware are added country by country from the tables below and the military inventory.
 // Business equity partly overlaps the real estate companies own, so treat the total as gross.
-window.WORLD_ASSETS = { human: 1620, realEstate: 410, business: 165, infrastructure: 85, privateGold: 22 };
+window.WORLD_ASSETS = { human: 1620, realEstate: 410, business: 165, infrastructure: 85, privateGold: 22, cultural: 70 };
+// cultural: soft-power / brand capital — media, heritage, institutions, global goodwill (~$70trn).
+
+// Hand-set valuation overrides (US$ bn) for states the share model cannot capture.
+// The Vatican / Holy See owns little by GDP but holds priceless art and heritage, worldwide
+// Church property, the IOR ("Vatican Bank") and APSA investments, and the brand of a 1.4bn-member faith.
+window.VALUE_OVERRIDES = {
+  VAT: {
+    realEstate: 2000, business: 25, gold: 60, cultural: 1200, human: 5,
+    note: "Estimate: ~$2trn in Holy See and worldwide Church property, priceless art and heritage (St Peter's, the Vatican Museums, the Sistine Chapel), ~$25bn in IOR/APSA assets, and the brand of a 1.4-billion-member faith. Most of the art is culturally priceless, so the real figure is unknowable.",
+  },
+};
 window.GOLD_BN_PER_TONNE = 0.122; // ~$3,800/oz
 
 // Gross natural-resource endowment (US$ trn of reserves in the ground), from widely cited
