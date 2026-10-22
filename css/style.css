@@ -370,3 +370,14 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .techrow { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: -4px 0 10px; color: var(--muted); }
 .techrow b { color: var(--fg); }
 .techrow svg { width: 26px; height: 26px; flex: none; }
+
+/* States / provinces, AI wars */
+.prov { fill: transparent; stroke: #ffffff33; stroke-width: .6; vector-effect: non-scaling-stroke; cursor: zoom-in; }
+.prov:hover { fill: #ffffff10; stroke: #ffffff88; }
+.prov.picked { fill: #d6a84e1f; stroke: var(--brass); stroke-width: 1.6; }
+.provsel { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 6px; font: 13px var(--font-body); margin-bottom: 8px; }
+.provcard { border: 1px solid var(--line); border-radius: 4px; padding: 10px; }
+.route.aiwar { stroke: #b57ee0; }
+.army .spot.aiwar { fill: #2a1638cc; stroke: #b57ee0; }
+.front.aiwar { border-color: #b57ee0; }
+.log li.world { border-color: #b57ee0; }

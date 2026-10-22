@@ -1,0 +1,1 @@
+(window.ADMIN1 = window.ADMIN1 || {})["VAT"] = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Vatican","type":"Province"},"geometry":{"type":"Polygon","coordinates":[[[12.453,41.904],[12.453,41.903],[12.454,41.903],[12.454,41.904],[12.453,41.904]]]}}]};

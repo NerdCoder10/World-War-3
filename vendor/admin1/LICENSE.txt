@@ -1,0 +1,3 @@
+State / province boundaries: Natural Earth 1:10m Admin 1 – States, Provinces (public domain),
+https://www.naturalearthdata.com/ — simplified to 6% with mapshaper and split into one file per
+country. Each file sets window.ADMIN1[ISO3] to a GeoJSON FeatureCollection with name and type.
