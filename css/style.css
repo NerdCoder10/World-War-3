@@ -98,6 +98,11 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-
 .marker.selected { stroke: #fff; stroke-width: 1.6; }
 .garrison { fill: #d6a84e40; stroke: var(--brass); stroke-width: 1.4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .garrison.naval { fill: #4cb5a840; stroke: var(--teal); }
+.garrison.abroad { stroke-dasharray: 3 2; fill-opacity: .6; }
+.zgroup { margin: 14px 0 0; font: 600 12px var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.zones .tag { display: inline-block; margin-top: 2px; }
+details.more { margin-top: 8px; }
+details.more summary { cursor: pointer; font: 600 13px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--brass); }
 .zones { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
 .zones .z-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .zones .z-h b { font: 600 15px var(--font-display); letter-spacing: .03em; }
