@@ -414,3 +414,21 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .ship text { fill: #fff; text-anchor: middle; font-family: var(--font-display); letter-spacing: .03em; paint-order: stroke; stroke: #0c1316; pointer-events: none; }
 .tag.warn { color: #f0a03c; border-color: #f0a03c88; }
 .basecard h4 small { font: 12px var(--font-data); color: var(--muted); }
+
+/* Front lines (invasion waves) */
+.frontline .front-area { fill-opacity: .32; stroke: none; pointer-events: none; }
+.frontline .front-edge { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 7 4; animation: front-march 1.2s linear infinite; pointer-events: none; }
+.frontline[data-kind="player"] .front-area { fill: var(--brass); }
+.frontline[data-kind="player"] .front-edge { stroke: var(--brass); }
+.frontline[data-kind="enemy"] .front-area { fill: #ff4d4d; }
+.frontline[data-kind="enemy"] .front-edge { stroke: #ff4d4d; }
+.frontline[data-kind="ai"] .front-area { fill: #b57ee0; }
+.frontline[data-kind="ai"] .front-edge { stroke: #b57ee0; }
+@keyframes front-march { to { stroke-dashoffset: -22; } }
+@media (prefers-reduced-motion: reduce) { .frontline .front-edge { animation: none; } }
+/* Satellites */
+.sat { stroke: #0c1316; stroke-width: .6; vector-effect: non-scaling-stroke; cursor: help; }
+.sat.gov { fill: #9eefff; }
+.sat.priv { fill: #ffffffb0; }
+.sat.mob { fill: var(--brass); }
+.zoomctl button[aria-pressed="true"]#zsats { color: var(--brass); }
