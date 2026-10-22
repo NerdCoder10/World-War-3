@@ -77,6 +77,14 @@
     return best;
   }
   function computeDeployment(iso) {
+    const hand = window.DEPLOYMENTS && window.DEPLOYMENTS[iso];
+    if (hand) {
+      const zones = hand.map(([name, lon, lat, ground, air, naval, note]) => ({ name, at: [lon, lat], ground, air, naval, note }));
+      const norm = key => { const t = zones.reduce((a, z) => a + z[key], 0) || 1; zones.forEach(z => (z[key + "Pct"] = z[key] / t)); };
+      norm("ground"); norm("air"); norm("naval");
+      zones.hand = true;
+      return zones;
+    }
     const c = BY[iso], feat = mainFeat[iso], cen = centroidOf(iso);
     const nbs = (window.NEIGHBORS[iso] || []).filter(n => BY[n]);
     const allies = new Set();
@@ -139,7 +147,7 @@
   function drawDeploy() {
     const zones = selected ? computeDeployment(selected) : [];
     deployLayer.selectAll("circle").data(zones).join("circle")
-      .attr("class", z => "garrison" + (z.naval > 0.5 ? " naval" : ""))
+      .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : ""))
       .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR);
   }
   const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
@@ -320,11 +328,11 @@
         <dl class="assets">${base.join("")}${weaponTiles.join("")}
           <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
 
-      <div class="section"><h3>Force disposition <small>estimated basing</small></h3>
-        <p class="hint">Where this military is stationed in peacetime, shown as rings on the map: mostly home garrisons near the capital and units on tense borders. This is where the forces actually sit, not an ideal spread.</p>
+      <div class="section"><h3>Force disposition <small>${zones.hand ? "hand-placed" : "modelled"}</small></h3>
+        <p class="hint">${zones.hand ? "Hand-placed from open sources: command HQs, corps and division garrisons, fleet home ports and declared overseas bases." : "Modelled: home garrisons near the capital, units on tense borders sized by threat, and the fleet on the coast."} Shown as rings on the map. These are where forces sit, not an ideal spread.</p>
         <ul class="zones">${zones.map(z => `<li>
           <div class="z-h"><b>${esc(z.name)}</b><span>${z.groundPct > 0 ? Math.round(z.groundPct * 100) + "% of troops" : Math.round(z.navalPct * 100) + "% of navy"}</span></div>
-          <div class="z-bar"><i style="width:${Math.max(z.groundPct, z.navalPct) * 100}%;background:${z.naval > 0.5 ? COL.teal : COL.brass}"></i></div>
+          <div class="z-bar"><i style="width:${Math.max(z.groundPct, z.navalPct) * 100}%;background:${z.navalPct > z.groundPct ? COL.teal : COL.brass}"></i></div>
           <div class="z-stats">${[
             z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
             z.groundPct > 0 && c.tanks ? `${num(Math.round(c.tanks * z.groundPct))} tanks` : "",
