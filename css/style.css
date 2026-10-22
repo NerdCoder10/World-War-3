@@ -98,6 +98,24 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-
 .marker.selected { stroke: #fff; stroke-width: 1.6; }
 .garrison { fill: #d6a84e40; stroke: var(--brass); stroke-width: 1.4; vector-effect: non-scaling-stroke; cursor: help; }
 .garrison:hover { fill: #d6a84e99; stroke-width: 2.4; }
+.garrison { cursor: pointer; }
+.garrison.picked { fill: #ffffffcc; stroke: #fff; stroke-width: 3; }
+.zones li[data-zone] { cursor: pointer; border-radius: 4px; padding: 4px 6px; margin: 0 -6px; }
+.zones li[data-zone]:hover { background: #ffffff08; }
+.zones li.picked { background: #d6a84e1f; outline: 1px solid var(--brass); }
+.basecard {
+  position: absolute; right: 12px; bottom: 12px; z-index: 6; width: 290px; max-width: calc(100% - 24px);
+  background: var(--panel); border: 1px solid var(--brass); border-radius: 4px; padding: 12px 14px;
+}
+.basecard h4 { margin: 2px 0 4px; font: 700 20px/1.1 var(--font-display); letter-spacing: .02em; padding-right: 18px; }
+.basecard .bc-kind { font: 11px var(--font-data); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.basecard dl { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 6px; }
+.basecard dd { margin: 0; font: 600 18px var(--font-display); font-variant-numeric: tabular-nums; }
+.basecard dt { font: 11px var(--font-data); color: var(--muted); }
+.basecard p { margin: 4px 0 10px; font-size: 13px; }
+.basecard .bc-close { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: var(--muted); font-size: 20px; line-height: 1; }
+.basecard .bc-fly { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; font: 600 12px var(--font-display); letter-spacing: .08em; text-transform: uppercase; }
+.basecard .bc-fly:hover { border-color: var(--brass); }
 .garrison.naval { fill: #4cb5a840; stroke: var(--teal); }
 .garrison.abroad { stroke-dasharray: 3 2; fill-opacity: .6; }
 .zgroup { margin: 14px 0 0; font: 600 12px var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
