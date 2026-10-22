@@ -401,3 +401,7 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .mline { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
 .mline svg { width: 22px; height: 22px; }
 .basecard { max-height: calc(100% - 24px); overflow: auto; }
+.attrib { position: absolute; right: 6px; bottom: 4px; z-index: 5; max-width: 60%; font: 10px var(--font-data); color: #ffffffb0; background: #0c131699; padding: 2px 6px; border-radius: 3px; pointer-events: auto; text-align: right; }
+.attrib a { color: inherit; }
+/* Controls stay above the map SVG (which is positioned to sit over the terrain canvases). */
+.zoomctl, .legend { z-index: 4; }

@@ -394,6 +394,13 @@
   // latitude cells and each is drawn with its own affine transform, so no pixels are read back
   // and it also works when the game is opened from a file. A world layer is drawn once; a sharper
   // patch is drawn for the selected country or province from 45° × 45° tiles of a 10,800-pixel image.
+  const attrib = document.createElement("div");
+  attrib.className = "attrib";
+  wrap.appendChild(attrib);
+  function attribution(s2) {
+    attrib.hidden = !terrainOn;
+    attrib.innerHTML = `Imagery: NASA Blue Marble${s2 ? ` · <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless 2016</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0` : ""}`;
+  }
   const terrainBox = document.createElement("div");
   terrainBox.className = "terrain";
   wrap.insertBefore(terrainBox, wrap.firstChild);
@@ -403,6 +410,20 @@
   try { terrainOn = localStorage.getItem("ww3-terrain") !== "off"; } catch (e) { /* storage unavailable */ }
   const imgCache = {};
   const loadImg = src => imgCache[src] || (imgCache[src] = new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }));
+  // Streamed satellite tiles: EOX Sentinel-2 cloudless 2016 (CC BY 4.0), about 10 m per pixel,
+  // in WGS84 tiles of 256 px that span 180° / 2^z. Kept in a small cache (oldest dropped).
+  const S2_URL = (z, row, col) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/${z}/${row}/${col}.jpg`;
+  const s2Cache = new Map();
+  function loadS2(z, row, col) {
+    const key = `${z}/${row}/${col}`;
+    if (s2Cache.has(key)) { const v = s2Cache.get(key); s2Cache.delete(key); s2Cache.set(key, v); return v; }
+    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = rej; i.src = S2_URL(z, row, col); });
+    s2Cache.set(key, p);
+    if (s2Cache.size > 400) s2Cache.delete(s2Cache.keys().next().value);
+    p.catch(() => s2Cache.delete(key));
+    return p;
+  }
+  const S2_FROM = 40; // zoom at which the streamed Sentinel-2 imagery takes over
   let worldBox = null, detailBox = null, detailJob = 0;
   const DPR = Math.min(2, window.devicePixelRatio || 1);
 
@@ -457,6 +478,7 @@
   function drawViewTerrain() {
     const job = ++detailJob;
     const t = d3.zoomTransform(svg.node());
+    attribution(false);
     if (!terrainOn || t.k < 2.5) { detailBox = null; detailCv.style.display = "none"; return; }
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const x0 = -t.x / t.k, y0 = -t.y / t.k, x1 = (w - t.x) / t.k, y1 = (h - t.y) / t.k;
@@ -468,9 +490,9 @@
       lon0 = Math.min(lon0, g[0]); lon1 = Math.max(lon1, g[0]); lat0 = Math.min(lat0, g[1]); lat1 = Math.max(lat1, g[1]);
     }
     if (!any) return;
-    const pl = (lon1 - lon0) * 0.06 + 0.2, pt = (lat1 - lat0) * 0.06 + 0.2;
+    const pl = (lon1 - lon0) * 0.06 + 0.0005, pt = (lat1 - lat0) * 0.06 + 0.0005;
     lon0 = Math.max(-180, lon0 - pl); lon1 = Math.min(180, lon1 + pl); lat0 = Math.max(-90, lat0 - pt); lat1 = Math.min(90, lat1 + pt);
-    const s = t.k * DPR, step = Math.max(0.02, Math.min(3, (lon1 - lon0) / Math.max(6, w / 28)));
+    const s = t.k * DPR, step = Math.max(0.00005, Math.min(3, (lon1 - lon0) / Math.max(6, w / 28)));
     const hi = t.k >= 25, deg = hi ? 22.5 : 45, dir = hi ? "hi" : "tiles";
     const tiles = [];
     for (let tx = 0; tx < 360 / deg; tx++) for (let ty = 0; ty < 180 / deg; ty++) {
@@ -495,7 +517,30 @@
       detailBox = { x0, y0, x1, y1, cv: detailCv };
       detailCv.style.display = "";
       positionTerrain(d3.zoomTransform(svg.node()));
+      if (t.k >= S2_FROM) drawS2(job, { x0, y0, x1, y1, lon0, lon1, lat0, lat1, s, step, w });
     }).catch(() => {});
+  }
+  // Sharper Sentinel-2 tiles drawn over the bundled terrain as they arrive. If they can't load
+  // (offline, blocked), the NASA terrain underneath stays.
+  function drawS2(job, v) {
+    // Pick the tile level whose pixels are at least as fine as the screen's.
+    const screenPpd = (v.w * DPR) / Math.max(1e-6, v.lon1 - v.lon0);
+    let z = 3;
+    while (z < 14 && (256 * 2 ** z) / 180 < screenPpd) z++;
+    const span = 180 / 2 ** z;
+    const c0 = Math.max(0, Math.floor((v.lon0 + 180) / span)), c1 = Math.min(2 ** (z + 1) - 1, Math.floor((v.lon1 + 180) / span));
+    const r0 = Math.max(0, Math.floor((90 - v.lat1) / span)), r1 = Math.min(2 ** z - 1, Math.floor((90 - v.lat0) / span));
+    if ((c1 - c0 + 1) * (r1 - r0 + 1) > 80) return;
+    const ctx = detailCv.getContext("2d");
+    const step = Math.min(v.step, span);
+    for (let row = r0; row <= r1; row++) for (let col = c0; col <= c1; col++) {
+      const tl0 = -180 + col * span, tb1 = 90 - row * span;
+      loadS2(z, row, col).then(img => {
+        if (job !== detailJob) return;
+        drawCells(ctx, img, tl0, tb1, 256 / span, Math.max(v.lon0, tl0), Math.min(v.lon1, tl0 + span), Math.max(v.lat0, tb1 - span), Math.min(v.lat1, tb1), step, v.s, v.x0, v.y0);
+        attribution(true);
+      }).catch(() => {});
+    }
   }
   function positionTerrain(t) {
     [worldBox, detailBox].forEach(bx => {
@@ -514,7 +559,7 @@
     paint();
   }
 
-  const zoom = d3.zoom().scaleExtent([1, 400]).on("zoom", e => {
+  const zoom = d3.zoom().scaleExtent([1, 2500]).on("zoom", e => {
     k = e.transform.k;
     root.attr("transform", e.transform);
     positionTerrain(e.transform);
@@ -731,7 +776,7 @@
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.
-    const baseK = () => Math.min(250, Math.max(d3.zoomTransform(svg.node()).k * 2.5, province ? 180 : 120));
+    const baseK = () => Math.min(1500, Math.max(d3.zoomTransform(svg.node()).k * 4, province ? 900 : 600));
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, baseK());
     if (fly) flyTo(z.at, baseK());
     if (tab !== "dossier") setTab("dossier");
@@ -749,7 +794,7 @@
   function flyTo(at, minK) {
     const w = wrap.clientWidth, h = wrap.clientHeight, [x, y] = projection(at);
     const kk = Math.max(minK, d3.zoomTransform(svg.node()).k);
-    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(Math.min(400, kk)).translate(-x, -y);
+    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(Math.min(2500, kk)).translate(-x, -y);
     const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     (reduce ? svg : svg.transition().duration(650)).call(zoom.transform, t);
   }
@@ -1297,7 +1342,7 @@
     unpickZone();
     province = name;
     drawProvinces();
-    frame(mainPart(f), 0.85, 160);
+    frame(mainPart(f), 0.85, 600);
     setTab("dossier");
     $("#pane-dossier").scrollTop = 0;
   }
