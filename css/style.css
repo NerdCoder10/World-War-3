@@ -96,7 +96,8 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-
 .country.selected { stroke: #fff; stroke-width: 1.6; }
 .marker { stroke: var(--bg); stroke-width: .8; vector-effect: non-scaling-stroke; cursor: pointer; }
 .marker.selected { stroke: #fff; stroke-width: 1.6; }
-.garrison { fill: #d6a84e40; stroke: var(--brass); stroke-width: 1.4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.garrison { fill: #d6a84e40; stroke: var(--brass); stroke-width: 1.4; vector-effect: non-scaling-stroke; cursor: help; }
+.garrison:hover { fill: #d6a84e99; stroke-width: 2.4; }
 .garrison.naval { fill: #4cb5a840; stroke: var(--teal); }
 .garrison.abroad { stroke-dasharray: 3 2; fill-opacity: .6; }
 .zgroup { margin: 14px 0 0; font: 600 12px var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
@@ -131,6 +132,7 @@ details.more summary { cursor: pointer; font: 600 13px var(--font-display); lett
 }
 .tooltip b { font-family: var(--font-display); font-size: 15px; letter-spacing: .03em; }
 .tooltip .k { color: var(--muted); font-family: var(--font-data); }
+.tooltip .tipnote { white-space: normal; max-width: 260px; margin-top: 3px; color: var(--fg); }
 
 /* ── Side rail ── */
 aside { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
