@@ -38,6 +38,7 @@ window.INTEL_OVERRIDES = {
   SGP: { intel: 7, cyber: 8, latency: 2, offbook: 5, gold: 230, swf: 1100, proxies: 0, note: "GIC + Temasek >$1trn; 'Total Defence' mobilises ~1m reservists; densest ISR in Southeast Asia." },
   JPN: { intel: 6, cyber: 7, latency: 9, offbook: 3, gold: 846, swf: 0, proxies: 0, note: "Threshold state: ~45t of separated plutonium and H3/Epsilon rockets — could build a deterrent in months; $1.2trn FX reserves." },
   KOR: { intel: 7, cyber: 8, latency: 8, offbook: 5, gold: 104, swf: 200, proxies: 0, note: "High nuclear latency, huge Hyunmoo missile force, 3.1m reservists, booming K-defence export industry." },
+  TWN: { intel: 7, cyber: 7, latency: 6, offbook: 10, gold: 424, swf: 0, proxies: 0, note: "TSMC 'silicon shield' (~90% of the world's most advanced chips); ran a secret nuclear-weapons programme until 1988; Hsiung Feng cruise missiles that can reach the mainland; mountain-tunnel airbases (Chiashan); 1.66m reservists and a new submarine (Hai Kun)." },
   UKR: { intel: 8, cyber: 9, latency: 6, offbook: 30, gold: 25, swf: 0, proxies: 4, note: "Battle-tested drone industry producing millions per year; long-range strike drones; HUR special operations; Western ISR feed; Soviet nuclear know-how." },
   BLR: { intel: 5, cyber: 5, latency: 9, offbook: 20, gold: 50, swf: 0, proxies: 3, note: "Hosts Russian tactical nuclear weapons and Oreshnik missiles; KGB (still named so) internal security." },
   POL: { intel: 6, cyber: 6, latency: 3, offbook: 5, gold: 515, swf: 0, proxies: 0, note: "Fastest military build-up in Europe; buying gold aggressively (~515t); NATO eastern-flank logistics hub." },
@@ -105,7 +106,7 @@ window.ALLIANCES = {
   "Gulf Peninsula Shield": ["SAU","ARE","KWT","BHR","QAT","OMN"],
 };
 
-// Overseas territories / regions in the map file that belong to one of the 195 states.
+// Overseas territories / regions in the map file that belong to one of the 196 states.
 window.TERRITORY_OWNER = {
   "630":"USA","316":"USA","850":"USA","016":"USA","580":"USA",
   "239":"GBR","086":"GBR","654":"GBR","612":"GBR","660":"GBR","238":"GBR","136":"GBR","060":"GBR","092":"GBR","796":"GBR","500":"GBR","832":"GBR","831":"GBR","833":"GBR",
@@ -116,5 +117,5 @@ window.TERRITORY_OWNER = {
 };
 // Named shapes with no ISO id
 window.TERRITORY_OWNER_BY_NAME = { "Somaliland": "SOM", "Indian Ocean Ter.": "AUS", "Ashmore and Cartier Is.": "AUS" };
-// Shown on the map but not one of the 195 (disputed / partially recognised)
-window.DISPUTED = { "158": "Taiwan", "732": "Western Sahara", "Kosovo": "Kosovo", "N. Cyprus": "Northern Cyprus", "Siachen Glacier": "Siachen Glacier" };
+// Shown on the map but not one of the 196 (disputed / partially recognised)
+window.DISPUTED = { "732": "Western Sahara", "Kosovo": "Kosovo", "N. Cyprus": "Northern Cyprus", "Siachen Glacier": "Siachen Glacier" };

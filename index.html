@@ -10,14 +10,27 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><h1>World War <b>3</b></h1><span>Theatre command · 195 nations</span></div>
+  <div class="brand"><h1>World War <b>3</b></h1><span>Theatre command · 196 nations</span></div>
   <nav class="modes" aria-label="Map layer">
     <button data-mode="campaign" aria-pressed="true">Campaign</button>
     <button data-mode="power" aria-pressed="false">Military</button>
     <button data-mode="hidden" aria-pressed="false">Secret assets</button>
     <button data-mode="gdp" aria-pressed="false">GDP</button>
     <button data-mode="soft" aria-pressed="false">Soft power</button>
+    <button data-mode="value" aria-pressed="false">Value</button>
   </nav>
+  <div class="wallet">
+    <span class="coins" title="Coins"><span class="coin" aria-hidden="true"></span><b id="coins">0</b></span>
+    <button id="promo-btn" class="promo-btn">Promo code</button>
+    <div id="promo" class="promo" hidden>
+      <form id="promo-form">
+        <label for="promo-code">Enter a promo code</label>
+        <div class="promo-row"><input id="promo-code" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. WW3LAUNCH"><button type="submit">Redeem</button></div>
+        <p id="promo-msg" class="promo-msg" role="status"></p>
+      </form>
+      <button id="promo-close" class="promo-close" aria-label="Close">×</button>
+    </div>
+  </div>
   <div class="search">
     <input id="search" type="search" placeholder="Find a country…" autocomplete="off" aria-label="Find a country">
     <ul id="search-results" hidden></ul>
@@ -47,6 +60,7 @@
 <script src="vendor/world-50m.js"></script>
 <script src="js/data.js"></script>
 <script src="js/intel.js"></script>
+<script src="js/economy.js"></script>
 <script src="js/model.js"></script>
 <script src="js/game.js"></script>
 <script src="js/app.js"></script>

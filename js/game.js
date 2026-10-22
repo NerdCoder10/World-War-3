@@ -1,6 +1,6 @@
 // Campaign engine: unlock rules, conquest, diplomacy, world reaction. State persists in localStorage.
 (function () {
-  const STORE = "ww3-campaign-v1";
+  const STORE = "ww3-campaign-v2";
   const C = window.COUNTRIES, BY = window.BY_ISO;
 
   // ── Unlock rules ─────────────────────────────────────────────
@@ -37,7 +37,10 @@
     seed = seed ?? Math.floor(Math.random() * 2 ** 31);
     const owner = {}, garrison = {};
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
-    return { seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false };
+    return {
+      seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false,
+      coins: window.START_COINS, arsenal: {}, redeemed: [],
+    };
   }
 
   function load() {
@@ -53,10 +56,17 @@
   const empire = () => C.filter(c => G.state.owner[c.iso3] === G.state.player);
   const owns = iso => G.state.player && G.state.owner[iso] === G.state.player;
 
+  // Weapon categories the player has bought for one of their nations.
+  const arsenal = iso => G.state.arsenal[iso] || [];
+  const usableStrength = c => window.truePowerWith(c, arsenal(c.iso3));
+
   function empireStrength() {
     // Home nation at full weight; occupied lands contribute 60% of their (remaining) strength.
-    return empire().reduce((s, c) => s + c.truePower * G.state.garrison[c.iso3] * (c.iso3 === G.state.player ? 1 : 0.6), 0);
+    // Only unlocked weapon categories count.
+    return empire().reduce((s, c) => s + usableStrength(c) * G.state.garrison[c.iso3] * (c.iso3 === G.state.player ? 1 : 0.6), 0);
   }
+  const income = () => Math.round(20 + empireGdp() * 0.02);
+  const loot = t => Math.round(25 + t.gdp * 0.05);
   function empireSoft() {
     const e = empire();
     return Math.max(...e.map(c => c.soft)) + 3 * Math.log2(e.length);
@@ -67,7 +77,7 @@
   // Ability to strike non-bordering targets by sea/air (0.15 – 1).
   function projection() {
     const e = empire();
-    const sum = k => e.reduce((s, c) => s + c[k] * G.state.garrison[c.iso3], 0);
+    const sum = k => e.reduce((s, c) => s + (arsenal(c.iso3).includes(k) ? c[k] : 0) * G.state.garrison[c.iso3], 0);
     const p = 0.35 * Math.sqrt(Math.min(1, sum("ships") / 440)) + 0.35 * Math.min(1, sum("carriers") / 11) +
       0.3 * Math.sqrt(Math.min(1, sum("aircraft") / 13000));
     return Math.max(0.15, Math.min(1, 0.15 + 1.6 * p));
@@ -149,7 +159,8 @@
       s.owner[iso] = s.player;
       s.garrison[iso] = 0.5;
       empire().forEach(c => { if (c.iso3 !== iso) s.garrison[c.iso3] *= 1 - 0.15 * ratio; });
-      log(`⚔️ Conquered ${t.name} (${Math.round(o.p * 100)}% odds). +$${fmt(t.gdp)}bn GDP${t.nukes ? `, +${t.nukes} warheads` : ""}.`, "good");
+      s.coins += loot(t);
+      log(`⚔️ Conquered ${t.name} (${Math.round(o.p * 100)}% odds). +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins${t.nukes ? `, +${t.nukes} warheads` : ""}. Its weapons must be unlocked before use.`, "good");
     } else {
       empire().forEach(c => (s.garrison[c.iso3] *= 1 - 0.3 * ratio));
       s.garrison[iso] *= 1 - 0.2 * (1 - ratio);
@@ -166,7 +177,8 @@
     if (Math.random() < d.p) {
       s.owner[iso] = s.player;
       s.garrison[iso] = 0.9;
-      log(`🤝 ${t.name} joined your union peacefully (${Math.round(d.p * 100)}% odds). +$${fmt(t.gdp)}bn GDP.`, "good");
+      s.coins += loot(t);
+      log(`🤝 ${t.name} joined your union peacefully (${Math.round(d.p * 100)}% odds). +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins.`, "good");
     } else {
       log(`📜 ${t.name} rejected your diplomatic overtures (${Math.round(d.p * 100)}% odds).`, "info");
     }
@@ -189,6 +201,7 @@
       }
     });
     s.turn++;
+    s.coins += income();
     const share = empireGdp() / window.WORLD_GDP;
     if (share >= 0.5 && !s.over) { s.over = true; log(`🏆 Victory! Your empire controls ${Math.round(share * 100)}% of world GDP.`, "good"); }
     save();
@@ -204,6 +217,33 @@
     return null;
   }
 
+  function unlockWeapon(iso, key) {
+    const s = G.state;
+    if (!owns(iso)) return "You can only unlock weapons for nations in your empire.";
+    const w = BY[iso].weapons.find(x => x.key === key);
+    if (!w || !w.count) return "This nation has none of that weapon.";
+    if (arsenal(iso).includes(key)) return "Already unlocked.";
+    if (s.coins < w.cost) return `You need ${w.cost - s.coins} more coins to unlock ${w.label.toLowerCase()}.`;
+    s.coins -= w.cost;
+    s.arsenal[iso] = arsenal(iso).concat([key]);
+    log(`🔓 Unlocked ${BY[iso].name}'s ${w.label.toLowerCase()} (${w.count.toLocaleString("en-US")}) for ${w.cost} coins.`, "good");
+    save();
+    return null;
+  }
+
+  function redeem(raw) {
+    const code = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
+    if (!code) return { err: "Type a promo code first." };
+    const amount = window.PROMO_CODES[code];
+    if (!amount) return { err: `"${code}" isn't a valid promo code. Check the spelling and try again.` };
+    if (G.state.redeemed.includes(code)) return { err: `${code} has already been redeemed this campaign.` };
+    G.state.redeemed.push(code);
+    G.state.coins += amount;
+    log(`🎟️ Promo code ${code} redeemed: +${amount.toLocaleString("en-US")} coins.`, "good");
+    save();
+    return { amount };
+  }
+
   function newGame(keepRoster) {
     G.state = fresh(keepRoster ? G.state.seed : undefined);
     save();
@@ -214,7 +254,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, projection,
-    attackOdds, diplomacyOdds, attack, influence, choose, newGame, bordersEmpire,
+    owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, projection, income, arsenal,
+    attackOdds, diplomacyOdds, attack, influence, choose, newGame, bordersEmpire, unlockWeapon, redeem,
   });
 })();

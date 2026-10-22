@@ -18,10 +18,12 @@
     return clamp(0.6 + 0.4 * Math.log10(1 + gdpPcK) / Math.log10(81), 0.6, 1);
   };
 
-  function rawPower(c, budget) {
+  // `disabled` (optional Set) zeroes capabilities, e.g. weapons a player has not unlocked yet.
+  function rawPower(c, budget, disabled) {
     let s = 0;
     const q = quality(c);
     for (const k in WEIGHTS) {
+      if (disabled && disabled.has(k)) continue;
       const v = k === "mil" ? budget : c[k];
       const w = k === "mil" || k === "gdp" || k === "pop" ? 1 : q;
       s += WEIGHTS[k] * w * Math.sqrt(Math.min(1, v / MAX[k]));
@@ -55,7 +57,8 @@
     c._raw = rawPower(c, c.mil);
     // Threshold / host states (latency 6-9) get a breakout premium; intel, cyber and proxies multiply force.
     const breakout = c.nukes === 0 && s.latency >= 6 ? 0.08 * (s.latency - 5) : 0;
-    c._rawTrue = rawPower(c, s.trueBudget) * (1 + 0.01 * s.intel + 0.01 * s.cyber + 0.01 * s.proxies + breakout);
+    c._mult = 1 + 0.01 * s.intel + 0.01 * s.cyber + 0.01 * s.proxies + breakout;
+    c._rawTrue = rawPower(c, s.trueBudget) * c._mult;
     // Secret Assets Index: intelligence, cyber, nuclear latency, deniable forces, hidden money.
     c._secretRaw =
       0.22 * s.intel / 10 + 0.20 * s.cyber / 10 + 0.20 * s.latency / 10 + 0.13 * s.proxies / 10 +
@@ -81,6 +84,44 @@
   rank("gdp", "gdpRank");
   rank("soft", "softRank");
   rank("secretIndex", "secretRank");
+
+  // Estimated true strength with only some weapon categories usable (nukes always count).
+  const WEAPON_KEYS = window.WEAPONS.map(w => w.key);
+  window.truePowerWith = (c, unlocked) => {
+    const disabled = new Set(WEAPON_KEYS.filter(k => !unlocked.includes(k)));
+    return (rawPower(c, c.secret.trueBudget, disabled) * c._mult / tTrue) * 100;
+  };
+
+  // ── Valuation: value of the world, then each country's share ──
+  const WM = window.WEALTH_MODEL;
+  const worldGdp = C.reduce((a, c) => a + c.gdp, 0);
+  const worldValue = worldGdp * WM.multipleOfGdp; // US$ bn
+  C.forEach(c => (c.natural = window.NATURAL_RESOURCES[c.iso3] ?? Math.min(0.15, 0.0015 * c.pop + 0.0002 * c.gdp)));
+  const worldNatural = C.reduce((a, c) => a + c.natural, 0);
+  const goldPerTonne = 0.122; // US$ bn per tonne (~$3,800/oz)
+  C.forEach(c => {
+    const gdpShare = c.gdp / worldGdp;
+    c.value = {
+      human: worldValue * WM.human * gdpShare,
+      produced: worldValue * WM.produced * gdpShare,
+      natural: worldValue * WM.natural * (c.natural / worldNatural),
+      gold: c.secret.gold * goldPerTonne,
+      swf: c.secret.swf,
+    };
+    c.value.total = c.value.human + c.value.produced + c.value.natural;
+    c.nationalValue = c.value.total;
+    c.valuePerCap = (c.value.total * 1e9) / (c.pop * 1e6);
+    // Military hardware replacement value and coin price of each weapon category.
+    const q = quality(c);
+    c.weapons = window.WEAPONS.map(w => {
+      const count = w.key === "aircraft" ? Math.max(0, c.aircraft - c.fighters) : c[w.key];
+      const valueBn = (count * w.unit * q) / 1000;
+      return { ...w, count: c[w.key], valueBn, cost: c[w.key] > 0 ? Math.max(window.MIN_UNLOCK, Math.round(valueBn * window.COINS_PER_BN)) : 0 };
+    });
+    c.value.hardware = c.weapons.reduce((a, w) => a + w.valueBn, 0);
+  });
+  rank("nationalValue", "valueRank");
+  window.WORLD_VALUE = worldValue;
 
   window.softTier = s =>
     s >= 70 ? "Cultural superpower" : s >= 55 ? "Major cultural power" : s >= 40 ? "Regional influencer" : s >= 25 ? "Emerging voice" : "Limited reach";

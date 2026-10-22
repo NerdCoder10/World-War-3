@@ -1,4 +1,4 @@
-// World War 3 — country dataset (195 states: 193 UN members + Vatican City + Palestine)
+// World War 3 — country dataset (196 states: 193 UN members + Vatican City + Palestine + Taiwan)
 //
 // Figures are rounded 2025 estimates compiled from public sources: IMF World Economic
 // Outlook (GDP), UN World Population Prospects (population), SIPRI / IISS Military Balance /
@@ -118,7 +118,7 @@ window.COUNTRY_ROWS = [
 ["UKR","UA","804","Ukraine","Europe",38,205,60,900,1200,1100,6000,3000,300,90,120,30,0,0,0,42,"Resistance narrative, borscht (UNESCO), Eurovision wins, drone innovation"],
 ["GBR","GB","826","United Kingdom","Europe",69.5,3800,82,140,75,213,5000,200,650,140,250,110,10,2,225,74,"Premier League, BBC, Royal Family, English language, universities, music"],
 ["VAT","VA","336","Vatican City","Europe",0.0008,0.3,0,0.135,0,0,0,0,0,0,0,0,0,0,0,55,"Head of the Catholic Church (1.4bn faithful), Sistine Chapel"],
-// ───────────────────────────── ASIA (47) ─────────────────────────────
+// ───────────────────────────── ASIA (48) ─────────────────────────────
 ["AFG","AF","004","Afghanistan","Asia",42.6,17,0.5,150,0,50,1500,100,50,0,40,0,0,0,0,8,"Rumi heritage, Buzkashi, rug weaving"],
 ["ARM","AM","051","Armenia","Asia",3,25,1.7,45,210,110,500,400,65,15,25,0,0,0,0,32,"Oldest Christian nation, global diaspora (Kardashians, System of a Down)"],
 ["AZE","AZ","031","Azerbaijan","Asia",10.2,78,4.5,65,300,500,1300,700,150,30,70,30,0,0,0,28,"Baku F1, mugham music, COP29 host"],
@@ -157,6 +157,7 @@ window.COUNTRY_ROWS = [
 ["KOR","KR","410","South Korea","Asia",51.7,1790,46,500,3100,2300,8000,6000,1590,410,700,150,22,2,0,64,"K-pop (BTS, Blackpink), K-drama, Samsung, cuisine, Squid Game"],
 ["LKA","LK","144","Sri Lanka","Asia",22,99,1.6,300,6,60,400,200,70,10,30,70,0,0,0,30,"Ceylon tea, cricket, ancient Buddhist sites"],
 ["SYR","SY","760","Syria","Asia",23.5,20,1,100,0,200,500,300,50,0,20,5,0,0,0,15,"Damascus & Aleppo heritage, Levantine cuisine"],
+["TWN","TW","158","Taiwan","Asia",23.4,800,19.5,170,1660,750,1500,1800,740,290,230,120,4,0,0,50,"TSMC & semiconductors, bubble tea, night markets, Mandopop (Jay Chou), cinema (Ang Lee)"],
 ["TJK","TJ","762","Tajikistan","Asia",10.6,15,0.2,9,0,40,100,50,15,0,15,0,0,0,0,15,"Pamir Highway, Persian-language heritage"],
 ["THA","TH","764","Thailand","Asia",71.6,545,6,360,200,600,2200,1700,600,90,300,290,0,1,0,52,"Tourism giant, Thai cuisine, Muay Thai, BL dramas, Lisa (Blackpink)"],
 ["TLS","TL","626","Timor-Leste","Asia",1.4,2.2,0.05,2.3,0,0,10,0,0,0,0,3,0,0,0,18,"Tais weaving, youngest Asian democracy"],

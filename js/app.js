@@ -5,6 +5,7 @@
   const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
   const css = getComputedStyle(document.documentElement);
   const T = k => css.getPropertyValue(k).trim();
+  const VALUE_COL = { human: "#e9c46a", produced: "#8fb3c9", natural: "#7fbf7a" };
   const COL = { land: T("--land"), locked: T("--locked"), brass: T("--brass"), teal: T("--teal"), danger: T("--danger"), muted: T("--muted") };
 
   let mode = "campaign";
@@ -12,7 +13,7 @@
   let tab = "dossier";
 
   // ── Formatting ─────────────────────────────────────────────
-  const money = bn => bn >= 1000 ? `$${(bn / 1000).toFixed(bn >= 10000 ? 1 : 2)}trn` : bn >= 1 ? `$${bn >= 100 ? Math.round(bn) : bn.toFixed(1)}bn` : bn > 0 ? `$${Math.round(bn * 1000)}m` : "—";
+  const money = bn => bn >= 1e6 ? `$${(bn / 1e6).toFixed(2)} quadrillion` : bn >= 1000 ? `$${(bn / 1000).toFixed(bn >= 10000 ? 1 : 2)}trn` : bn >= 1 ? `$${bn >= 100 ? Math.round(bn) : bn.toFixed(1)}bn` : bn > 0 ? `$${Math.round(bn * 1000)}m` : "—";
   const num = n => n === 0 ? "0" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : Math.round(n).toLocaleString("en-US");
   const kPers = k => k === 0 ? "0" : k >= 1000 ? (k / 1000).toFixed(2) + "M" : k >= 1 ? Math.round(k) + "k" : Math.round(k * 1000).toString();
   const popFmt = m => m >= 1000 ? (m / 1000).toFixed(2) + "bn" : m >= 1 ? m.toFixed(1) + "M" : Math.round(m * 1000) + "k";
@@ -49,7 +50,7 @@
 
   // ── SVG ────────────────────────────────────────────────────
   const wrap = $(".mapwrap");
-  const svg = d3.select(wrap).append("svg").attr("role", "img").attr("aria-label", "World map of 195 countries");
+  const svg = d3.select(wrap).append("svg").attr("role", "img").attr("aria-label", `World map of ${C.length} countries`);
   const defs = svg.append("defs");
   const hatch = defs.append("pattern").attr("id", "hatch").attr("patternUnits", "userSpaceOnUse").attr("width", 6).attr("height", 6).attr("patternTransform", "rotate(45)");
   hatch.append("rect").attr("width", 6).attr("height", 6).attr("fill", COL.locked);
@@ -106,6 +107,7 @@
     hidden: { label: "Secret assets", key: "secretIndex", hi: "#c79bf2", unit: "index" },
     gdp: { label: "GDP", key: "gdp", hi: "#8fd16a", unit: "US$ bn", scale: "log" },
     soft: { label: "Soft power", key: "soft", hi: "#6fb6f0", unit: "score" },
+    value: { label: "National value", key: "nationalValue", hi: "#e9c46a", unit: "US$ bn", scale: "log" },
   };
   for (const m of Object.values(MODES)) if (m.key) Object.assign(m, ramp(m.hi, m.key, m.scale));
 
@@ -143,8 +145,8 @@
     }
     const m = MODES[mode];
     const stops = d3.range(0, 1.01, 0.1).map(t => m.interp(t)).join(",");
-    const fmt = v => m.key === "gdp" ? money(v) : Math.round(v);
-    L.innerHTML = `<div class="title">${m.label}</div><div class="ramp" style="background:linear-gradient(90deg,${stops})"></div>
+    const fmt = v => m.key === "gdp" || m.key === "nationalValue" ? money(v) : Math.round(v);
+    L.innerHTML = `<div class="title">${m.label}${m.key === "nationalValue" ? ` · world ${money(window.WORLD_VALUE)}` : ""}</div><div class="ramp" style="background:linear-gradient(90deg,${stops})"></div>
       <div class="ends"><span>${fmt(m.domain[0])}</span><span>${m.scale === "log" ? "log scale" : m.unit}</span><span>${fmt(m.domain[1])}</span></div>`;
   }
 
@@ -153,12 +155,13 @@
   function showTip(e, f) {
     const r = wrap.getBoundingClientRect();
     let html;
-    if (!f.iso) html = `<b>${esc(f.disputed)}</b><div class="k">Disputed · not among the 195</div>`;
+    if (!f.iso) html = `<b>${esc(f.disputed)}</b><div class="k">Disputed · not among the ${C.length}</div>`;
     else {
       const c = BY[f.iso];
       const terr = f.territory ? `<div class="k">${esc(f.properties.name)} — territory of</div>` : "";
       const metric = mode === "power" ? `Power ${c.power} · #${c.powerRank}` : mode === "hidden" ? `Secret assets ${c.secretIndex} · #${c.secretRank}` :
         mode === "soft" ? `Soft power ${c.soft} · #${c.softRank}` : mode === "gdp" ? `GDP ${money(c.gdp)} · #${c.gdpRank}` :
+        mode === "value" ? `Value ${money(c.nationalValue)} · #${c.valueRank}` :
         G.state.owner[c.iso3] !== c.iso3 ? `Held by ${BY[G.state.owner[c.iso3]].name}` : G.isLocked(c.iso3) ? "Locked" : "Playable";
       html = `${terr}<b>${esc(c.name)}</b><div class="k">${esc(metric)}</div>`;
     }
@@ -205,12 +208,19 @@
     }
     const c = BY[selected], s = c.secret;
     const share = c.gdp / window.WORLD_GDP;
-    const A = [
-      ["Defence budget", money(c.mil)], ["Active troops", kPers(c.active)], ["Reserves", kPers(c.reserve)],
-      ["Tanks", num(c.tanks)], ["Armoured veh.", num(c.afv)], ["Artillery", num(c.arty)],
-      ["Aircraft", num(c.aircraft)], ["Fighters/attack", num(c.fighters)], ["Helicopters", num(c.helis)],
-      ["Naval vessels", num(c.ships)], ["Submarines", num(c.subs)], ["Carriers", num(c.carriers)],
-    ];
+    const mine = G.owns(c.iso3), have = G.arsenal(c.iso3);
+    const base = [["Defence budget", money(c.mil)], ["Active troops", kPers(c.active)], ["Reserves", kPers(c.reserve)]]
+      .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`);
+    const weaponTiles = c.weapons.map(w => {
+      const val = num(w.count);
+      if (!mine || !w.count) return `<div><dt>${w.label}</dt><dd>${val}</dd></div>`;
+      if (have.includes(w.key)) return `<div class="unlocked"><dt>${w.label} · ready</dt><dd>${val}</dd></div>`;
+      const short = G.state.coins < w.cost;
+      return `<div class="lockedw"><dt>🔒 ${w.label}</dt><dd>${val}</dd>
+        <button class="unlock" data-unlock="${w.key}" ${short ? "aria-disabled=\"true\"" : ""}><span class="coin" aria-hidden="true"></span>${w.cost.toLocaleString("en-US")}</button></div>`;
+    });
+    const lockedCount = mine ? c.weapons.filter(w => w.count && !have.includes(w.key)).length : 0;
+    const v = c.value, vt = v.total;
     const allies = (window.ALLIES_OF[c.iso3] || []).map(a => a.bloc);
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -224,11 +234,25 @@
           <div><dt>Population</dt><dd>${popFmt(c.pop)}</dd></div>
         </dl></div>
 
-      <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/195</small></h3>
+      <div class="section"><h3>National value <small>rank #${c.valueRank}/${C.length}</small></h3>
+        <div class="big"><strong>${money(vt)}</strong><span>${(vt / window.WORLD_VALUE * 100).toFixed(vt / window.WORLD_VALUE >= 0.01 ? 1 : 3)}% of the world's ${money(window.WORLD_VALUE)}</span></div>
+        <div class="stack" role="img" aria-label="Value breakdown">
+          <i style="width:${v.human / vt * 100}%;background:${VALUE_COL.human}"></i><i style="width:${v.produced / vt * 100}%;background:${VALUE_COL.produced}"></i><i style="width:${v.natural / vt * 100}%;background:${VALUE_COL.natural}"></i></div>
+        <dl class="kv">
+          <div><dt><span class="sw" style="background:${VALUE_COL.human}"></span>Human capital</dt><dd>${money(v.human)}</dd></div>
+          <div><dt><span class="sw" style="background:${VALUE_COL.produced}"></span>Produced capital</dt><dd>${money(v.produced)}</dd></div>
+          <div><dt><span class="sw" style="background:${VALUE_COL.natural}"></span>Natural resources</dt><dd>${money(v.natural)}</dd></div>
+          <div><dt>Value per citizen</dt><dd>$${num(c.valuePerCap)}</dd></div>
+          <div><dt>Gold + sovereign funds</dt><dd>${money(v.gold + v.swf)}</dd></div>
+          <div><dt>Military hardware</dt><dd>${money(v.hardware)}</dd></div>
+        </dl></div>
+
+      <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/${C.length}</small></h3>
         <div class="big"><strong>${c.power}</strong><span>/ 100 power index</span></div>
         <div class="bar"><i style="width:${c.power}%;background:${MODES.power.hi}"></i></div>
-        <dl class="assets">${A.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}
-          <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
+        ${mine ? `<p class="hint armory">${lockedCount ? `${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} locked. Locked weapons don't fight. You have <b>${G.state.coins.toLocaleString("en-US")}</b> coins.` : "All weapons unlocked and ready."} Usable strength ${window.truePowerWith(c, have).toFixed(1)} of ${c.truePower}.</p>` : ""}
+        <dl class="assets">${base.join("")}${weaponTiles.join("")}
+          <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
 
       <div class="section"><h3>Secret assets <span class="tag">${s.estimated ? "modelled estimate" : "researched profile"}</span></h3>
         <div class="big"><strong>${c.secretIndex}</strong><span>/ 100 secret-assets index · #${c.secretRank}</span></div>
@@ -241,13 +265,18 @@
         <div class="meters">${meter("Intelligence", s.intel)}${meter("Offensive cyber", s.cyber)}${meter("Nuclear capability", s.latency)}${meter("Proxies / irregulars", s.proxies)}</div>
         <p class="note">${esc(s.note)}</p></div>
 
-      <div class="section"><h3>Soft power <small>rank #${c.softRank}/195</small></h3>
+      <div class="section"><h3>Soft power <small>rank #${c.softRank}/${C.length}</small></h3>
         <div class="big"><strong>${c.soft}</strong><span>/ 100 · ${window.softTier(c.soft)}</span></div>
         <div class="bar"><i style="width:${c.soft}%;background:${MODES.soft.hi}"></i></div>
         <dl class="kv"><div style="grid-column:span 2"><dt>Cultural assets</dt><dd class="culture">${esc(c.culture)}</dd></div></dl></div>
 
       <div class="section actions">${actionsHtml(c)}</div>`;
     pane.querySelectorAll("[data-act]").forEach(b => (b.onclick = () => act(b.dataset.act, c.iso3)));
+    pane.querySelectorAll("[data-unlock]").forEach(b => (b.onclick = () => {
+      const err = G.unlockWeapon(c.iso3, b.dataset.unlock);
+      if (err) return toast(err);
+      toast(G.state.log[0].msg); refresh();
+    }));
   }
 
   function act(kind, iso) {
@@ -265,6 +294,7 @@
     secretIndex: ["Secret-assets index", c => c.secretIndex, v => v.toFixed(1)],
     gdp: ["GDP (nominal)", c => c.gdp, money],
     gdpPerCap: ["GDP per capita", c => c.gdpPerCap, v => "$" + num(v)],
+    nationalValue: ["National value", c => c.nationalValue, money],
     soft: ["Soft power", c => c.soft, v => v],
     mil: ["Defence budget", c => c.mil, money],
     active: ["Active troops", c => c.active, kPers],
@@ -277,7 +307,7 @@
     const [, get, fmt] = RANKS[key];
     const list = C.filter(c => !region || c.region === region).sort((a, b) => get(b) - get(a));
     const top = get(list[0]) || 1;
-    const color = key === "gdp" || key === "gdpPerCap" ? MODES.gdp.hi : key === "soft" ? MODES.soft.hi : key === "secretIndex" || key === "truePower" ? MODES.hidden.hi : MODES.power.hi;
+    const color = key === "nationalValue" ? MODES.value.hi : key === "gdp" || key === "gdpPerCap" ? MODES.gdp.hi : key === "soft" ? MODES.soft.hi : key === "secretIndex" || key === "truePower" ? MODES.hidden.hi : MODES.power.hi;
     pane.innerHTML = `<div class="rank-ctl">
         <select id="rank-key" aria-label="Ranking metric">${Object.entries(RANKS).map(([k, [l]]) => `<option value="${k}" ${k === key ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select id="rank-region" aria-label="Region filter"><option value="">All regions</option>${["Africa", "Europe", "Asia", "North America", "South America", "Oceania"].map(r => `<option ${r === region ? "selected" : ""}>${r}</option>`).join("")}</select></div>
@@ -308,22 +338,26 @@
           <div><dt>Force projection</dt><dd>${pct(G.projection())}</dd></div>
           <div><dt>Soft power</dt><dd>${G.empireSoft().toFixed(0)}</dd></div>
           <div><dt>Warheads</dt><dd>${G.empireNukes() || "None"}</dd></div>
+          <div><dt>Coins</dt><dd>${s.coins.toLocaleString("en-US")} <small>+${G.income()}/turn</small></dd></div>
+          <div><dt>Empire value</dt><dd>${money(e.reduce((a, c) => a + c.nationalValue, 0))}</dd></div>
         </dl>
         <div class="bar" style="margin-top:10px"><i style="width:${Math.min(100, share * 200)}%;background:${COL.brass}"></i></div></div>`;
     }
     pane.innerHTML = `${empire}
-      <div class="${s.player ? "section" : ""}"><h3>Playable nations <small>${s.unlocked.length} of 195 unlocked</small></h3>
+      <div class="${s.player ? "section" : ""}"><h3>Playable nations <small>${s.unlocked.length} of ${C.length} unlocked</small></h3>
       <p class="hint">Rules: 4 random African nations (never South Africa), 3 random European, 3 random South American, plus Mexico, Mongolia, Kazakhstan and Bangladesh. Every other country is locked.</p>
       ${roster}</div>
       <div class="section row2">
         <button class="btn ghost" id="reroll" ${s.player ? "disabled" : ""}>Reroll random picks</button>
         <button class="btn ghost" id="newgame">New campaign</button></div>
       <div class="section"><h3>How to play</h3>
-        <p class="hint">Pick a playable nation. Each turn, take one action against any other country: <b>Invade</b> (military strength vs. defence, with home advantage, morale from soft power and help from treaty allies) or <b>Diplomatic union</b> (your soft power and GDP vs. theirs). Bordering targets get your full strength; overseas targets depend on your navy, carriers and air force. Weakly held territories can revolt. Control 50% of world GDP to win.</p></div>
+        <p class="hint">Pick a playable nation. Each turn, take one action against any other country: <b>Invade</b> (military strength vs. defence, with home advantage, morale from soft power and help from treaty allies) or <b>Diplomatic union</b> (your soft power and GDP vs. theirs). Bordering targets get your full strength; overseas targets depend on your navy, carriers and air force. Weakly held territories can revolt. Control 50% of world GDP to win.</p>
+        <p class="hint"><b>Coins & weapons.</b> Every nation you control starts with its weapons locked: only troops, budget and nukes fight. Open a nation's dossier and spend coins to unlock each weapon category (tanks, aircraft, ships and so on). Prices scale with the hardware's real replacement value. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
       ${s.log.length ? `<div class="section"><h3>War log</h3><ul class="log">${s.log.map(l => `<li class="${l.kind}"><span>T${l.t}</span>${esc(l.msg)}</li>`).join("")}</ul></div>` : ""}
       <div class="section method"><details><summary>Methodology & sources</summary>
         <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Warheads: FAS Nuclear Notebook. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>
         <p>Military power index: square-root-scaled share of the world maximum across 14 weighted capabilities (budget 20%, fighters 10%, troops, armour, artillery, air, naval, submarines, carriers, GDP and population), discounted for equipment age using GDP per capita, plus a nuclear deterrent bonus.</p>
+        <p>National value: the World Bank's Changing Wealth of Nations puts world wealth at 13.4× world GDP (64% human capital, 30% produced capital, 6% natural capital). Scaled to 2025 that gives a world value of ${money(window.WORLD_VALUE)}. Each country gets its GDP share of human and produced capital, and its share of natural capital from estimated resource endowments.</p>
         <p>Secret assets: nobody outside governments knows the real numbers. Researched profiles (${C.filter(c => !c.secret.estimated).length} countries) draw on published think-tank, SIPRI, FAS, World Gold Council and SWF Institute estimates; the rest are extrapolated from budget and economy. Treat all figures as informed estimates for gameplay.</p>
       </details></div>`;
     pane.querySelectorAll(".roster button").forEach(b => (b.onclick = () => select(b.dataset.iso)));
@@ -343,7 +377,22 @@
     render();
   }
   function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : campaign(); }
-  function refresh() { paint(); render(); }
+  function refresh() { paint(); render(); coinChip(); }
+  function coinChip() { $("#coins").textContent = G.state.coins.toLocaleString("en-US"); }
+
+  // ── Promo codes ────────────────────────────────────────────
+  const promo = $("#promo"), promoIn = $("#promo-code"), promoMsg = $("#promo-msg");
+  function openPromo() { promo.hidden = false; promoMsg.textContent = ""; promoMsg.className = "promo-msg"; promoIn.value = ""; promoIn.focus(); }
+  $("#promo-btn").onclick = () => (promo.hidden ? openPromo() : (promo.hidden = true));
+  $("#promo-close").onclick = () => (promo.hidden = true);
+  $("#promo-form").onsubmit = e => {
+    e.preventDefault();
+    const r = G.redeem(promoIn.value);
+    promoMsg.className = "promo-msg " + (r.err ? "bad" : "good");
+    promoMsg.textContent = r.err || `Redeemed: +${r.amount.toLocaleString("en-US")} coins.`;
+    if (!r.err) { promoIn.value = ""; refresh(); }
+  };
+  document.addEventListener("keydown", e => { if (e.key === "Escape") promo.hidden = true; });
   function select(iso) { selected = iso; paint(); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
   document.querySelectorAll(".tabs button").forEach(b => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll(".modes button").forEach(b => (b.onclick = () => {
@@ -380,5 +429,6 @@
   }
 
   paint();
+  coinChip();
   setTab(G.state.player ? "dossier" : "campaign");
 })();
