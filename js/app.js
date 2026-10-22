@@ -19,6 +19,11 @@
   const popFmt = m => m >= 1000 ? (m / 1000).toFixed(2) + "bn" : m >= 1 ? m.toFixed(1) + "M" : Math.round(m * 1000) + "k";
   const flag = iso2 => String.fromCodePoint(...[...iso2].map(ch => 0x1f1a5 + ch.charCodeAt(0)));
   const pct = p => Math.round(p * 100) + "%";
+  const fxVal = (k, v) => {
+    const kind = window.TRAIT_EFFECTS[k][1], n = +(v * 100).toFixed(1);
+    return kind === "coins" ? `+${v}` : kind === "pts" ? `+${n} pts` : kind === "neg" ? `−${n}%` : `+${n}%`;
+  };
+  const fxList = fx => Object.entries(fx).map(([k, v]) => `<li><span>${window.TRAIT_EFFECTS[k][0]}</span><b>${fxVal(k, v)}</b></li>`).join("");
 
   // ── Map data ───────────────────────────────────────────────
   const topo = window.WORLD_TOPO;
@@ -413,6 +418,17 @@
       ${buyHtml(c)}`;
   }
 
+  function techHtml(c, mine) {
+    const rows = window.TECH.map(t => {
+      const lvl = G.techLvl(c.iso3, t.key), max = lvl >= window.TECH_MAX, cost = window.techCost(c, lvl);
+      const pips = d3.range(window.TECH_MAX).map(i => `<i class="${i < lvl ? "on" : ""}"></i>`).join("");
+      const btn = !mine ? "" : max ? `<span class="tag">max</span>` :
+        `<button class="unlock" data-tech="${t.key}" ${G.state.coins < cost ? "aria-disabled=\"true\"" : ""}><span class="coin" aria-hidden="true"></span>${G.fmtCoins(cost)}</button>`;
+      return `<li><div><b>${t.label}</b> <small>Lv ${lvl}/${window.TECH_MAX}</small><div class="pips">${pips}</div><span class="hint">${t.per} per level</span></div>${btn}</li>`;
+    }).join("");
+    return `<ul class="tech">${rows}</ul>${mine ? "" : `<p class="hint">Bring this nation into your empire to research upgrades for it.</p>`}`;
+  }
+
   function dossier() {
     const pane = $("#pane-dossier");
     if (!selected) {
@@ -508,7 +524,21 @@
         <div class="bar"><i style="width:${c.soft}%;background:${MODES.soft.hi}"></i></div>
         <dl class="kv"><div style="grid-column:span 2"><dt>Cultural assets</dt><dd class="culture">${esc(c.culture)}</dd></div></dl></div>
 
+      <div class="section"><h3>National trait <span class="tag">draft</span></h3>
+        <p class="trait-name">${esc(c.trait.name)}</p>
+        <p class="hint">${esc(c.trait.desc)}</p>
+        <ul class="fx">${fxList(c.trait.fx)}</ul>
+        <p class="hint">${mine ? "Active: this nation is in your empire." : "Takes effect when this nation joins your empire. Defence and union-resistance effects apply while you're targeting it."}</p></div>
+
+      <div class="section"><h3>Technology <small>${mine ? "research with coins" : "your empire only"}</small></h3>
+        ${techHtml(c, mine)}</div>
+
       <div class="section actions">${actionsHtml(c)}</div>`;
+    pane.querySelectorAll("[data-tech]").forEach(b => (b.onclick = () => {
+      const err = G.upgradeTech(c.iso3, b.dataset.tech);
+      if (err) return toast(err);
+      toast(G.state.log[0].msg); refresh();
+    }));
     pane.querySelectorAll("[data-act]").forEach(b => (b.onclick = () => act(b.dataset.act, c.iso3)));
     pane.querySelectorAll("li[data-zone]").forEach(li => {
       const go = () => { const z = zones.find(x => x.name === li.dataset.zone); if (z) pickZone(z, true); };
@@ -585,6 +615,9 @@
           <div><dt>Coins</dt><dd>${G.fmtCoins(s.coins)} <small>+${G.income()}/turn</small></dd></div>
           <div><dt>Empire value</dt><dd>${money(e.reduce((a, c) => a + c.nationalValue, 0))}</dd></div>
         </dl>
+        <h4 class="zgroup">Trait bonuses <span class="tag">draft</span></h4>
+        ${(() => { const fx = Object.fromEntries(["atk", "dip", "loot", "proj", "inc"].map(k => [k, G.bonus(k)]).filter(([, v]) => v > 0));
+          return Object.keys(fx).length ? `<ul class="fx">${fxList(fx)}</ul>` : `<p class="hint">None of your nations has an empire-wide trait yet.</p>`; })()}
         <div class="bar" style="margin-top:10px"><i style="width:${Math.min(100, share * 200)}%;background:${COL.brass}"></i></div></div>`;
     }
     pane.innerHTML = `${empire}

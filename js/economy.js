@@ -66,6 +66,18 @@ window.COINS_PER_BN = 10; // unlock price: 10 coins per $1bn of hardware value
 window.MIN_UNLOCK = 25;
 window.START_COINS = 300;
 
+// Technology upgrades: each nation you control can research every track up to level 5.
+// The next level costs (40 + 5% of the nation's GDP in $bn) × 2^current level coins.
+window.TECH = [
+  { key: "weapons", label: "Weapons systems", per: "+10% strength from this nation", step: 0.10 },
+  { key: "logistics", label: "Logistics & airlift", per: "+3 points empire force projection", step: 0.03 },
+  { key: "industry", label: "Industry", per: "+0.4% of its GDP ($bn) in coins per turn", step: 0.004 },
+  { key: "governance", label: "Governance", per: "+1 point recovery, −15% revolt risk", step: 0.15 },
+];
+window.TECH_MAX = 5;
+window.TECH_PROJ_CAP = 0.3;
+window.techCost = (c, level) => Math.round((40 + c.gdp * 0.05) * Math.pow(2, level));
+
 // One redemption per code per campaign.
 window.PROMO_CODES = {
   WW3LAUNCH: 1000,
