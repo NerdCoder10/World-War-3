@@ -20,9 +20,20 @@ window.WORLD_ASSETS = { human: 1620, realEstate: 410, business: 165, infrastruct
 window.VALUE_OVERRIDES = {
   VAT: {
     realEstate: 2000, business: 25, gold: 60, cultural: 1200, human: 5,
-    note: "Estimate: ~$2trn in Holy See and worldwide Church property, priceless art and heritage (St Peter's, the Vatican Museums, the Sistine Chapel), ~$25bn in IOR/APSA assets, and the brand of a 1.4-billion-member faith. Most of the art is culturally priceless, so the real figure is unknowable.",
+    total: 100000, // set by design: the components are scaled up so the Vatican is worth $100trn
+    note: "Valued at $100trn by design. It reflects the Holy See and worldwide Church property, priceless art and heritage (St Peter's, the Vatican Museums, the Sistine Chapel), IOR/APSA assets and the brand of a 1.4-billion-member faith.",
   },
 };
+
+// Buying a country costs its national value in coins (1 coin = US$1), plus a premium
+// for the most valuable nations by value rank.
+window.PRICE_PREMIUMS = [
+  { upTo: 5, premium: 0.5 },
+  { upTo: 10, premium: 0.4 },
+  { upTo: 20, premium: 0.3 },
+  { upTo: 35, premium: 0.15 },
+  { upTo: 50, premium: 0.05 },
+];
 window.GOLD_BN_PER_TONNE = 0.122; // ~$3,800/oz
 
 // Gross natural-resource endowment (US$ trn of reserves in the ground), from widely cited

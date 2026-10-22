@@ -1,16 +1,17 @@
 // Campaign engine: unlock rules, conquest, diplomacy, world reaction. State persists in localStorage.
 (function () {
-  const STORE = "ww3-campaign-v2";
+  const STORE = "ww3-campaign-v3";
   const C = window.COUNTRIES, BY = window.BY_ISO;
 
   // ── Unlock rules ─────────────────────────────────────────────
-  // 4 random African (never South Africa), 3 random European, 3 random South American,
-  // plus Mexico, Mongolia, Kazakhstan and Bangladesh. Everything else is locked.
-  const FIXED = ["MEX", "MNG", "KAZ", "BGD"];
+  // 4 random African (never South Africa), 3 random European, 3 South American (Argentina
+  // always, never Brazil, plus 2 random), plus Mexico, Mongolia, Kazakhstan and Bangladesh.
+  // Everything else is locked until bought.
+  const FIXED = ["ARG", "MEX", "MNG", "KAZ", "BGD"];
   const PICKS = [
     { region: "Africa", n: 4, exclude: ["ZAF"] },
     { region: "Europe", n: 3, exclude: [] },
-    { region: "South America", n: 3, exclude: [] },
+    { region: "South America", n: 2, exclude: ["ARG", "BRA"] },
   ];
 
   function rng(seed) {
@@ -39,7 +40,7 @@
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
     return {
       seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false,
-      coins: window.START_COINS, arsenal: {}, redeemed: [],
+      coins: window.START_COINS, arsenal: {}, redeemed: [], purchased: [],
     };
   }
 
@@ -194,7 +195,7 @@
     });
     // Occupied territories may revolt when weakly held.
     empire().forEach(c => {
-      if (c.iso3 === s.player) return;
+      if (c.iso3 === s.player || (s.purchased || []).includes(c.iso3)) return; // bought nations don't revolt
       if (Math.random() < 0.06 * (1 - s.garrison[c.iso3]) + 0.01) {
         s.owner[c.iso3] = c.iso3; s.garrison[c.iso3] = 0.6;
         log(`🔥 ${c.name} revolted and regained independence.`, "bad");
@@ -213,6 +214,28 @@
     if (!G.state.unlocked.includes(iso)) return "That nation is locked.";
     G.state.player = iso;
     log(`🎖️ You now lead ${BY[iso].name}. Goal: control 50% of world GDP.`, "good");
+    save();
+    return null;
+  }
+
+  // Buy a country for its price in coins. Before a campaign starts this unlocks it as playable;
+  // during a campaign it joins your empire peacefully (its weapons still need unlocking).
+  function buy(iso) {
+    const s = G.state, t = BY[iso];
+    if (s.over) return "The campaign is over. Start a new one to keep buying.";
+    if (!s.player && !G.isLocked(iso)) return `${t.name} is already playable.`;
+    if (s.player && owns(iso)) return `${t.name} is already part of your empire.`;
+    if (s.coins < t.price) return `You need ${fmtCoins(t.price - s.coins)} more coins to buy ${t.name}.`;
+    s.coins -= t.price;
+    if (!s.player) {
+      s.unlocked.push(iso);
+      log(`💰 Bought ${t.name} for ${fmtCoins(t.price)} coins. It is now playable.`, "good");
+    } else {
+      s.owner[iso] = s.player;
+      s.garrison[iso] = 1;
+      s.purchased = (s.purchased || []).concat([iso]);
+      log(`💰 Bought ${t.name} for ${fmtCoins(t.price)} coins. It joins your empire; unlock its weapons to use them.`, "good");
+    }
     save();
     return null;
   }
@@ -249,12 +272,13 @@
     save();
   }
 
+  const fmtCoins = n => n >= 1e12 ? (n / 1e12).toFixed(2) + "trn" : n >= 1e9 ? (n / 1e9).toFixed(2) + "bn" : n >= 1e6 ? (n / 1e6).toFixed(2) + "m" : Math.round(n).toLocaleString("en-US");
   const fmt = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : n >= 10 ? Math.round(n) : n.toFixed(1));
 
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
     owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, projection, income, arsenal,
-    attackOdds, diplomacyOdds, attack, influence, choose, newGame, bordersEmpire, unlockWeapon, redeem,
+    attackOdds, diplomacyOdds, attack, influence, choose, newGame, bordersEmpire, unlockWeapon, redeem, buy, fmtCoins,
   });
 })();

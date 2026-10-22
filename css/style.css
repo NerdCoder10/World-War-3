@@ -213,6 +213,10 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .btn.diplo { border-color: var(--teal); }
 .btn.diplo:hover:not(:disabled) { background: #4cb5a822; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.buy { border-color: var(--brass); }
+.btn.buy small { display: inline-flex; align-items: center; gap: 5px; color: var(--brass); }
+.btn.buy:hover { background: #d6a84e1a; }
+.btn.buy[aria-disabled="true"] { opacity: .6; }
 .btn.ghost { justify-content: center; }
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
 

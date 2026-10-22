@@ -260,10 +260,17 @@
   }
   const meter = (label, v) => `<div class="meter"><span>${label}</span><span class="ticks">${d3.range(10).map(i => `<i class="${i < v ? "on" : ""}"></i>`).join("")}</span><b>${v}</b></div>`;
 
+  function buyHtml(c) {
+    const s = G.state, short = s.coins < c.price;
+    const prem = c.pricePremium ? ` incl. +${Math.round(c.pricePremium * 100)}% top-${window.PRICE_PREMIUMS.find(t => c.valueRank <= t.upTo).upTo} premium` : "";
+    return `<button class="btn buy" data-act="buy" ${short ? "aria-disabled=\"true\"" : ""}>${s.player ? "Buy into empire" : "Buy & unlock"} <small><span class="coin" aria-hidden="true"></span>${G.fmtCoins(c.price)}</small></button>
+      <p class="hint">Price is its national value in coins (1 coin = $1)${prem}.${short ? ` You have ${G.fmtCoins(s.coins)}.` : ""}</p>`;
+  }
+
   function actionsHtml(c) {
     const s = G.state;
     if (!s.player) {
-      if (G.isLocked(c.iso3)) return `<p class="hint">This nation is locked. Pick one of the ${s.unlocked.length} playable nations (teal on the map, listed under Campaign).</p>`;
+      if (G.isLocked(c.iso3)) return `<p class="hint">This nation is locked. Buy it to make it playable, or pick one of the ${s.unlocked.length} playable nations (teal on the map).</p>${buyHtml(c)}`;
       return `<button class="btn primary" data-act="choose">Play as ${esc(c.name)} <small>start campaign</small></button>`;
     }
     if (s.over) return `<p class="hint">Campaign finished. Start a new one from the Campaign tab.</p>`;
@@ -274,7 +281,8 @@
     return `${allies}
       <button class="btn attack" data-act="attack">Invade <small>${pct(a.p)} win odds</small></button>
       <button class="btn diplo" data-act="influence" ${d.p <= 0 ? "disabled" : ""}>Diplomatic union <small>${d.p > 0 ? pct(d.p) + " odds" : "impossible"}</small></button>
-      <p class="hint">Target ${reach}. Your strength ${a.A.toFixed(1)} vs defence ${a.D.total.toFixed(1)}.${c.nukes ? " ☢️ Nuclear power: a winning invasion may trigger retaliation." : ""}</p>`;
+      <p class="hint">Target ${reach}. Your strength ${a.A.toFixed(1)} vs defence ${a.D.total.toFixed(1)}.${c.nukes ? " ☢️ Nuclear power: a winning invasion may trigger retaliation." : ""}</p>
+      ${buyHtml(c)}`;
   }
 
   function dossier() {
@@ -319,12 +327,13 @@
         <div class="stack" role="img" aria-label="Value breakdown">${window.VALUE_PARTS.map(([k]) => `<i style="width:${v[k] / vt * 100}%;background:${VALUE_COL[k]}"></i>`).join("")}</div>
         <dl class="kv">${window.VALUE_PARTS.map(([k, label]) => `<div><dt><span class="sw" style="background:${VALUE_COL[k]}"></span>${label}</dt><dd>${money(v[k])}</dd></div>`).join("")}
           <div><dt>Value per citizen</dt><dd>$${num(c.valuePerCap)}</dd></div>
+          <div><dt>Purchase price</dt><dd>${G.fmtCoins(c.price)} <small>coins${c.pricePremium ? ` · +${Math.round(c.pricePremium * 100)}%` : ""}</small></dd></div>
         </dl>${c.valueNote ? `<p class="note">${esc(c.valueNote)}</p>` : ""}</div>
 
       <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/${C.length}</small></h3>
         <div class="big"><strong>${c.power}</strong><span>/ 100 power index</span></div>
         <div class="bar"><i style="width:${c.power}%;background:${MODES.power.hi}"></i></div>
-        ${mine ? `<p class="hint armory">${lockedCount ? `${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} locked. Locked weapons don't fight. You have <b>${G.state.coins.toLocaleString("en-US")}</b> coins.` : "All weapons unlocked and ready."} Usable strength ${window.truePowerWith(c, have).toFixed(1)} of ${c.truePower}.</p>` : ""}
+        ${mine ? `<p class="hint armory">${lockedCount ? `${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} locked. Locked weapons don't fight. You have <b>${G.fmtCoins(G.state.coins)}</b> coins.` : "All weapons unlocked and ready."} Usable strength ${window.truePowerWith(c, have).toFixed(1)} of ${c.truePower}.</p>` : ""}
         <dl class="assets">${base.join("")}${weaponTiles.join("")}
           <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
 
@@ -367,7 +376,7 @@
   }
 
   function act(kind, iso) {
-    const err = kind === "choose" ? G.choose(iso) : kind === "attack" ? G.attack(iso) : G.influence(iso);
+    const err = kind === "choose" ? G.choose(iso) : kind === "buy" ? G.buy(iso) : kind === "attack" ? G.attack(iso) : G.influence(iso);
     if (err) return toast(err);
     const last = G.state.log[0];
     if (last) toast(last.msg);
@@ -425,14 +434,14 @@
           <div><dt>Force projection</dt><dd>${pct(G.projection())}</dd></div>
           <div><dt>Soft power</dt><dd>${G.empireSoft().toFixed(0)}</dd></div>
           <div><dt>Warheads</dt><dd>${G.empireNukes() || "None"}</dd></div>
-          <div><dt>Coins</dt><dd>${s.coins.toLocaleString("en-US")} <small>+${G.income()}/turn</small></dd></div>
+          <div><dt>Coins</dt><dd>${G.fmtCoins(s.coins)} <small>+${G.income()}/turn</small></dd></div>
           <div><dt>Empire value</dt><dd>${money(e.reduce((a, c) => a + c.nationalValue, 0))}</dd></div>
         </dl>
         <div class="bar" style="margin-top:10px"><i style="width:${Math.min(100, share * 200)}%;background:${COL.brass}"></i></div></div>`;
     }
     pane.innerHTML = `${empire}
       <div class="${s.player ? "section" : ""}"><h3>Playable nations <small>${s.unlocked.length} of ${C.length} unlocked</small></h3>
-      <p class="hint">Rules: 4 random African nations (never South Africa), 3 random European, 3 random South American, plus Mexico, Mongolia, Kazakhstan and Bangladesh. Every other country is locked.</p>
+      <p class="hint">Rules: 4 random African nations (never South Africa), 3 random European, Argentina plus 2 random South American (never Brazil), and Mexico, Mongolia, Kazakhstan and Bangladesh. Every other country is locked until you buy it at its national value (1 coin = $1).</p>
       ${roster}</div>
       <div class="section row2">
         <button class="btn ghost" id="reroll" ${s.player ? "disabled" : ""}>Reroll random picks</button>
@@ -466,7 +475,7 @@
   }
   function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : campaign(); }
   function refresh() { paint(); render(); coinChip(); }
-  function coinChip() { $("#coins").textContent = G.state.coins.toLocaleString("en-US"); }
+  function coinChip() { $("#coins").textContent = G.fmtCoins(G.state.coins); }
 
   // ── Promo codes ────────────────────────────────────────────
   const promo = $("#promo"), promoIn = $("#promo-code"), promoMsg = $("#promo-msg");

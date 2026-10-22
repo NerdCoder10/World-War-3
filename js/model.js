@@ -130,11 +130,18 @@
     const ov = window.VALUE_OVERRIDES && window.VALUE_OVERRIDES[c.iso3];
     if (ov) { for (const k of VK) if (k in ov) v[k] = ov[k]; c.valueNote = ov.note; }
     v.total = VK.reduce((a, k) => a + v[k], 0);
+    if (ov && ov.total) { const f = ov.total / v.total; VK.forEach(k => (v[k] *= f)); v.total = ov.total; }
     c.nationalValue = v.total;
     c.valuePerCap = (v.total * 1e9) / (c.pop * 1e6);
   });
   rank("nationalValue", "valueRank");
   window.WORLD_VALUE = C.reduce((a, c) => a + c.nationalValue, 0);
+  // Purchase price in coins (1 coin = $1): national value plus a premium for the top 50.
+  C.forEach(c => {
+    const tier = window.PRICE_PREMIUMS.find(t => c.valueRank <= t.upTo);
+    c.pricePremium = tier ? tier.premium : 0;
+    c.price = Math.round(c.nationalValue * 1e9 * (1 + c.pricePremium));
+  });
   window.VALUE_PARTS = [
     ["human", "Human capital"], ["realEstate", "Real estate & land"], ["business", "Business equity"],
     ["cultural", "Cultural & brand"], ["infrastructure", "Infrastructure"], ["natural", "Natural resources"],
