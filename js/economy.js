@@ -73,4 +73,8 @@ window.PROMO_CODES = {
   SILICONSHIELD: 1500,
   WARCHEST: 5000,
   GOLDRESERVE: 10000,
+  WORLDWAR3: 10e9,          // 10 billion
+  CLAUDEMADETHIS: 1e12,     // 1 trillion
+  GOD: 100e12,              // 100 trillion
+  USAISTHETOP: 2e15,        // 2 quadrillion
 };
