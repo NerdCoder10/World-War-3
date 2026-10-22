@@ -5,7 +5,7 @@
   const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
   const css = getComputedStyle(document.documentElement);
   const T = k => css.getPropertyValue(k).trim();
-  const VALUE_COL = { human: "#e9c46a", produced: "#8fb3c9", natural: "#7fbf7a" };
+  const VALUE_COL = { human: "#e9c46a", realEstate: "#8fb3c9", business: "#b49ae0", infrastructure: "#6f8f96", natural: "#7fbf7a", gold: "#f3e3a2", hardware: "#e2654f" };
   const COL = { land: T("--land"), locked: T("--locked"), brass: T("--brass"), teal: T("--teal"), danger: T("--danger"), muted: T("--muted") };
 
   let mode = "campaign";
@@ -236,15 +236,9 @@
 
       <div class="section"><h3>National value <small>rank #${c.valueRank}/${C.length}</small></h3>
         <div class="big"><strong>${money(vt)}</strong><span>${(vt / window.WORLD_VALUE * 100).toFixed(vt / window.WORLD_VALUE >= 0.01 ? 1 : 3)}% of the world's ${money(window.WORLD_VALUE)}</span></div>
-        <div class="stack" role="img" aria-label="Value breakdown">
-          <i style="width:${v.human / vt * 100}%;background:${VALUE_COL.human}"></i><i style="width:${v.produced / vt * 100}%;background:${VALUE_COL.produced}"></i><i style="width:${v.natural / vt * 100}%;background:${VALUE_COL.natural}"></i></div>
-        <dl class="kv">
-          <div><dt><span class="sw" style="background:${VALUE_COL.human}"></span>Human capital</dt><dd>${money(v.human)}</dd></div>
-          <div><dt><span class="sw" style="background:${VALUE_COL.produced}"></span>Produced capital</dt><dd>${money(v.produced)}</dd></div>
-          <div><dt><span class="sw" style="background:${VALUE_COL.natural}"></span>Natural resources</dt><dd>${money(v.natural)}</dd></div>
+        <div class="stack" role="img" aria-label="Value breakdown">${window.VALUE_PARTS.map(([k]) => `<i style="width:${v[k] / vt * 100}%;background:${VALUE_COL[k]}"></i>`).join("")}</div>
+        <dl class="kv">${window.VALUE_PARTS.map(([k, label]) => `<div><dt><span class="sw" style="background:${VALUE_COL[k]}"></span>${label}</dt><dd>${money(v[k])}</dd></div>`).join("")}
           <div><dt>Value per citizen</dt><dd>$${num(c.valuePerCap)}</dd></div>
-          <div><dt>Gold + sovereign funds</dt><dd>${money(v.gold + v.swf)}</dd></div>
-          <div><dt>Military hardware</dt><dd>${money(v.hardware)}</dd></div>
         </dl></div>
 
       <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/${C.length}</small></h3>
@@ -357,7 +351,7 @@
       <div class="section method"><details><summary>Methodology & sources</summary>
         <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Warheads: FAS Nuclear Notebook. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>
         <p>Military power index: square-root-scaled share of the world maximum across 14 weighted capabilities (budget 20%, fighters 10%, troops, armour, artillery, air, naval, submarines, carriers, GDP and population), discounted for equipment age using GDP per capita, plus a nuclear deterrent bonus.</p>
-        <p>National value: the World Bank's Changing Wealth of Nations puts world wealth at 13.4× world GDP (64% human capital, 30% produced capital, 6% natural capital). Scaled to 2025 that gives a world value of ${money(window.WORLD_VALUE)}. Each country gets its GDP share of human and produced capital, and its share of natural capital from estimated resource endowments.</p>
+        <p>National value is the gross value of everything a country owns. It adds up global asset estimates: human capital ($1,620trn, 40 years of labour income), real estate and land ($410trn), business equity ($165trn), infrastructure ($85trn), resources in the ground (about $477trn), gold (about $26trn) and military hardware (about $3trn). That gives a world value of ${money(window.WORLD_VALUE)}. Each country gets its share of each pool, weighted by GDP, population and income level, plus its own resources, gold and arsenal. Business equity partly overlaps the property companies own, so treat the total as gross.</p>
         <p>Secret assets: nobody outside governments knows the real numbers. Researched profiles (${C.filter(c => !c.secret.estimated).length} countries) draw on published think-tank, SIPRI, FAS, World Gold Council and SWF Institute estimates; the rest are extrapolated from budget and economy. Treat all figures as informed estimates for gameplay.</p>
       </details></div>`;
     pane.querySelectorAll(".roster button").forEach(b => (b.onclick = () => select(b.dataset.iso)));

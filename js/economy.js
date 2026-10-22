@@ -1,12 +1,18 @@
 // National valuation, weapon unlock catalogue and promo codes.
 //
 // ── Value of the world ──────────────────────────────────────────────────
-// The World Bank's "Changing Wealth of Nations" puts total global wealth at about $1,152trn
-// (2018 dollars): ~64% human capital (present value of future earnings), ~30% produced capital
-// (buildings, infrastructure, machinery, net financial assets) and ~6% natural capital (energy,
-// minerals, farmland, forests). That was 13.4× world GDP. Scaling to 2025 GDP gives the world value
-// used here; each country's value is its share of each component.
-window.WEALTH_MODEL = { multipleOfGdp: 1152 / 86, human: 0.64, produced: 0.30, natural: 0.06 };
+// Gross value of everything a country owns, built from global asset estimates (US$ trn, 2025):
+//  human        PV of 40 years of world labour income ($59trn/yr ≈ 52% of GDP) at a 2% real
+//               discount-minus-growth rate: 59 × 27.4 ≈ $1,620trn
+//  realEstate   all residential, commercial and agricultural property incl. land (Savills ≈ $410trn)
+//  business     listed equity (~$125trn) plus private / unlisted companies (~$40trn)
+//  infrastructure roads, rail, grids, ports, pipelines, telecoms (≈ 75% of world GDP)
+//  privateGold  ~180,000t of jewellery, bars and coins held outside central banks
+// Natural resources (gross value of reserves in the ground), central-bank gold and military
+// hardware are added country by country from the tables below and the military inventory.
+// Business equity partly overlaps the real estate companies own, so treat the total as gross.
+window.WORLD_ASSETS = { human: 1620, realEstate: 410, business: 165, infrastructure: 85, privateGold: 22 };
+window.GOLD_BN_PER_TONNE = 0.122; // ~$3,800/oz
 
 // Gross natural-resource endowment (US$ trn of reserves in the ground), from widely cited
 // estimates of oil, gas, coal, metals, rare earths, timber and farmland. Countries not listed

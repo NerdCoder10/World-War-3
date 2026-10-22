@@ -92,36 +92,49 @@
     return (rawPower(c, c.secret.trueBudget, disabled) * c._mult / tTrue) * 100;
   };
 
-  // ── Valuation: value of the world, then each country's share ──
-  const WM = window.WEALTH_MODEL;
-  const worldGdp = C.reduce((a, c) => a + c.gdp, 0);
-  const worldValue = worldGdp * WM.multipleOfGdp; // US$ bn
+  // ── Valuation: value the world's assets, then give each country its share ──
+  const WA = window.WORLD_ASSETS;
+  const shareBy = weight => {
+    const w = C.map(weight), tot = w.reduce((a, b) => a + b, 0);
+    return C.map((c, i) => w[i] / tot);
+  };
+  const gdpPc10k = c => c.gdp / Math.max(c.pop, 0.001) / 10;
+  const S = {
+    human: shareBy(c => c.gdp),                                                       // labour income
+    realEstate: shareBy(c => Math.pow(c.gdp, 0.85) * Math.pow(c.pop, 0.15)),          // land value scales with people too
+    business: shareBy(c => c.gdp * clamp(Math.pow(gdpPc10k(c), 0.3), 0.4, 2.2)),     // deeper capital markets in rich economies
+    infrastructure: shareBy(c => c.gdp),
+    privateGold: shareBy(c => Math.sqrt(c.gdp * c.pop)),                              // household gold: India, China, Gulf
+  };
   C.forEach(c => (c.natural = window.NATURAL_RESOURCES[c.iso3] ?? Math.min(0.15, 0.0015 * c.pop + 0.0002 * c.gdp)));
-  const worldNatural = C.reduce((a, c) => a + c.natural, 0);
-  const goldPerTonne = 0.122; // US$ bn per tonne (~$3,800/oz)
-  C.forEach(c => {
-    const gdpShare = c.gdp / worldGdp;
-    c.value = {
-      human: worldValue * WM.human * gdpShare,
-      produced: worldValue * WM.produced * gdpShare,
-      natural: worldValue * WM.natural * (c.natural / worldNatural),
-      gold: c.secret.gold * goldPerTonne,
-      swf: c.secret.swf,
-    };
-    c.value.total = c.value.human + c.value.produced + c.value.natural;
-    c.nationalValue = c.value.total;
-    c.valuePerCap = (c.value.total * 1e9) / (c.pop * 1e6);
-    // Military hardware replacement value and coin price of each weapon category.
+  C.forEach((c, i) => {
     const q = quality(c);
     c.weapons = window.WEAPONS.map(w => {
       const count = w.key === "aircraft" ? Math.max(0, c.aircraft - c.fighters) : c[w.key];
       const valueBn = (count * w.unit * q) / 1000;
       return { ...w, count: c[w.key], valueBn, cost: c[w.key] > 0 ? Math.max(window.MIN_UNLOCK, Math.round(valueBn * window.COINS_PER_BN)) : 0 };
     });
-    c.value.hardware = c.weapons.reduce((a, w) => a + w.valueBn, 0);
+    const v = (c.value = {
+      human: WA.human * 1000 * S.human[i],
+      realEstate: WA.realEstate * 1000 * S.realEstate[i],
+      business: WA.business * 1000 * S.business[i],
+      infrastructure: WA.infrastructure * 1000 * S.infrastructure[i],
+      natural: c.natural * 1000,
+      gold: c.secret.gold * window.GOLD_BN_PER_TONNE + WA.privateGold * 1000 * S.privateGold[i],
+      hardware: c.weapons.reduce((a, w) => a + w.valueBn, 0),
+      swf: c.secret.swf,
+    });
+    v.total = v.human + v.realEstate + v.business + v.infrastructure + v.natural + v.gold + v.hardware;
+    c.nationalValue = v.total;
+    c.valuePerCap = (v.total * 1e9) / (c.pop * 1e6);
   });
   rank("nationalValue", "valueRank");
-  window.WORLD_VALUE = worldValue;
+  window.WORLD_VALUE = C.reduce((a, c) => a + c.nationalValue, 0);
+  window.VALUE_PARTS = [
+    ["human", "Human capital"], ["realEstate", "Real estate & land"], ["business", "Business equity"],
+    ["infrastructure", "Infrastructure"], ["natural", "Natural resources"], ["gold", "Gold"], ["hardware", "Military hardware"],
+  ];
+
 
   window.softTier = s =>
     s >= 70 ? "Cultural superpower" : s >= 55 ? "Major cultural power" : s >= 40 ? "Regional influencer" : s >= 25 ? "Emerging voice" : "Limited reach";
