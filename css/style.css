@@ -357,10 +357,10 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 
 /* Unit icons: colour by technology tier, faded when poorly maintained */
 .unit-icon { pointer-events: none; fill: currentColor; }
-.tier-advanced { color: #9eefff; filter: drop-shadow(0 0 1.5px #39c6ff); }
+.tier-advanced { color: #9eefff; }
 .tier-standard { color: #f0c66a; }
 .tier-dated { color: #b98a5e; }
-.unit-icon.worn { opacity: .6; filter: grayscale(.7); }
+.unit-icon.worn { opacity: .5; }
 .base .garrison { fill: #0c131699; }
 .base .garrison.naval { fill: #0c131699; }
 .army .spot { fill: #0c1316cc; }
@@ -381,3 +381,23 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .army .spot.aiwar { fill: #2a1638cc; stroke: #b57ee0; }
 .front.aiwar { border-color: #b57ee0; }
 .log li.world { border-color: #b57ee0; }
+
+/* Satellite terrain under the SVG map */
+.terrain { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.terrain canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.mapwrap svg { position: relative; }
+.terrain-on .sphere { fill: transparent; }
+.terrain-on .graticule { stroke: #ffffff14; }
+.terrain-on .country { stroke: #ffffffaa; stroke-width: .5; }
+.terrain-on .country.selected { stroke: #fff; stroke-width: 2; }
+.zoomctl button[aria-pressed="true"]#zterrain { color: var(--brass); }
+
+/* Unit kinds and equipment models */
+.kit { cursor: help; }
+.kit-bg { fill: #0c1316dd; stroke: #ffffff40; stroke-width: .8; vector-effect: non-scaling-stroke; }
+.kit text { fill: #fff; text-anchor: middle; font-family: var(--font-data); paint-order: stroke; stroke: #0c1316; pointer-events: none; }
+.kit use { pointer-events: none; }
+.bc-models { display: grid; gap: 4px; margin: 8px 0; font-size: 12.5px; }
+.mline { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
+.mline svg { width: 22px; height: 22px; }
+.basecard { max-height: calc(100% - 24px); overflow: auto; }

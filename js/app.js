@@ -292,6 +292,23 @@
       advanced: '<path d="M1 15h22l-4 5H5z"/><path d="M6 15l2-6h7l3 6z"/><path d="M11 4.5h2l1 4.5h-4z"/>',
     },
   };
+  const one = body => ({ dated: body, standard: body, advanced: body });
+  Object.assign(ICONS, {
+    // Wheeled armoured vehicle: long hull on four wheels with a small turret.
+    afv: one('<path d="M2 11h18l3 3v3H1v-3z"/><path d="M9 7.5h5V11H9z"/><path d="M14 8.5h5.5v1.2H14z"/><circle cx="5" cy="18" r="2"/><circle cx="10" cy="18" r="2"/><circle cx="15" cy="18" r="2"/><circle cx="20" cy="18" r="2"/>'),
+    // Self-propelled gun: low tracked body and a long raised barrel.
+    arty: one('<path d="M2 15h14l-1.5 4H3.5z"/><path d="M4 11h8v4H4z"/><path d="M11 11.6l10.2-6.2.8 1.3-10.2 6.2z"/><circle cx="5.5" cy="19.5" r="1.2" opacity=".5"/><circle cx="12" cy="19.5" r="1.2" opacity=".5"/>'),
+    // Transport / tanker / bomber: straight wide wings with engine pods.
+    transport: one('<path d="M11 1h2l.6 7.5L23 12v2l-9.4-2-.6 6.5 3 2V22l-4-.8-4 .8v-1.5l3-2-.6-6.5L1 14v-2l9.4-3.5z"/><path d="M5 9.5h2v3H5zM17 9.5h2v3h-2z" opacity=".55"/>'),
+    // Helicopter: rotor, cabin, tail boom and skids.
+    heli: one('<path d="M2 5.5h20v1.2H2z"/><path d="M11.4 6.5h1.2v2.5h-1.2z"/><path d="M6 13a4.5 4 0 0 1 9 0v1.5a3 2.5 0 0 1-3 2.5H9a3 2.5 0 0 1-3-2.5z"/><path d="M14.5 12.4H21v1.4h-6.5z"/><path d="M20 10.2h1.3v5.6H20z"/><path d="M6 19h9v1.1H6z"/>'),
+    // Submarine: long hull with a sail.
+    sub: one('<path d="M1.5 14.5c0-2 2-3.2 5-3.2h11.5c2.6 0 4.5 1.3 4.5 3.2s-1.9 3.2-4.5 3.2H6.5c-3 0-5-1.2-5-3.2z"/><path d="M9 8h4l.6 3.4H8.4z"/><path d="M10.6 5.5h.9V8h-.9z"/>'),
+    // Aircraft carrier: flat deck with an island.
+    carrier: one('<path d="M1 13.5h22l-2.2 5H3.6z"/><path d="M15 7.5h3.2v6H15z"/><path d="M16 5h1.2v2.5H16z"/><path d="M3 11.6h11v1.2H3z" opacity=".6"/>'),
+  });
+  // Icon for each kind of unit.
+  const KIT_ICON = { troops: "soldier", tanks: "tank", afv: "afv", arty: "arty", fighters: "jet", aircraft: "transport", helis: "heli", ships: "ship", subs: "sub", carriers: "carrier" };
   Object.entries(ICONS).forEach(([type, tiers]) => Object.entries(tiers).forEach(([tier, body]) =>
     defs.append("symbol").attr("id", `ic-${type}-${tier}`).attr("viewBox", "0 0 24 24").html(body)));
 
@@ -300,22 +317,16 @@
   const iconClass = iso => `unit-icon tier-${window.techTier(effGen(iso))}${BY[iso].tech.ready < 0.6 ? " worn" : ""}`;
   const iconHref = (type, iso) => `#ic-${type}-${window.techTier(effGen(iso))}`;
   // Most important kind of force at a base: fleet, air wing, armour or infantry.
-  function zoneType(c, z) {
-    const kit = z.kit || {};
-    if (z.navalPct > z.groundPct && (kit.ships || kit.subs || kit.carriers)) return "ship";
-    if (z.airPct > z.groundPct * 2 && (kit.fighters || kit.aircraft || kit.helis)) return "jet";
-    if ((kit.tanks || 0) >= 5 && (kit.tanks || 0) >= c.tanks * z.groundPct * 0.8) return "tank";
-    return "soldier";
+  // Units at a base or in an army as {key: count}, troops in thousands.
+  const zoneUnits = (c, z) => ({ troops: c.active * z.groundPct, ...(z.kit || {}) });
+  // Strongest kind of unit (count × combat value) decides the main icon.
+  function mainKind(units) {
+    let best = "troops", bv = -1;
+    window.UNITS.forEach(u => { const v = (units[u.key] || 0) * u.power; if (v > bv) { bv = v; best = u.key; } });
+    return KIT_ICON[best];
   }
-  // Most powerful kind of unit in an army.
-  function armyType(units) {
-    const p = { soldier: 0, tank: 0, jet: 0, ship: 0 };
-    window.UNITS.forEach(u => {
-      const v = (units[u.key] || 0) * u.power;
-      p[u.kind === "naval" ? "ship" : u.kind === "air" ? "jet" : u.key === "troops" ? "soldier" : "tank"] += v;
-    });
-    return Object.keys(p).reduce((a, b) => (p[b] > p[a] ? b : a));
-  }
+  const zoneType = (c, z) => mainKind(zoneUnits(c, z));
+  const armyType = units => mainKind(units);
   const techLine = iso => { const t = BY[iso].tech; return `Gen ${effGen(iso).toFixed(1)} ${window.techTier(effGen(iso))} kit · readiness ${Math.round(t.ready * 100)}% (${window.readyLabel(t.ready)})`; };
 
   let k = 1;
@@ -331,14 +342,31 @@
       const e = enter.append("g").attr("class", "base");
       e.append("circle");
       e.append("use");
+      e.append("g").attr("class", "kits");
       return e;
+    });
+    // At province and base zoom each base shows a ring of icons, one per kind of unit there.
+    g.select("g.kits").each(function (z) {
+      const units = zoneUnits(c, z), kinds = window.UNITS.filter(u => (u.key === "troops" ? units.troops >= 0.05 : units[u.key] >= 1));
+      const kg = d3.select(this).selectAll("g.kit").data(kinds.map(u => ({ key: u.key, n: units[u.key], label: u.label })), d => d.key).join(en => {
+        const x = en.append("g").attr("class", "kit");
+        x.append("circle").attr("class", "kit-bg");
+        x.append("use");
+        x.append("text");
+        return x;
+      });
+      kg.select("use").attr("href", d => iconHref(KIT_ICON[d.key], selected)).attr("class", iconClass(selected));
+      kg.select("text").text(d => (d.key === "troops" ? kPers(d.n) : num(d.n)));
+      kg.on("mousemove", (e, d) => { const ms = window.splitModels(c, d.key, Math.round(d.n));
+        tip.innerHTML = `<b>${esc(d.key === "troops" ? kPers(d.n) + " troops" : num(d.n) + " " + d.label.toLowerCase())}</b><div class="k">${esc(z.name)}</div>${d.key === "troops" ? `<div class="tipnote">${esc(c.equipment.small)}</div>` : ms.length ? `<div class="tipnote">${ms.map(m => `${num(m[1])} × ${esc(m[0])}`).join("<br>")}</div>` : ""}`; placeTip(e); })
+        .on("mouseleave", hideTip);
     });
     g.select("circle")
       .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
       .classed("picked", z => z.name === pickedZone)
       .on("mousemove", (e, z) => zoneTip(e, z))
       .on("mouseleave", hideTip)
-      .on("click", (e, z) => { e.stopPropagation(); hideTip(); pickZone(z, false); });
+      .on("click", (e, z) => { e.stopPropagation(); hideTip(); pickZone(z, true); });
     g.select("use").attr("href", z => iconHref(zoneType(c, z), selected)).attr("class", iconClass(selected || "USA"));
     placeBases();
   }
@@ -348,11 +376,151 @@
       const g = d3.select(this);
       g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
       g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
+      const kits = g.select("g.kits").style("display", k >= 60 ? null : "none");
+      if (k < 60) return;
+      const items = kits.selectAll("g.kit"), n = items.size(), s2 = 18 / k, R = r + s2 * 1.2 + n * 1.5 / k;
+      items.each(function (d, i) {
+        const a = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(1, n), kx = x + R * Math.cos(a), ky = y + R * Math.sin(a);
+        const it = d3.select(this);
+        it.select("circle").attr("cx", kx).attr("cy", ky).attr("r", s2 * 0.75);
+        it.select("use").attr("x", kx - s2 / 2).attr("y", ky - s2 / 2).attr("width", s2).attr("height", s2);
+        it.select("text").attr("x", kx).attr("y", ky + s2 * 1.3).style("font-size", 10 / k + "px").style("stroke-width", 2.5 / k + "px");
+      });
     });
   }
+  // ── Terrain ───────────────────────────────────────────────
+  // NASA Blue Marble (topography and bathymetry, December 2004, public domain) warped onto the
+  // map's Natural Earth projection. The equirectangular image is cut into small longitude /
+  // latitude cells and each is drawn with its own affine transform, so no pixels are read back
+  // and it also works when the game is opened from a file. A world layer is drawn once; a sharper
+  // patch is drawn for the selected country or province from 45° × 45° tiles of a 10,800-pixel image.
+  const terrainBox = document.createElement("div");
+  terrainBox.className = "terrain";
+  wrap.insertBefore(terrainBox, wrap.firstChild);
+  const worldCv = document.createElement("canvas"), detailCv = document.createElement("canvas");
+  terrainBox.append(worldCv, detailCv);
+  let terrainOn = true;
+  try { terrainOn = localStorage.getItem("ww3-terrain") !== "off"; } catch (e) { /* storage unavailable */ }
+  const imgCache = {};
+  const loadImg = src => imgCache[src] || (imgCache[src] = new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }));
+  let worldBox = null, detailBox = null, detailJob = 0;
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+
+  // Projected bounding box (at zoom 1) of a lon/lat rectangle, from a grid of sample points.
+  function boxOf(lon0, lon1, lat0, lat1) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i <= 12; i++) for (let j = 0; j <= 12; j++) {
+      const p = projection([lon0 + (lon1 - lon0) * i / 12, lat0 + (lat1 - lat0) * j / 12]);
+      if (!p) continue;
+      x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+    }
+    return { x0, y0, x1, y1 };
+  }
+  // Draw the part of one image (covering lon ilon0.., lat ..ilat1 at ppd pixels per degree) that
+  // falls in [lonA, lonB] × [latA, latB], in cells of `step` degrees, onto a canvas whose pixel
+  // (0,0) is projected point (ox, oy) and which has s canvas pixels per map unit.
+  function drawCells(ctx, img, ilon0, ilat1, ppd, lonA, lonB, latA, latB, step, s, ox, oy) {
+    const ilon1 = ilon0 + img.width / ppd, ilat0 = ilat1 - img.height / ppd, pad = step * 0.08;
+    for (let lon = lonA; lon < lonB - 1e-9; lon += step) {
+      for (let lat = latB; lat > latA + 1e-9; lat -= step) {
+        const e1 = Math.min(lon + step + pad, lonB + pad, ilon1), e0 = Math.max(lat - step - pad, latA - pad, ilat0);
+        const sx = (lon - ilon0) * ppd, sy = (ilat1 - lat) * ppd, sw = (e1 - lon) * ppd, sh = (lat - e0) * ppd;
+        if (sw <= 0 || sh <= 0) continue;
+        const p0 = projection([lon, lat]), p1 = projection([e1, lat]), p2 = projection([lon, e0]);
+        ctx.setTransform((p1[0] - p0[0]) * s / sw, (p1[1] - p0[1]) * s / sw, (p2[0] - p0[0]) * s / sh, (p2[1] - p0[1]) * s / sh, (p0[0] - ox) * s, (p0[1] - oy) * s);
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  function drawWorldTerrain() {
+    if (!terrainOn) return;
+    loadImg("vendor/terrain/world.jpg?v=15").then(img => {
+      const b = path.bounds({ type: "Sphere" }), [x0, y0] = b[0], [x1, y1] = b[1];
+      const s = Math.min(2 * DPR, 4096 / (x1 - x0));
+      worldCv.width = Math.ceil((x1 - x0) * s); worldCv.height = Math.ceil((y1 - y0) * s);
+      const ctx = worldCv.getContext("2d");
+      ctx.save();
+      ctx.setTransform(s, 0, 0, s, -x0 * s, -y0 * s);
+      ctx.beginPath(); d3.geoPath(projection, ctx)({ type: "Sphere" }); ctx.clip();
+      drawCells(ctx, img, -180, 90, img.width / 360, -180, 180, -90, 90, 3, s, x0, y0);
+      ctx.restore();
+      worldBox = { x0, y0, x1, y1, cv: worldCv };
+      positionTerrain(d3.zoomTransform(svg.node()));
+    }).catch(() => {});
+  }
+  // Sharper terrain for whatever is on screen, redrawn at screen resolution whenever zooming
+  // or panning stops (a single stretched image turns black at deep zoom). Mid zoom uses 45°
+  // tiles of a 10,800-px world; province and base zoom use 22.5° tiles of a 21,600-px world.
+  let viewTimer = null;
+  const scheduleView = () => { clearTimeout(viewTimer); viewTimer = setTimeout(drawViewTerrain, 160); };
+  function drawViewTerrain() {
+    const job = ++detailJob;
+    const t = d3.zoomTransform(svg.node());
+    if (!terrainOn || t.k < 2.5) { detailBox = null; detailCv.style.display = "none"; return; }
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const x0 = -t.x / t.k, y0 = -t.y / t.k, x1 = (w - t.x) / t.k, y1 = (h - t.y) / t.k;
+    let lon0 = 180, lon1 = -180, lat0 = 90, lat1 = -90, any = false;
+    for (let i = 0; i <= 14; i++) for (let j = 0; j <= 14; j++) {
+      const g = projection.invert([x0 + (x1 - x0) * i / 14, y0 + (y1 - y0) * j / 14]);
+      if (!g || !isFinite(g[0]) || Math.abs(g[1]) > 90) continue;
+      any = true;
+      lon0 = Math.min(lon0, g[0]); lon1 = Math.max(lon1, g[0]); lat0 = Math.min(lat0, g[1]); lat1 = Math.max(lat1, g[1]);
+    }
+    if (!any) return;
+    const pl = (lon1 - lon0) * 0.06 + 0.2, pt = (lat1 - lat0) * 0.06 + 0.2;
+    lon0 = Math.max(-180, lon0 - pl); lon1 = Math.min(180, lon1 + pl); lat0 = Math.max(-90, lat0 - pt); lat1 = Math.min(90, lat1 + pt);
+    const s = t.k * DPR, step = Math.max(0.02, Math.min(3, (lon1 - lon0) / Math.max(6, w / 28)));
+    const hi = t.k >= 25, deg = hi ? 22.5 : 45, dir = hi ? "hi" : "tiles";
+    const tiles = [];
+    for (let tx = 0; tx < 360 / deg; tx++) for (let ty = 0; ty < 180 / deg; ty++) {
+      const tl0 = -180 + deg * tx, tl1 = tl0 + deg, tb1 = 90 - deg * ty, tb0 = tb1 - deg;
+      if (tl1 > lon0 && tl0 < lon1 && tb1 > lat0 && tb0 < lat1) tiles.push({ tx, ty, tl0, tl1, tb0, tb1 });
+    }
+    if (tiles.length > 24) return; // too wide a view for detail; the world layer covers it
+    Promise.all(tiles.map(tl => loadImg(`vendor/terrain/${dir}/${tl.tx}_${tl.ty}.jpg?v=15`).then(img => ({ ...tl, img })))).then(list => {
+      if (job !== detailJob) return;
+      const cv = document.createElement("canvas");
+      cv.width = Math.ceil((x1 - x0) * s); cv.height = Math.ceil((y1 - y0) * s);
+      const ctx = cv.getContext("2d");
+      ctx.save();
+      ctx.setTransform(s, 0, 0, s, -x0 * s, -y0 * s);
+      ctx.beginPath(); d3.geoPath(projection, ctx)({ type: "Sphere" }); ctx.clip();
+      list.forEach(tl => drawCells(ctx, tl.img, tl.tl0, tl.tb1, tl.img.width / deg,
+        Math.max(lon0, tl.tl0), Math.min(lon1, tl.tl1), Math.max(lat0, tl.tb0), Math.min(lat1, tl.tb1), step, s, x0, y0));
+      ctx.restore();
+      // Swap in the finished canvas so the old view stays up while the new one draws.
+      detailCv.width = cv.width; detailCv.height = cv.height;
+      detailCv.getContext("2d").drawImage(cv, 0, 0);
+      detailBox = { x0, y0, x1, y1, cv: detailCv };
+      detailCv.style.display = "";
+      positionTerrain(d3.zoomTransform(svg.node()));
+    }).catch(() => {});
+  }
+  function positionTerrain(t) {
+    [worldBox, detailBox].forEach(bx => {
+      if (!bx) return;
+      bx.cv.style.width = bx.x1 - bx.x0 + "px"; bx.cv.style.height = bx.y1 - bx.y0 + "px";
+      bx.cv.style.transform = `translate(${t.x + t.k * bx.x0}px, ${t.y + t.k * bx.y0}px) scale(${t.k})`;
+    });
+  }
+  function setTerrain(on) {
+    terrainOn = on;
+    try { localStorage.setItem("ww3-terrain", on ? "on" : "off"); } catch (e) { /* ignore */ }
+    wrap.classList.toggle("terrain-on", on);
+    terrainBox.hidden = !on;
+    $("#zterrain").setAttribute("aria-pressed", on);
+    if (on) { if (!worldBox) drawWorldTerrain(); drawViewTerrain(); }
+    paint();
+  }
+
   const zoom = d3.zoom().scaleExtent([1, 400]).on("zoom", e => {
     k = e.transform.k;
     root.attr("transform", e.transform);
+    positionTerrain(e.transform);
+    scheduleView();
+    // SVG patterns break up at deep zoom, so locked countries switch to a plain fill past 6×.
+    if ((k > 6) !== deepZoom) { deepZoom = k > 6; paint(); }
     markerSel.attr("r", 3.2 / shrink());
     placeBases();
     placeArmies();
@@ -369,6 +537,9 @@
     zoom.translateExtent([[-w * 0.2, -h * 0.2], [w * 1.2, h * 1.2]]);
     drawDeploy();
     drawArmies();
+    worldBox = null;
+    drawWorldTerrain();
+    scheduleView();
   }
   // Army routes (dashed lines) and unit icons for armies on the move, battles, revolts and stations.
   // Icons show each army's main unit type in its nation's technology tier.
@@ -424,6 +595,10 @@
   $("#zin").onclick = () => svg.transition().call(zoom.scaleBy, 1.8);
   $("#zout").onclick = () => svg.transition().call(zoom.scaleBy, 1 / 1.8);
   $("#zreset").onclick = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
+  $("#zterrain").onclick = () => setTerrain(!terrainOn);
+  wrap.classList.toggle("terrain-on", terrainOn);
+  terrainBox.hidden = !terrainOn;
+  $("#zterrain").setAttribute("aria-pressed", terrainOn);
 
   // ── Colour modes ───────────────────────────────────────────
   const ramp = (hi, key, scale) => {
@@ -452,13 +627,23 @@
     }
     return G.isLocked(iso) ? "url(#hatch)" : COL.teal;
   }
+  let deepZoom = false;
   function fillFor(iso) {
     if (!iso) return "#161f21";
-    if (mode === "campaign") return campaignColor(iso);
+    if (mode === "campaign") { const v = campaignColor(iso); return deepZoom && v.startsWith("url") ? COL.locked : v; }
     return MODES[mode].color(BY[iso]);
   }
+  // With terrain on, country colours are translucent so the land shows through.
+  function fillOpacity(iso) {
+    if (!terrainOn) return null;
+    if (!iso) return 0.15;
+    if (mode !== "campaign") return 0.62;
+    const s = G.state;
+    if (s.player) return s.owner[iso] === s.player ? 0.55 : s.owner[iso] !== iso ? 0.5 : G.isLocked(iso) ? 0.35 : 0.1;
+    return G.isLocked(iso) ? 0.35 : 0.45;
+  }
   function paint() {
-    countryPaths.attr("fill", f => fillFor(f.iso)).classed("selected", f => f.iso && f.iso === selected);
+    countryPaths.attr("fill", f => fillFor(f.iso)).attr("fill-opacity", f => fillOpacity(f.iso)).classed("selected", f => f.iso && f.iso === selected);
     markerSel.attr("fill", m => { const v = fillFor(m.c.iso3); return v.startsWith("url") ? COL.muted : v; })
       .classed("selected", m => m.c.iso3 === selected);
     legend();
@@ -522,6 +707,15 @@
     tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(selected))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
     placeTip(e);
   }
+  // Weapon models behind a set of unit counts, one line per kind, with its icon.
+  function modelLines(c, units) {
+    return window.UNITS.filter(u => (u.key === "troops" ? units.troops >= 0.05 : units[u.key] >= 1)).map(u => {
+      const icon = `<svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-${KIT_ICON[u.key]}-${window.techTier(effGen(c.iso3))}"/></svg>`;
+      const body = u.key === "troops" ? `${kPers(units.troops)} troops: ${esc(c.equipment.small)}` :
+        `${esc(u.label)}: ${window.splitModels(c, u.key, Math.round(units[u.key])).map(m => `${num(m[1])} ${esc(m[0])}`).join(", ") || num(units[u.key])}`;
+      return `<div class="mline">${icon}<span>${body}</span></div>`;
+    }).join("");
+  }
   // Clicking a base pins its card on the map and highlights it in the dossier list.
   function pickZone(z, fly) {
     pickedZone = z.name;
@@ -532,11 +726,12 @@
       <h4>${esc(z.name)}</h4>${host ? `<span class="tag">${esc(host)}</span>` : ""}
       <dl>${zoneStats(c, z).map(t => { const [n, ...rest] = t.split(" "); return `<div><dd>${n}</dd><dt>${rest.join(" ")}</dt></div>`; }).join("")}</dl>
       <p>${esc(z.note)}</p>
+      <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
       <button class="bc-fly">Zoom to base</button>`;
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.
-    const baseK = () => Math.max(d3.zoomTransform(svg.node()).k * 2.5, province ? 120 : 70);
+    const baseK = () => Math.min(250, Math.max(d3.zoomTransform(svg.node()).k * 2.5, province ? 180 : 120));
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, baseK());
     if (fly) flyTo(z.at, baseK());
     if (tab !== "dossier") setTab("dossier");
@@ -784,6 +979,8 @@
     const provHtml = `<div class="section"><h3>State / province <small>${provs.length ? `${provs.length} regions` : "loading…"}</small></h3>
         ${provs.length ? `<select id="prov-sel" class="provsel" aria-label="State or province"><option value="">Whole country</option>${provs.map(f => `<option ${f.properties.name === province ? "selected" : ""}>${esc(f.properties.name)}</option>`).join("")}</select>` : ""}
         ${provBody}</div>`;
+    const equipHtml = `<div class="section"><h3>Equipment <span class="tag">${c.equipSource === "researched" ? "researched" : esc(c.equipSource.replace("_", " ")) + " template"}</span></h3>
+        <div class="bc-models">${modelLines(c, G.baseForces(c))}</div></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p></div>`;
@@ -823,6 +1020,7 @@
           <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
 
       ${profileHtml}
+      ${equipHtml}
 
       <div class="section"><h3>Force disposition <small>${zones.hand ? "hand-placed" : "modelled"}</small></h3>
         <p class="hint">${zones.hand ? "Hand-placed from open sources: command HQs, corps, division and brigade garrisons, air and naval bases, and declared overseas deployments." : "Modelled: the capital reserve, regional garrisons, units on tense borders sized by threat, and the fleet on the coast."} Shown as rings on the map, with dashed rings for forces abroad. These are where forces sit, not an ideal spread.</p>
@@ -1053,6 +1251,7 @@
     const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(kk).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
     const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     (reduce ? svg : svg.transition().duration(750)).call(zoom.transform, t);
+    return kk;
   }
   // Fly the map to a country, framing its largest landmass (e.g. the contiguous US, metropolitan France).
   function zoomTo(iso) {
