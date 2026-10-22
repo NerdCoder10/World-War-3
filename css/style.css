@@ -352,3 +352,21 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
   font: 600 13px var(--font-display); letter-spacing: .1em; text-transform: uppercase;
 }
 .reset-btn:hover, .reset-btn.armed { border-color: var(--danger); color: var(--danger); }
+.route.enemy { stroke: var(--danger); }
+.spot.attack { fill: #ff3b3bcc; stroke: #fff; }
+
+/* Unit icons: colour by technology tier, faded when poorly maintained */
+.unit-icon { pointer-events: none; fill: currentColor; }
+.tier-advanced { color: #9eefff; filter: drop-shadow(0 0 1.5px #39c6ff); }
+.tier-standard { color: #f0c66a; }
+.tier-dated { color: #b98a5e; }
+.unit-icon.worn { opacity: .6; filter: grayscale(.7); }
+.base .garrison { fill: #0c131699; }
+.base .garrison.naval { fill: #0c131699; }
+.army .spot { fill: #0c1316cc; }
+.army .spot.move { stroke: var(--brass); stroke-dasharray: 2 2; }
+.army .spot.attack { fill: #3a0d0dcc; stroke: #ff4d4d; }
+.army { cursor: pointer; }
+.techrow { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: -4px 0 10px; color: var(--muted); }
+.techrow b { color: var(--fg); }
+.techrow svg { width: 26px; height: 26px; flex: none; }

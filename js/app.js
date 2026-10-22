@@ -87,12 +87,55 @@
     pts.forEach(p => { const sc = r.reduce((a, q) => a + d3.geoDistance(p, q), 0); if (sc > score) { score = sc; best = p; } });
     return best;
   }
+  // Which weapons sit at each base. Each type is shared out by the base's ground, air or naval
+  // share, weighted by what the base is (fighter wing, submarine base, armoured division...),
+  // then rounded so the bases add up to the national inventory.
+  const RX = {
+    armour: /armou?r|tank|mechani[sz]ed|cavalry|heavy brigade|panzer/i,
+    light: /airborne|air assault|marine|mountain|light|special forces|commando|school|academy|headquarters|\bHQ\b|command\b|logistic|training|peacekeep|UN mission|UN peacekeeping|ceremonial|guard/i,
+    infantry: /mechani[sz]ed|motori[sz]ed|infantry|armou?r|brigade|division/i,
+    arty: /artillery|fires|rocket|MLRS|missile brigade|HIMARS/i,
+    fighter: /F-\d|F\/A-18|fighter|Su-\d|MiG|Rafale|Typhoon|Gripen|Mirage|J-\d|JF-17|Tornado|interceptor|strike wing|attack aircraft|combat aircraft/i,
+    support: /airlift|transport|tanker|C-1\d\d|C-17|A400M|bomber|B-\d|reconnaissance|AWACS|maritime patrol|P-8|trainer|training|flight school|UAV|drone|U-2/i,
+    heli: /helicopter|aviation|Apache|airmobile|air assault|Black Hawk|Mi-\d/i,
+    sub: /submarine|SSBN|SSN/i,
+    carrier: /carrier|LHD|amphibious assault ship/i,
+  };
+  const KIT = [
+    ["tanks", "tank", "tanks"], ["afv", "armoured vehicle", "armoured vehicles"], ["arty", "artillery piece", "artillery"],
+    ["fighters", "fighter/attack jet", "fighter/attack jets"], ["aircraft", "other aircraft", "other aircraft"],
+    ["helis", "helicopter", "helicopters"], ["ships", "naval vessel", "naval vessels"], ["subs", "submarine", "submarines"], ["carriers", "carrier", "carriers"],
+  ];
+  function kitWeight(z, key) {
+    const t = z.name + " " + z.note, has = k => RX[k].test(t);
+    const army = z.navalPct > z.groundPct || z.airPct > z.groundPct * 3 ? z.groundPct * 0.15 : z.groundPct;
+    switch (key) {
+      case "tanks": return army * (has("armour") ? 3 : 1) * (has("light") ? 0.25 : 1);
+      case "afv": return army * (has("infantry") ? 2 : 1) * (has("light") ? 0.5 : 1);
+      case "arty": return army * (has("arty") ? 4 : 1) * (has("light") ? 0.4 : 1);
+      case "fighters": return z.airPct * (has("fighter") ? 4 : 1) * (has("support") && !has("fighter") ? 0.3 : 1);
+      case "aircraft": return z.airPct * (has("support") ? 4 : 1) * (has("fighter") && !has("support") ? 0.5 : 1);
+      case "helis": return (0.6 * z.airPct + 0.4 * z.groundPct) * (has("heli") ? 5 : 1);
+      case "ships": return z.navalPct;
+      case "subs": return z.navalPct * (has("sub") ? 6 : 0.4);
+      case "carriers": return z.navalPct * (has("carrier") ? 10 : 0.2);
+    }
+    return 0;
+  }
   function computeDeployment(iso) {
-    const zones = deploymentFor(iso);
-    // Tanks sit at army garrisons: none at naval bases, few at air-heavy bases.
-    const tw = z => (z.navalPct > 0 ? 0 : z.groundPct * (z.airPct > z.groundPct * 3 ? 0.2 : 1));
-    const tt = zones.reduce((a, z) => a + tw(z), 0) || 1;
-    zones.forEach(z => (z.tankPct = tw(z) / tt));
+    const zones = deploymentFor(iso), c = BY[iso];
+    const totals = { tanks: c.tanks, afv: c.afv, arty: c.arty, fighters: c.fighters, aircraft: Math.max(0, c.aircraft - c.fighters), helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers };
+    zones.forEach(z => (z.kit = {}));
+    KIT.forEach(([key]) => {
+      const n = totals[key];
+      const w = zones.map(z => kitWeight(z, key)), tw = w.reduce((a, b) => a + b, 0);
+      if (!n || !tw) return;
+      // Largest-remainder rounding keeps whole units that add up to the national total.
+      const raw = w.map(x => (n * x) / tw), out = raw.map(Math.floor);
+      let left = n - out.reduce((a, b) => a + b, 0);
+      raw.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { out[i]++; left--; } });
+      zones.forEach((z, i) => (z.kit[key] = out[i]));
+    });
     return zones;
   }
   function deploymentFor(iso) {
@@ -220,25 +263,95 @@
   baseCard.hidden = true;
   wrap.appendChild(baseCard);
 
+  // ── Unit icons ─────────────────────────────────────────────
+  // Soldier, tank, jet and ship silhouettes in three technology tiers: dated (1960s–80s kit,
+  // propeller planes, tall tanks, gunboats), standard (modern-ish) and advanced (stealth jets,
+  // low angular tanks, stealth destroyers). Colour follows the tier; poorly maintained forces
+  // are drawn faded and grey.
+  const ICONS = {
+    soldier: {
+      dated: '<path d="M9 4a3 3 0 0 1 6 0v1H9z"/><path d="M10 6h4v2h-4z"/><path d="M8 9h8l1 7h-2l-1 6h-4l-1-6H7z"/><path d="M17 8l4-6 1 1-4 6z"/>',
+      standard: '<path d="M8.5 5a3.5 3.5 0 0 1 7 0v1.5h-7z"/><path d="M10 7h4v2h-4z"/><path d="M7 10h10l1 6h-2l-1 6h-6l-1-6H6z"/><path d="M17 9.5h6V11h-6z"/>',
+      advanced: '<path d="M8 5a4 4 0 0 1 8 0v2H8z"/><path d="M10.5 1.2h3v2.6h-3z"/><path d="M10 8h4v1.5h-4z"/><path d="M6.5 10.5h11l.5 5.5h-2l-1 6h-7l-1-6H6z"/><path d="M9 12h6v3H9z" opacity=".45"/><path d="M17 11h6.5v1.5H17z"/><path d="M19.5 9.5h2v1.5h-2z"/>',
+    },
+    tank: {
+      dated: '<path d="M3 14h18l-2 5H5z"/><path d="M8 8.5h7v5.5H8z"/><path d="M15 10.5h4.5V12H15z"/><circle cx="7" cy="17" r="1" opacity=".4"/><circle cx="12" cy="17" r="1" opacity=".4"/><circle cx="17" cy="17" r="1" opacity=".4"/>',
+      standard: '<path d="M2 14h20l-2 5H4z"/><path d="M7 10h9l1 4H6z"/><path d="M16 11h7v1.5h-7z"/>',
+      advanced: '<path d="M1 15h22l-2 4H3z"/><path d="M6 11.5l2-2.5h8l2 2.5V15H6z"/><path d="M18 11.4h6v1.1h-6z"/><path d="M10 6.5h3V9h-3z"/>',
+    },
+    jet: {
+      dated: '<path d="M11 4h2v3.5h8v3h-8v6h3v2h-8v-2h3v-6H3v-3h8z"/><path d="M8 2.5h8v1H8z"/>',
+      standard: '<path d="M12 1l1.5 6 8 5v2l-8-2-.5 6 3 2.5V22l-4-1-4 1v-1.5l3-2.5-.5-6-8 2v-2l8-5z"/>',
+      advanced: '<path d="M12 1l3 7 8 7-1 2-6-1-1 3H9l-1-3-6 1-1-2 8-7z"/><path d="M9.3 15.5l-1.2 4h1.4l.8-4zM14.7 15.5l1.2 4h-1.4l-.8-4z" opacity=".55"/>',
+    },
+    ship: {
+      dated: '<path d="M2 15h20l-3 5H5z"/><path d="M8 11h6v4H8z"/><path d="M15 9h2v6h-2z"/><path d="M10 6h1v5h-1z"/>',
+      standard: '<path d="M1 15h22l-3 5H4z"/><path d="M7 10h8v5H7z"/><path d="M10 5h1.5v5H10z"/><path d="M3 13h3v2H3z"/>',
+      advanced: '<path d="M1 15h22l-4 5H5z"/><path d="M6 15l2-6h7l3 6z"/><path d="M11 4.5h2l1 4.5h-4z"/>',
+    },
+  };
+  Object.entries(ICONS).forEach(([type, tiers]) => Object.entries(tiers).forEach(([tier, body]) =>
+    defs.append("symbol").attr("id", `ic-${type}-${tier}`).attr("viewBox", "0 0 24 24").html(body)));
+
+  // Effective technology of a nation's forces: its design generation plus your weapons research.
+  const effGen = iso => BY[iso].tech.gen + 0.15 * G.techLvl(iso, "weapons");
+  const iconClass = iso => `unit-icon tier-${window.techTier(effGen(iso))}${BY[iso].tech.ready < 0.6 ? " worn" : ""}`;
+  const iconHref = (type, iso) => `#ic-${type}-${window.techTier(effGen(iso))}`;
+  // Most important kind of force at a base: fleet, air wing, armour or infantry.
+  function zoneType(c, z) {
+    const kit = z.kit || {};
+    if (z.navalPct > z.groundPct && (kit.ships || kit.subs || kit.carriers)) return "ship";
+    if (z.airPct > z.groundPct * 2 && (kit.fighters || kit.aircraft || kit.helis)) return "jet";
+    if ((kit.tanks || 0) >= 5 && (kit.tanks || 0) >= c.tanks * z.groundPct * 0.8) return "tank";
+    return "soldier";
+  }
+  // Most powerful kind of unit in an army.
+  function armyType(units) {
+    const p = { soldier: 0, tank: 0, jet: 0, ship: 0 };
+    window.UNITS.forEach(u => {
+      const v = (units[u.key] || 0) * u.power;
+      p[u.kind === "naval" ? "ship" : u.kind === "air" ? "jet" : u.key === "troops" ? "soldier" : "tank"] += v;
+    });
+    return Object.keys(p).reduce((a, b) => (p[b] > p[a] ? b : a));
+  }
+  const techLine = iso => { const t = BY[iso].tech; return `Gen ${effGen(iso).toFixed(1)} ${window.techTier(effGen(iso))} kit · readiness ${Math.round(t.ready * 100)}% (${window.readyLabel(t.ready)})`; };
+
   let k = 1;
   function garrR(z) { return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / Math.sqrt(k); }
+  const iconR = r => Math.max(r * 1.25, 5 / Math.sqrt(k));
   function drawDeploy() {
     // Largest rings first so smaller bases sit on top and stay hoverable.
     const zones = (selected ? computeDeployment(selected) : []).sort((x, y) => garrR(y) - garrR(x));
-    deployLayer.selectAll("circle").data(zones).join("circle")
+    const c = selected && BY[selected];
+    const g = deployLayer.selectAll("g.base").data(zones, z => z.name).join(enter => {
+      const e = enter.append("g").attr("class", "base");
+      e.append("circle");
+      e.append("use");
+      return e;
+    });
+    g.select("circle")
       .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
-      .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR)
       .classed("picked", z => z.name === pickedZone)
       .on("mousemove", (e, z) => zoneTip(e, z))
       .on("mouseleave", hideTip)
       .on("click", (e, z) => { e.stopPropagation(); hideTip(); pickZone(z, false); });
+    g.select("use").attr("href", z => iconHref(zoneType(c, z), selected)).attr("class", iconClass(selected || "USA"));
+    placeBases();
+  }
+  function placeBases() {
+    deployLayer.selectAll("g.base").each(function (z) {
+      const [x, y] = projection(z.at), r = garrR(z), ir = iconR(r);
+      const g = d3.select(this);
+      g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
+      g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
+    });
   }
   const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
     k = e.transform.k;
     root.attr("transform", e.transform);
     markerSel.attr("r", 3.2 / Math.sqrt(k));
-    deployLayer.selectAll("circle").attr("r", garrR);
-    armyLayer.selectAll("circle").attr("r", 6 / Math.sqrt(k));
+    placeBases();
+    placeArmies();
   });
   svg.call(zoom).on("dblclick.zoom", null);
 
@@ -252,24 +365,54 @@
     drawDeploy();
     drawArmies();
   }
-  // Army routes (dashed lines) and markers for battles, revolts and stationed armies.
+  // Army routes (dashed lines) and unit icons for armies on the move, battles, revolts and stations.
+  // Icons show each army's main unit type in its nation's technology tier.
   function drawArmies() {
-    const s = G.state, P = window.CENTROIDS, pt = iso => projection(P[iso]);
+    const s = G.state, P = window.CENTROIDS;
     const moving = s.armies.filter(a => !G.arrived(a) && P[a.from] && P[a.to]);
-    armyLayer.selectAll("path").data(moving).join("path").attr("class", "route")
+    const foes = s.enemies.filter(e => !G.arrived(e) && P[e.from] && P[e.to]);
+    armyLayer.selectAll("path").data([...moving, ...foes.map(e => ({ ...e, enemy: true }))]).join("path").attr("class", a => "route" + (a.enemy ? " enemy" : ""))
       .attr("d", a => path({ type: "LineString", coordinates: [P[a.from], P[a.to]] }));
-    const spots = new Map();
+    const marks = [];
+    const progress = a => Math.max(0.15, Math.min(0.9, (s.turn - a.sent) / Math.max(1, a.eta - a.sent)));
+    const name = iso => esc(BY[iso].name);
+    moving.forEach(a => marks.push({ at: d3.geoInterpolate(P[a.from], P[a.to])(progress(a)), kind: "move", type: armyType(a.units), nat: a.nat, go: a.to,
+      tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}, arrives turn ${a.eta}</div>` }));
+    foes.forEach(e => marks.push({ at: d3.geoInterpolate(P[e.from], P[e.to])(progress(e)), kind: "attack", type: armyType(e.units), nat: e.nat, go: e.to,
+      tip: `<b>${name(e.nat)} attack force</b><div class="k">→ ${name(e.to)}, arrives turn ${e.eta}</div>` }));
+    const seen = new Set();
     s.armies.filter(G.arrived).forEach(a => {
       const kind = !G.owns(a.to) ? "war" : G.inRevolt(a.to) ? "revolt" : a.to === a.nat ? null : "station";
-      if (kind && !spots.has(a.to)) spots.set(a.to, { iso: a.to, kind });
+      if (!kind || seen.has(a.to) || !P[a.to]) return;
+      seen.add(a.to);
+      marks.push({ at: P[a.to], kind, type: armyType(a.units), nat: a.nat, go: a.to,
+        tip: `<b>${name(a.to)}</b><div class="k">${{ war: "Battle", revolt: "Revolt", station: "Your army is stationed here" }[kind]}</div>` });
     });
-    Object.keys(s.revolts).forEach(iso => spots.set(iso, { iso, kind: "revolt" }));
-    const label = { war: "Battle", revolt: "Revolt", station: "Your army is stationed here" };
-    armyLayer.selectAll("circle").data([...spots.values()].filter(d => P[d.iso])).join("circle")
-      .attr("class", d => "spot " + d.kind).attr("cx", d => pt(d.iso)[0]).attr("cy", d => pt(d.iso)[1]).attr("r", 6 / Math.sqrt(k))
-      .on("click", (e, d) => { e.stopPropagation(); select(d.iso); })
-      .on("mousemove", (e, d) => { tip.innerHTML = `<b>${esc(BY[d.iso].name)}</b><div class="k">${label[d.kind]}</div>`; placeTip(e); })
+    Object.keys(s.revolts).forEach(iso => { if (!seen.has(iso) && P[iso]) { seen.add(iso); marks.push({ at: P[iso], kind: "revolt", type: "soldier", nat: iso, go: iso, tip: `<b>${name(iso)}</b><div class="k">Revolt</div>` }); } });
+    s.enemies.filter(G.arrived).forEach(e => { if (P[e.to]) marks.push({ at: P[e.to], kind: "attack", type: armyType(e.units), nat: e.nat, go: e.to, off: true, tip: `<b>${name(e.to)}</b><div class="k">Under attack by ${name(e.nat)}</div>` }); });
+    marks.forEach(m => (m.tip += `<div class="k">${esc(techLine(m.nat))}</div>`));
+    const g = armyLayer.selectAll("g.army").data(marks).join(enter => {
+      const e = enter.append("g").attr("class", "army");
+      e.append("circle");
+      e.append("use");
+      return e;
+    });
+    g.select("circle").attr("class", d => "spot " + d.kind);
+    g.select("use").attr("href", d => iconHref(d.type, d.nat)).attr("class", d => iconClass(d.nat));
+    g.on("click", (e, d) => { e.stopPropagation(); select(d.go); })
+      .on("mousemove", (e, d) => { tip.innerHTML = d.tip; placeTip(e); })
       .on("mouseleave", hideTip);
+    placeArmies();
+  }
+  function placeArmies() {
+    const r = 7 / Math.sqrt(k), ir = r * 1.7;
+    armyLayer.selectAll("g.army").each(function (d) {
+      let [x, y] = projection(d.at);
+      if (d.off) { x += r * 1.6; y -= r * 1.2; }
+      const g = d3.select(this);
+      g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
+      g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
+    });
   }
   window.addEventListener("resize", layout);
   layout();
@@ -364,23 +507,19 @@
   // Counts at one base; anything that rounds to zero is left out.
   const countOf = (n, one, many) => { const r = Math.round(n); return r >= 1 ? `${num(r)} ${r === 1 ? one : many}` : ""; };
   function zoneStats(c, z) {
-    return [
-      z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
-      countOf(c.tanks * z.tankPct, "tank", "tanks"),
-      countOf(c.aircraft * z.airPct, "aircraft", "aircraft"),
-      countOf(c.ships * z.navalPct, "vessel", "vessels"),
-    ].filter(Boolean);
+    return [z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : ""]
+      .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many))).filter(Boolean);
   }
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
     const c = BY[selected], host = hostLabel(z);
-    tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
+    tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(selected))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
     placeTip(e);
   }
   // Clicking a base pins its card on the map and highlights it in the dossier list.
   function pickZone(z, fly) {
     pickedZone = z.name;
-    deployLayer.selectAll("circle").classed("picked", d => d.name === pickedZone);
+    deployLayer.selectAll("circle.garrison").classed("picked", d => d.name === pickedZone);
     const c = BY[selected], host = hostLabel(z);
     baseCard.innerHTML = `<button class="bc-close" aria-label="Close base card">×</button>
       <div class="bc-kind">${z.host ? "Forces abroad" : "Home base"} · ${esc(c.name)}</div>
@@ -401,7 +540,7 @@
   function unpickZone() {
     pickedZone = null;
     baseCard.hidden = true;
-    deployLayer.selectAll("circle").classed("picked", false);
+    deployLayer.selectAll("circle.garrison").classed("picked", false);
     document.querySelectorAll("#pane-dossier li.picked").forEach(x => x.classList.remove("picked"));
   }
   function flyTo(at, minK) {
@@ -536,6 +675,16 @@
       const D = G.defenceOf(c.iso3);
       front = `<p class="hint">Defence strength ${D.total.toFixed(0)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(G.unitList(G.forces(c.iso3)) || "none")}.${c.nukes ? " ☢️ Nuclear power: it may strike your armies before it falls." : ""}</p>`;
     }
+    const foes = s.enemies.filter(e => e.to === c.iso3);
+    if (foes.length && G.owns(c.iso3)) {
+      const at = foes.filter(G.arrived), inv = (s.invasions || {})[c.iso3];
+      const E = at.reduce((x, e) => x + G.enemyPower(e), 0);
+      front += `<div class="front"><h4>🚨 ${at.length ? "Under attack" : "Attack incoming"}</h4>
+        ${inv ? `<div class="bar"><i style="width:${Math.min(100, inv.progress)}%;background:${COL.danger}"></i></div><p class="hint">The enemy is ${Math.round(inv.progress)}% of the way to taking ${esc(c.name)}. Enemy strength ${E.toFixed(0)} vs your defence ${G.homeDefence(c.iso3).toFixed(0)}.</p>` : ""}
+        ${foes.map(e => `<p class="hint"><b>${esc(BY[e.nat].name)}</b>: ${esc(G.unitList(e.units))}${G.arrived(e) ? " (fighting)" : `, arrives turn ${e.eta}`}.</p>`).join("")}
+        <p class="hint">Your defence: ${G.homeDefence(c.iso3).toFixed(0)} (this nation's unlocked forces, order and any armies stationed here). Send armies here or unlock weapons to hold it.</p></div>`;
+    }
+    if (!G.owns(c.iso3) && G.isHostile(c.iso3)) front += `<p class="hint">⚠️ ${esc(c.name)} is hostile and may attack your nations.</p>`;
     const list = here.length ? `<ul class="armies">${here.map(armyLi).join("")}</ul>` : "";
     if (!front && !list) return "";
     return `<div class="section"><h3>${G.owns(c.iso3) ? "Security" : "War room"}</h3>${front}${list}</div>`;
@@ -634,6 +783,8 @@
 
       <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/${C.length}</small></h3>
         <div class="big"><strong>${c.power}</strong><span>/ 100 power index</span></div>
+        <div class="techrow"><svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-jet-${window.techTier(effGen(c.iso3))}"/></svg>
+          <span><b>Gen ${effGen(c.iso3).toFixed(1)}</b> ${window.techTier(effGen(c.iso3))} technology · readiness <b>${Math.round(c.tech.ready * 100)}%</b> (${window.readyLabel(c.tech.ready)})${c.tech.estimated ? " <small>estimated</small>" : ""}</span></div>
         <div class="bar"><i style="width:${c.power}%;background:${MODES.power.hi}"></i></div>
         ${mine ? `<p class="hint armory">${lockedCount ? `${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} locked. Locked weapons don't fight. You have <b>${G.fmtCoins(G.state.coins)}</b> coins.` : "All weapons unlocked and ready."} Usable strength ${window.truePowerWith(c, have).toFixed(1)} of ${c.truePower}.</p>` : ""}
         <dl class="assets">${base.join("")}${weaponTiles.join("")}
@@ -651,7 +802,7 @@
       <div class="section"><h3>Secret assets <span class="tag">${s.estimated ? "modelled estimate" : "researched profile"}</span></h3>
         <div class="big"><strong>${c.secretIndex}</strong><span>/ 100 secret-assets index · #${c.secretRank}</span></div>
         <dl class="kv">
-          <div><dt>Est. true strength</dt><dd>${c.truePower} <small>#${c.truePowerRank} · +${c.hiddenUplift}% vs declared</small></dd></div>
+          <div><dt>Est. true strength</dt><dd>${c.truePower} <small>#${c.truePowerRank} · ${c.hiddenUplift >= 0 ? "+" : ""}${c.hiddenUplift}% vs declared</small></dd></div>
           <div><dt>Est. real defence spend</dt><dd>${money(s.trueBudget)} <small>${s.offbook ? "+" + s.offbook + "% off-book" : ""}</small></dd></div>
           <div><dt>Gold reserves</dt><dd>${s.gold ? num(s.gold) + " t" : "minor / unknown"}</dd></div>
           <div><dt>Sovereign funds</dt><dd>${s.swf ? money(s.swf) : "none major"}</dd></div>
@@ -751,7 +902,7 @@
           <div><dt>Empire GDP</dt><dd>${money(G.empireGdp())}</dd></div>
           <div><dt>World GDP share</dt><dd>${(share * 100).toFixed(1)}% <small>goal 50%</small></dd></div>
           <div><dt>Armies</dt><dd>${s.armies.length} <small>${s.armies.reduce((x, a) => x + G.armyPower(a), 0).toFixed(0)} strength</small></dd></div>
-          <div><dt>Wars · revolts</dt><dd>${Object.keys(s.wars).length} · ${Object.keys(s.revolts).length}</dd></div>
+          <div><dt>Wars · revolts · attacks</dt><dd>${Object.keys(s.wars).length} · ${Object.keys(s.revolts).length} · ${s.enemies.length}</dd></div>
           <div><dt>Soft power</dt><dd>${G.empireSoft().toFixed(0)}</dd></div>
           <div><dt>Warheads</dt><dd>${G.empireNukes() || "None"}</dd></div>
           <div><dt>Coins</dt><dd>${G.fmtCoins(s.coins)} <small>+${G.income()}/turn</small></dd></div>
@@ -764,6 +915,7 @@
     }
     const ops = s.player ? `<div class="section"><h3>Operations <small>turn ${s.turn}</small></h3>
         ${Object.keys(s.revolts).map(iso => `<p class="hint">🔥 <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a> is in revolt: rebels ${Math.round(s.revolts[iso].progress)}% of the way to independence.</p>`).join("")}
+        ${s.enemies.map(e => `<p class="hint">🚨 <b>${esc(BY[e.nat].name)}</b> ${G.arrived(e) ? "is attacking" : `will hit`} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : ` on turn ${e.eta}`}: ${esc(G.unitList(e.units))}.</p>`).join("")}
         ${Object.keys(s.wars).map(iso => `<p class="hint">⚔️ War in <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a>: defences ${Math.round(G.warProgress(iso) * 100)}% broken.</p>`).join("")}
         ${s.armies.length ? `<ul class="armies">${s.armies.map(armyLi).join("")}</ul>` : `<p class="hint">No armies in the field. Open any country's dossier and use "Send an invasion force" to pick units and launch an attack.</p>`}
         <button class="btn attack" id="endturn2" style="margin-top:10px" ${s.over ? "disabled" : ""}>End turn <small>+${G.income()} coins</small></button></div>` : "";
