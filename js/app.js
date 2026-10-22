@@ -198,10 +198,13 @@
   let k = 1;
   function garrR(z) { return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / Math.sqrt(k); }
   function drawDeploy() {
-    const zones = selected ? computeDeployment(selected) : [];
+    // Largest rings first so smaller bases sit on top and stay hoverable.
+    const zones = (selected ? computeDeployment(selected) : []).sort((x, y) => garrR(y) - garrR(x));
     deployLayer.selectAll("circle").data(zones).join("circle")
       .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
-      .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR);
+      .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR)
+      .on("mousemove", (e, z) => zoneTip(e, z))
+      .on("mouseleave", hideTip);
   }
   const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
     k = e.transform.k;
@@ -303,6 +306,24 @@
     tip.style.top = Math.min(y, r.height - tip.offsetHeight - 6) + "px";
   }
   function hideTip() { tip.hidden = true; }
+  function placeTip(e) {
+    const r = wrap.getBoundingClientRect();
+    tip.hidden = false;
+    tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 6) + "px";
+    tip.style.top = Math.min(e.clientY - r.top + 14, r.height - tip.offsetHeight - 6) + "px";
+  }
+  // Hover details for a base / garrison circle.
+  function zoneTip(e, z) {
+    const c = BY[selected];
+    const host = z.host ? (z.host === "TERR" ? "Overseas territory" : BY[z.host] ? BY[z.host].name : z.host) : "";
+    const parts = [
+      z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
+      c.aircraft && z.airPct > 0 ? `${num(Math.round(c.aircraft * z.airPct))} aircraft` : "",
+      c.ships && z.navalPct > 0 ? `${num(Math.round(c.ships * z.navalPct))} vessels` : "",
+    ].filter(Boolean).join(" · ");
+    tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(parts)}</div><div class="tipnote">${esc(z.note)}</div>`;
+    placeTip(e);
+  }
 
   // ── Dossier card ───────────────────────────────────────────
   function statusPill(c) {
