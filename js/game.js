@@ -87,7 +87,9 @@
     return empire().reduce((s, c) => s + usableStrength(c) * G.state.garrison[c.iso3] * (c.iso3 === G.state.player ? 1 : 0.6), 0);
   }
   const inRevolt = iso => !!G.state.revolts[iso];
-  const income = () => Math.round(20 + empire().filter(c => !inRevolt(c.iso3)).reduce((s, c) => s + c.gdp * 0.02 + industryCoins(c), 0) + bonus("inc"));
+  // Nations in revolt pay nothing; nations being invaded lose the share the enemy holds.
+  const heldShare = iso => 1 - Math.min(1, ((G.state.invasions || {})[iso] || { progress: 0 }).progress / 100);
+  const income = () => Math.round(20 + empire().filter(c => !inRevolt(c.iso3)).reduce((s, c) => s + (c.gdp * 0.02 + industryCoins(c)) * heldShare(c.iso3), 0) + bonus("inc"));
   const loot = t => Math.round((25 + t.gdp * 0.05) * (1 + bonus("loot")));
   function empireSoft() {
     const e = empire();
@@ -129,7 +131,14 @@
   // logistics when fighting away from home (near = overland, far = across the sea).
   const ms = iso => BY[iso].milStats;
   const reach = (iso, sea) => (sea ? ms(iso).far : ms(iso).near);
-  const armyPower = a => rawPower(a.units, a.nat) * techMult(a.nat) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea);
+  // Is a country fighting right now? (Private satellites join the national effort only then.)
+  function atWar(iso) {
+    const s = G.state;
+    if (owns(iso)) return Object.keys(s.wars).length > 0 || s.enemies.some(e => e.vsPlayer) || Object.keys(s.revolts).length > 0;
+    return !!(s.wars[iso] || (s.aiWars || {})[iso] || s.enemies.some(e => e.nat === iso || e.to === iso));
+  }
+  const space = iso => window.spaceMult(BY[iso], atWar(iso));
+  const armyPower = a => rawPower(a.units, a.nat) * techMult(a.nat) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * space(a.nat);
   const total = units => UNITS.reduce((s, u) => s + (units[u.key] || 0), 0);
   function scaleUnits(units, f) {
     UNITS.forEach(u => {
@@ -143,7 +152,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -213,7 +222,7 @@
     if (!src) return { err: "Choose where the units come from." };
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat);
-    const power = rawPower(u, src.nat) * techMult(src.nat) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea);
+    const power = rawPower(u, src.nat) * techMult(src.nat) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
     return { src, units: u, route: r, power, empty: total(u) === 0 };
   }
 
@@ -365,7 +374,7 @@
   function loyalPower(iso) {
     const f = forces(iso), u = {};
     UNITS.forEach(x => { if (usable(iso, x.key)) u[x.key] = f[x.key]; });
-    return rawPower(u, iso) * ms(iso).skill * ms(iso).defend * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
+    return rawPower(u, iso) * ms(iso).skill * ms(iso).defend * space(iso) * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
   }
 
   function startRevolt(c) {
@@ -419,7 +428,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => rawPower(e.units, e.nat) * ms(e.nat).skill * reach(e.nat, e.sea);
+  const enemyPower = e => rawPower(e.units, e.nat) * ms(e.nat).skill * reach(e.nat, e.sea) * space(e.nat);
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
     const d = {};
@@ -430,7 +439,7 @@
   function homeDefence(iso) {
     const f = forces(iso), u = {};
     UNITS.forEach(x => { if (usable(iso, x.key)) u[x.key] = f[x.key]; });
-    return rawPower(u, iso) * techMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+    return rawPower(u, iso) * techMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + 10;
   }
 
@@ -454,12 +463,37 @@
     if (rawPower(units, A) < 30) return;
     UNITS.forEach(u => (f[u.key] -= units[u.key] || 0));
     const km = distKm(A, T), eta = s.turn + (land ? 1 + Math.floor(km / 2500) : 1 + Math.ceil(km / 4000));
-    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, sent: s.turn, sea: !land, vsPlayer };
+    // Your intelligence decides whether you see the attack coming or only when it lands.
+    const detected = !vsPlayer || Math.random() < Math.max(0.1, Math.min(0.97, 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter));
+    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, sent: s.turn, sea: !land, vsPlayer, detected };
     s.enemies.push(e);
     if (vsPlayer) {
       s.hostile[A] = s.turn;
-      log(`🚨 ${BY[A].name} launched an attack on ${BY[T].name}: ${unitList(units)}. Arrives turn ${eta}. Send forces to defend it.`, "bad");
+      if (detected) log(`🚨 Intelligence warning: ${BY[A].name} launched an attack on ${BY[T].name}: about ${unitList(fuzzUnits(units, A))}. Arrives turn ${eta}. Send forces to defend it.`, "bad");
     } else log(`🌍 ${BY[A].name} invaded ${BY[T].name} with ${unitList(units)}. Arrives turn ${eta}.`, "world");
+  }
+
+  // ── Intelligence: what you can see of others ───────────────
+  // Your best intelligence score across your nations. Estimates of enemy strength carry an error
+  // band that shrinks with your intelligence and widens with their counter-intelligence.
+  const myIntel = () => (G.state.player ? Math.max(...empire().map(c => c.intelProfile.score)) : 5);
+  function intelError(iso) {
+    return Math.max(0.05, Math.min(0.6, 0.55 - 0.045 * myIntel() + 0.03 * BY[iso].intelProfile.counter));
+  }
+  // Deterministic per turn and country, so estimates don't flicker between redraws.
+  function noiseFor(iso, salt) {
+    let h = 2166136261 ^ G.state.turn ^ (salt || 0);
+    for (const ch of iso) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    return ((h >>> 0) % 10000) / 10000 * 2 - 1;
+  }
+  function estimate(value, iso, salt) {
+    const err = owns(iso) ? 0 : intelError(iso);
+    return { est: value * (1 + err * noiseFor(iso, salt)), err };
+  }
+  function fuzzUnits(units, iso) {
+    const err = intelError(iso), out = {};
+    UNITS.forEach((u, i) => (out[u.key] = (units[u.key] || 0) * (1 + err * noiseFor(iso, i + 7))));
+    return out;
   }
 
   function aiTurn() {
@@ -595,6 +629,10 @@
       if (a.to === a.nat && owns(a.nat)) { disband(a.id); log(`🏠 Army ${a.id} is home in ${BY[a.nat].name} and back in reserve.`, "info"); }
       else log(`📍 Army ${a.id} arrived in ${BY[a.to].name}.`, "info");
     });
+    s.enemies.filter(e => e.vsPlayer && !e.detected && e.eta === s.turn).forEach(e => {
+      e.detected = true;
+      log(`💥 Surprise attack! ${BY[e.nat].name} struck ${BY[e.to].name} without warning: about ${unitList(fuzzUnits(e.units, e.nat))}. Better intelligence would have seen it coming.`, "bad");
+    });
     // Enemy armies go home when their target changed hands (no longer yours, now yours, or already theirs).
     s.enemies.filter(e => arrived(e) && (e.vsPlayer ? !owns(e.to) : owns(e.to) || s.owner[e.to] === e.nat)).forEach(e => {
       const f = forces(e.nat);
@@ -721,11 +759,23 @@
   const fmtCoins = n => n >= 1e15 ? (n / 1e15).toFixed(2) + " quadrillion" : n >= 1e12 ? (n / 1e12).toFixed(2) + "trn" : n >= 1e9 ? (n / 1e9).toFixed(2) + "bn" : n >= 1e6 ? (n / 1e6).toFixed(2) + "m" : Math.round(n).toLocaleString("en-US");
   const fmt = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : n >= 10 ? Math.round(n) : n.toFixed(1));
 
+  // Active fronts for the map: who is pushing into which country and how far (0–1).
+  function fronts() {
+    const s = G.state, out = [];
+    Object.keys(s.wars).forEach(iso => { const a = armiesAt(iso)[0]; if (a) out.push({ to: iso, from: a.from, nat: a.nat, p: warProgress(iso), kind: "player" }); });
+    Object.entries(s.invasions || {}).forEach(([iso, inv]) => { const e = enemiesAt(iso)[0]; if (e) out.push({ to: iso, from: e.from, nat: e.nat, p: inv.progress / 100, kind: "enemy" }); });
+    Object.entries(s.aiWars || {}).forEach(([iso, w]) => {
+      const e = enemiesAt(iso)[0];
+      if (e && w.p0 > 0) out.push({ to: iso, from: e.from, nat: e.nat, p: Math.max(0, Math.min(1, (1 - rawPower(forces(iso), iso) / w.p0) / 0.8)), kind: "ai" });
+    });
+    return out;
+  }
+
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
     owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, arsenal, usable, bonus, techLvl, upgradeTech, industryCoins,
-    forces, baseForces, rawPower, enemyPower, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
+    forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, unlockWeapon, redeem, buy, fmtCoins,
   });
 })();

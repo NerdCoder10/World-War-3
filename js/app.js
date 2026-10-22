@@ -260,6 +260,8 @@
   const deployLayer = root.append("g").attr("class", "deploy-layer");
   const armyLayer = root.append("g").attr("class", "army-layer");
   const fleetLayer = root.append("g").attr("class", "fleet-layer");
+  const frontLayer = root.insert("g", ".army-layer").attr("class", "front-layer");
+  const satLayer = root.append("g").attr("class", "sat-layer");
   let pickedZone = null;
   const baseCard = document.createElement("div");
   baseCard.className = "basecard";
@@ -447,12 +449,14 @@
   function drawEsri(job, v) {
     const screenPpd = (v.w * DPR) / Math.max(1e-9, v.lon1 - v.lon0);
     let z = 2;
-    while (z < 19 && (256 * 2 ** z) / 360 < screenPpd) z++;
+    // Oversample ~1.6× (one level finer than strictly needed) so full zoom stays crisp.
+    while (z < 19 && (256 * 2 ** z) / 360 < screenPpd * 1.6) z++;
     const n = 2 ** z;
     const x0 = Math.max(0, Math.floor(((v.lon0 + 180) / 360) * n)), x1 = Math.min(n - 1, Math.floor(((v.lon1 + 180) / 360) * n));
     const y0 = Math.max(0, Math.floor(mercY(Math.min(85, v.lat1)) * n)), y1 = Math.min(n - 1, Math.floor(mercY(Math.max(-85, v.lat0)) * n));
-    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 90) return;
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 160) return;
     const ctx = detailCv.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
     let failed = 0;
     for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
       const tl0 = (tx / n) * 360 - 180, tl1 = ((tx + 1) / n) * 360 - 180, tb1 = tileLat(ty, n), tb0 = tileLat(ty + 1, n);
@@ -652,10 +656,96 @@
   }
   // Army routes (dashed lines) and unit icons for armies on the move, battles, revolts and stations.
   // Icons show each army's main unit type in its nation's technology tier.
+  // ── Fronts: invasions advance as a wave ─────────────────────
+  // Each war draws the ground the attacker holds as a ragged wave spreading from where it
+  // crossed in (the border or coast point nearest the attacker) across the country, clipped to
+  // the country's outline. Its reach follows the war's progress, so the front moves turn by turn.
+  function dest([lon, lat], brg, d) {
+    const p1 = (lat * Math.PI) / 180, l1 = (lon * Math.PI) / 180, th = (brg * Math.PI) / 180;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(th));
+    const l2 = l1 + Math.atan2(Math.sin(th) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    return [((((l2 * 180) / Math.PI) + 540) % 360) - 180, (p2 * 180) / Math.PI];
+  }
+  function frontGeom(fr) {
+    const f = mainFeat[fr.to], src = window.CENTROIDS[fr.from] || window.CENTROIDS[fr.nat];
+    if (!f || !src) return null;
+    const ring = [], geo = f.geometry;
+    (geo.type === "Polygon" ? [geo.coordinates] : geo.coordinates).forEach(poly => poly[0].forEach(v => ring.push(v)));
+    let entry = ring[0], bd = Infinity;
+    ring.forEach(v => { const d = d3.geoDistance(v, src); if (d < bd) { bd = d; entry = v; } });
+    let reach = 0;
+    ring.forEach(v => (reach = Math.max(reach, d3.geoDistance(v, entry))));
+    const R = Math.min(Math.PI / 2.2, Math.max(0.05, fr.p) * reach * 1.02), ph = G.state.turn * 0.9 + fr.to.charCodeAt(0);
+    // Bearings run clockwise, which d3 reads as a small polygon around the entry point.
+    const pts = d3.range(0, 361, 3).map(b => { const a = (b * Math.PI) / 180; return dest(entry, b, R * (1 + 0.08 * Math.sin(5 * a + ph) + 0.05 * Math.sin(11 * a + ph * 1.7))); });
+    return { type: "Polygon", coordinates: [pts] };
+  }
+  function drawFronts() {
+    const list = G.state.player ? G.fronts() : [];
+    const clips = defs.selectAll("clipPath.front-clip").data(list, d => d.to).join(en => { const e = en.append("clipPath").attr("class", "front-clip"); e.append("path"); return e; });
+    clips.attr("id", d => "fc-" + d.to).select("path").attr("d", d => path({ type: "FeatureCollection", features: features.filter(f => f.iso === d.to) }));
+    const g = frontLayer.selectAll("g.frontline").data(list, d => d.to).join(en => { const e = en.append("g").attr("class", "frontline"); e.append("path").attr("class", "front-area"); e.append("path").attr("class", "front-edge"); return e; });
+    g.attr("clip-path", d => `url(#fc-${d.to})`).attr("data-kind", d => d.kind);
+    g.each(function (d) { const geo = frontGeom(d), dd = geo ? path(geo) : null; d3.select(this).selectAll("path").attr("d", dd); });
+  }
+
+  // ── Satellites: the selected country's constellations in orbit ─────────
+  // A sample of up to 60 satellites (government in cyan, private in white, private mobilised for
+  // war in gold) moving along ground tracks at a sped-up rate. Geostationary satellites hold
+  // their spot over the equator. Shown at world zoom; the 🛰 button toggles them.
+  let satsOn = true, satAnim = null;
+  try { satsOn = localStorage.getItem("ww3-sats") !== "off"; } catch (e) { /* ignore */ }
+  function satSample(c) {
+    let seed = [...c.iso3].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 11);
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    const g = c.space.gov, out = [];
+    const kinds = [["recon", 97, 1, "gov"], ["sigint", 63, 1, "gov"], ["comms", 0, 0, "gov"], ["nav", 55, 0.5, "gov"], ["warn", 0, 0, "gov"]].map(([k, inc, sp, who]) => [g[k], inc, sp, who, k]);
+    c.space.priv.forEach(([n, cnt, t]) => kinds.push([cnt, t === "comms" ? 53 : 97, 1, "priv", n]));
+    const tot = kinds.reduce((a, x) => a + x[0], 0);
+    if (!tot) return out;
+    const lon0 = (window.CENTROIDS[c.iso3] || [0, 0])[0];
+    kinds.forEach(([cnt, inc, sp, who, name]) => {
+      const n = Math.min(cnt, Math.max(cnt > 0 ? 1 : 0, Math.round((60 * cnt) / tot)));
+      for (let i = 0; i < n; i++) {
+        const geo = sp === 0;
+        out.push({ who, name, geo, inc: (inc * Math.PI) / 180, raan: rnd() * 2 * Math.PI, u: rnd() * 2 * Math.PI, rate: (0.25 + 0.1 * rnd()) * sp, glon: lon0 + (rnd() - 0.5) * 60 });
+      }
+    });
+    return out;
+  }
+  function drawSats() {
+    cancelAnimationFrame(satAnim);
+    const c = selected && BY[selected];
+    const sats = satsOn && c ? satSample(c) : [];
+    const war = c && G.state.player ? G.atWar(c.iso3) : false;
+    satLayer.selectAll("circle").data(sats).join("circle").attr("class", d => "sat " + (d.who === "gov" ? "gov" : war ? "mob" : "priv"))
+      .on("mousemove", (e, d) => { tip.innerHTML = `<b>${esc(d.who === "gov" ? `${c.name} government satellite` : d.name)}</b><div class="k">${d.who === "gov" ? esc(d.name) : war ? "Private, mobilised for the war effort" : "Private (joins the national effort in wartime)"}${d.geo ? " · geostationary" : ""}</div>`; placeTip(e); })
+      .on("mouseleave", hideTip);
+    if (!sats.length) return;
+    const t0 = performance.now();
+    const step = () => {
+      const t = (performance.now() - t0) / 1000, show = k < 8;
+      satLayer.style("display", show ? null : "none");
+      if (show) satLayer.selectAll("circle").each(function (d) {
+        let lon, lat;
+        if (d.geo) { lon = d.glon; lat = 0; } else {
+          const u = d.u + d.rate * t;
+          lat = (Math.asin(Math.sin(d.inc) * Math.sin(u)) * 180) / Math.PI;
+          lon = ((((d.raan + Math.atan2(Math.cos(d.inc) * Math.sin(u), Math.cos(u)) - 0.02 * t) * 180) / Math.PI + 540) % 360) - 180;
+        }
+        const p = projection([lon, lat]);
+        d3.select(this).attr("cx", p[0]).attr("cy", p[1]).attr("r", 2.2 / Math.sqrt(k));
+      });
+      satAnim = requestAnimationFrame(step);
+    };
+    step();
+  }
+
   function drawArmies() {
+    drawFronts();
     const s = G.state, P = window.CENTROIDS;
     const moving = s.armies.filter(a => !G.arrived(a) && P[a.from] && P[a.to]);
-    const foes = s.enemies.filter(e => !G.arrived(e) && P[e.from] && P[e.to]);
+    const foes = s.enemies.filter(e => !G.arrived(e) && (!e.vsPlayer || e.detected) && P[e.from] && P[e.to]);
     armyLayer.selectAll("path").data([...moving, ...foes.map(e => ({ ...e, enemy: true }))]).join("path").attr("class", a => "route" + (a.enemy ? (a.vsPlayer ? " enemy" : " aiwar") : ""))
       .attr("d", a => path({ type: "LineString", coordinates: [P[a.from], P[a.to]] }));
     const marks = [];
@@ -705,6 +795,13 @@
   $("#zout").onclick = () => svg.transition().call(zoom.scaleBy, 1 / 1.8);
   $("#zreset").onclick = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
   $("#zterrain").onclick = () => setTerrain(!terrainOn);
+  $("#zsats").setAttribute("aria-pressed", satsOn);
+  $("#zsats").onclick = () => {
+    satsOn = !satsOn;
+    try { localStorage.setItem("ww3-sats", satsOn ? "on" : "off"); } catch (e) { /* ignore */ }
+    $("#zsats").setAttribute("aria-pressed", satsOn);
+    drawSats();
+  };
   wrap.classList.toggle("terrain-on", terrainOn);
   terrainBox.hidden = !terrainOn;
   $("#zterrain").setAttribute("aria-pressed", terrainOn);
@@ -978,7 +1075,8 @@
     let vs = "";
     if (!G.owns(c.iso3)) {
       const D = G.defenceOf(c.iso3);
-      vs = ` Army strength ${p.power.toFixed(0)} vs defence ${D.total.toFixed(0)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies)` : ""}.`;
+      const de = G.estimate(D.total, c.iso3);
+      vs = ` Army strength ${p.power.toFixed(0)} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
     out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${by}, arrives turn ${G.state.turn + r.turns}.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">Not enough sealift.</b>`}`;
@@ -1019,6 +1117,9 @@
   }
 
   // Battle or revolt status plus the armies heading to / sitting in this country.
+  // What your intelligence can tell you about a foreign force: an estimate with an error band.
+  const est = (v, iso, salt) => { const e = G.estimate(v, iso, salt); return e.err ? `~${e.est.toFixed(0)} <small>(±${Math.round(e.err * 100)}% — intel estimate)</small>` : v.toFixed(0); };
+  const estUnits = iso => (G.owns(iso) ? G.unitList(G.forces(iso)) : "about " + G.unitList(G.fuzzUnits(G.forces(iso), iso)));
   function frontHtml(c) {
     const s = G.state, here = s.armies.filter(a => a.to === c.iso3);
     let front = "";
@@ -1026,8 +1127,8 @@
       const D = G.defenceOf(c.iso3), A = G.armiesAt(c.iso3).reduce((x, a) => x + G.armyPower(a), 0), prog = G.warProgress(c.iso3);
       front = `<div class="front"><h4>⚔️ At war${s.wars[c.iso3] ? ` since turn ${s.wars[c.iso3].start}` : ""}</h4>
         <div class="bar"><i style="width:${prog * 100}%;background:${COL.danger}"></i></div>
-        <p class="hint">Defences ${Math.round(prog * 100)}% broken (conquest at 100%). Your strength here ${A.toFixed(0)} vs defence ${D.total.toFixed(0)}.</p>
-        <p class="hint">Remaining defenders: ${esc(G.unitList(G.forces(c.iso3)) || "almost none")}.</p></div>`;
+        <p class="hint">Defences ${Math.round(prog * 100)}% broken (conquest at 100%). Your strength here ${A.toFixed(0)} vs defence ${est(D.total, c.iso3)}.</p>
+        <p class="hint">Remaining defenders: ${esc(estUnits(c.iso3) || "almost none")}.</p></div>`;
     } else if (G.inRevolt(c.iso3)) {
       const rv = s.revolts[c.iso3], R = G.rawPower(rv.units, c.iso3) * 1.1 + 5, L = G.loyalPower(c.iso3);
       front = `<div class="front revolt"><h4>🔥 Revolt since turn ${rv.start}</h4>
@@ -1035,15 +1136,15 @@
         <p class="hint">Rebels are ${Math.round(rv.progress)}% of the way to independence. Loyal strength ${L.toFixed(0)} vs rebels ${R.toFixed(0)} (${esc(G.unitList(rv.units))}). Crush 85% of the rebels to end it, or send more forces.</p></div>`;
     } else if (!G.owns(c.iso3) && s.player) {
       const D = G.defenceOf(c.iso3);
-      front = `<p class="hint">Defence strength ${D.total.toFixed(0)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(G.unitList(G.forces(c.iso3)) || "none")}.${c.nukes ? " ☢️ Nuclear power: it may strike your armies before it falls." : ""}</p>`;
+      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(estUnits(c.iso3) || "none")}.${c.nukes ? " ☢️ Nuclear power: it may strike your armies before it falls." : ""}</p>`;
     }
-    const foes = s.enemies.filter(e => e.to === c.iso3);
+    const foes = s.enemies.filter(e => e.to === c.iso3 && (!e.vsPlayer || e.detected));
     if (foes.length && G.owns(c.iso3)) {
       const at = foes.filter(G.arrived), inv = (s.invasions || {})[c.iso3];
       const E = at.reduce((x, e) => x + G.enemyPower(e), 0);
       front += `<div class="front"><h4>🚨 ${at.length ? "Under attack" : "Attack incoming"}</h4>
         ${inv ? `<div class="bar"><i style="width:${Math.min(100, inv.progress)}%;background:${COL.danger}"></i></div><p class="hint">The enemy is ${Math.round(inv.progress)}% of the way to taking ${esc(c.name)}. Enemy strength ${E.toFixed(0)} vs your defence ${G.homeDefence(c.iso3).toFixed(0)}.</p>` : ""}
-        ${foes.map(e => `<p class="hint"><b>${esc(BY[e.nat].name)}</b>: ${esc(G.unitList(e.units))}${G.arrived(e) ? " (fighting)" : `, arrives turn ${e.eta}`}.</p>`).join("")}
+        ${foes.map(e => `<p class="hint"><b>${esc(BY[e.nat].name)}</b>: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}${G.arrived(e) ? " (fighting)" : `, arrives turn ${e.eta}`}.</p>`).join("")}
         <p class="hint">Your defence: ${G.homeDefence(c.iso3).toFixed(0)} (this nation's unlocked forces, order and any armies stationed here). Send armies here or unlock weapons to hold it.</p></div>`;
     }
     if (!G.owns(c.iso3) && G.isHostile(c.iso3)) front += `<p class="hint">⚠️ ${esc(c.name)} is hostile and may attack your nations.</p>`;
@@ -1138,6 +1239,23 @@
     const provHtml = `<div class="section"><h3>State / province <small>${provs.length ? `${provs.length} regions` : "loading…"}</small></h3>
         ${provs.length ? `<select id="prov-sel" class="provsel" aria-label="State or province"><option value="">Whole country</option>${provs.map(f => `<option ${f.properties.name === province ? "selected" : ""}>${esc(f.properties.name)}</option>`).join("")}</select>` : ""}
         ${provBody}</div>`;
+    const sp = c.space, ip = c.intelProfile, war = G.state.player ? G.atWar(c.iso3) : false;
+    const spaceHtml = `<div class="section"><h3>Space <small>${num(sp.govTotal)} government · ${num(sp.privTotal)} private satellites</small></h3>
+        <dl class="kv">
+          <div><dt>Reconnaissance</dt><dd>${num(sp.gov.recon)} <small>+${num(sp.privBy.recon || 0)} private</small></dd></div>
+          <div><dt>Signals intelligence</dt><dd>${num(sp.gov.sigint)} <small>+${num(sp.privBy.sigint || 0)} private</small></dd></div>
+          <div><dt>Communications</dt><dd>${num(sp.gov.comms)} <small>+${num(sp.privBy.comms || 0)} private</small></dd></div>
+          <div><dt>Navigation · early warning</dt><dd>${sp.gov.nav} · ${sp.gov.warn}</dd></div>
+          <div><dt>Anti-satellite weapons</dt><dd>${["None", "Tested", "Proven", "Proven, several types"][sp.asat]}</dd></div>
+          <div><dt>Combat bonus</dt><dd>×${window.spaceMult(c, war).toFixed(2)} <small>${war ? "at war: private satellites mobilised" : "peacetime"}</small></dd></div>
+        </dl>
+        ${sp.priv.length ? `<p class="hint">Private constellations (join the national effort in wartime): ${sp.priv.map(([n, k, t]) => `${esc(n)} ${num(k)} (${t})`).join(" · ")}.</p>` : ""}
+        <p class="hint">Satellites sharpen reconnaissance, communications and navigation: up to about +25% combat strength. Private satellites count for 30% in peacetime and in full once the country is at war.</p></div>`;
+    const intelHtml = `<div class="section"><h3>Intelligence <small>score ${ip.score}/10</small></h3>
+        <div class="meters">${meter("Human (HUMINT)", Math.round(ip.humint))}${meter("Signals (SIGINT)", Math.round(ip.sigint))}${meter("Imagery (IMINT)", Math.round(ip.imint))}${meter("Cyber", Math.round(ip.cyber))}${meter("Counter-intel", Math.round(ip.counter))}</div>
+        ${ip.agencies ? `<p class="hint"><b>Agencies:</b> ${esc(ip.agencies)}.</p>` : ""}${ip.alliance ? `<p class="hint"><b>Sharing:</b> ${esc(ip.alliance)}.</p>` : ""}
+        <p class="hint">${G.owns(c.iso3) ? "Your best intelligence score sets how precisely you see enemy strength and whether you spot attacks when they launch." :
+          G.state.player ? `Your estimates of ${esc(c.name)}'s forces are off by up to ±${Math.round(G.intelError(c.iso3) * 100)}% (your intelligence ${G.myIntel().toFixed(1)} against its counter-intelligence ${ip.counter}).` : ""}</p></div>`;
     const equipHtml = `<div class="section"><h3>Equipment <span class="tag">${c.equipSource === "researched" ? "researched" : esc(c.equipSource.replace("_", " ")) + " template"}</span></h3>
         <div class="bc-models">${modelLines(c, G.baseForces(c))}</div></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
@@ -1179,6 +1297,8 @@
           <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
 
       ${profileHtml}
+      ${intelHtml}
+      ${spaceHtml}
       ${equipHtml}
       ${shipsOf(c.iso3).length ? `<div class="section"><h3>Capital ships <small>2025 positions</small></h3><ul class="zones">${shipsOf(c.iso3).map((sh, i) => `<li data-ship="${i}" tabindex="0" title="Show on map">
           <div class="z-h"><b>${esc(sh.name)}</b><span>${esc(sh.hull)}</span></div>
@@ -1318,7 +1438,7 @@
     const ops = s.player ? `<div class="section"><h3>Operations <small>turn ${s.turn}</small></h3>
         ${Object.keys(s.revolts).map(iso => `<p class="hint">🔥 <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a> is in revolt: rebels ${Math.round(s.revolts[iso].progress)}% of the way to independence.</p>`).join("")}
         ${s.enemies.filter(e => !e.vsPlayer).length ? `<h4 class="zgroup">World conflicts</h4>${s.enemies.filter(e => !e.vsPlayer).map(e => `<p class="hint">🌍 <a href="#" data-goto="${e.nat}">${esc(BY[e.nat].name)}</a> ${G.arrived(e) ? "is fighting in" : "is invading"} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : `, arriving turn ${e.eta}`}.</p>`).join("")}` : ""}
-        ${s.enemies.filter(e => e.vsPlayer).map(e => `<p class="hint">🚨 <b>${esc(BY[e.nat].name)}</b> ${G.arrived(e) ? "is attacking" : `will hit`} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : ` on turn ${e.eta}`}: ${esc(G.unitList(e.units))}.</p>`).join("")}
+        ${s.enemies.filter(e => e.vsPlayer && (e.detected || G.arrived(e))).map(e => `<p class="hint">🚨 <b>${esc(BY[e.nat].name)}</b> ${G.arrived(e) ? "is attacking" : `will hit`} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : ` on turn ${e.eta}`}: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}.</p>`).join("")}
         ${Object.keys(s.wars).map(iso => `<p class="hint">⚔️ War in <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a>: defences ${Math.round(G.warProgress(iso) * 100)}% broken.</p>`).join("")}
         ${s.armies.length ? `<ul class="armies">${s.armies.map(armyLi).join("")}</ul>` : `<p class="hint">No armies in the field. Open any country's dossier and use "Send an invasion force" to pick units and launch an attack.</p>`}
         <button class="btn attack" id="endturn2" style="margin-top:10px" ${s.over ? "disabled" : ""}>End turn <small>+${G.income()} coins</small></button></div>` : "";
@@ -1402,7 +1522,7 @@
   };
   function select(iso) {
     if (iso !== selected) { unpickZone(); province = null; }
-    selected = iso; paint(); drawDeploy(); drawShips(); drawProvinces(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0;
+    selected = iso; paint(); drawDeploy(); drawShips(); drawSats(); drawProvinces(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0;
     loadAdmin1(iso, () => { if (selected === iso) { drawProvinces(); if (tab === "dossier") dossier(); } });
   }
 
