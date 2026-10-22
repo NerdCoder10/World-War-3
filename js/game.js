@@ -262,7 +262,7 @@
     if (G.state.redeemed.includes(code)) return { err: `${code} has already been redeemed this campaign.` };
     G.state.redeemed.push(code);
     G.state.coins += amount;
-    log(`🎟️ Promo code ${code} redeemed: +${amount.toLocaleString("en-US")} coins.`, "good");
+    log(`🎟️ Promo code ${code} redeemed: +${fmtCoins(amount)} coins.`, "good");
     save();
     return { amount };
   }
@@ -272,7 +272,7 @@
     save();
   }
 
-  const fmtCoins = n => n >= 1e12 ? (n / 1e12).toFixed(2) + "trn" : n >= 1e9 ? (n / 1e9).toFixed(2) + "bn" : n >= 1e6 ? (n / 1e6).toFixed(2) + "m" : Math.round(n).toLocaleString("en-US");
+  const fmtCoins = n => n >= 1e15 ? (n / 1e15).toFixed(2) + " quadrillion" : n >= 1e12 ? (n / 1e12).toFixed(2) + "trn" : n >= 1e9 ? (n / 1e9).toFixed(2) + "bn" : n >= 1e6 ? (n / 1e6).toFixed(2) + "m" : Math.round(n).toLocaleString("en-US");
   const fmt = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : n >= 10 ? Math.round(n) : n.toFixed(1));
 
   const G = (window.GAME = {

@@ -634,7 +634,7 @@
     e.preventDefault();
     const r = G.redeem(promoIn.value);
     promoMsg.className = "promo-msg " + (r.err ? "bad" : "good");
-    promoMsg.textContent = r.err || `Redeemed: +${r.amount.toLocaleString("en-US")} coins.`;
+    promoMsg.textContent = r.err || `Redeemed: +${G.fmtCoins(r.amount)} coins.`;
     if (!r.err) { promoIn.value = ""; refresh(); }
   };
   document.addEventListener("keydown", e => { if (e.key === "Escape") promo.hidden = true; });
