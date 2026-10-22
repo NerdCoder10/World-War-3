@@ -132,6 +132,8 @@ window.DEPLOYMENTS = {
     ["Nellis AFB, NV", -115.03, 36.24, 9, 4, 0, "Fighter weapons school and Red Flag exercises."],
     ["Creech AFB, NV", -115.67, 36.59, 1, 1, 0, "MQ-9 drone wing."],
     ["NAS Fallon, NV", -118.7, 39.42, 2, 1, 0, "Navy fighter weapons school (TOPGUN)."],
+    ["Groom Lake (Area 51), NV", -115.81, 37.24, 0.5, 1, 0, "Classified flight-test site inside the Nevada Test and Training Range; acknowledged by the CIA in 2013."],
+    ["Tonopah Test Range, NV", -116.78, 37.79, 0.2, 1, 0, "Classified test airfield, once the secret home of the F-117."],
     ["JB McGuire-Dix-Lakehurst, NJ", -74.59, 40.02, 5, 1, 0, "Tankers, airlift and Army training."],
     ["Picatinny Arsenal, NJ", -74.55, 40.95, 0.5, 0, 0, "Armaments research."],
     ["Holloman AFB, NM", -106.11, 32.85, 4, 1, 0, "F-16 training and drones."],

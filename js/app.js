@@ -15,7 +15,7 @@
   // ── Formatting ─────────────────────────────────────────────
   const money = bn => bn >= 1e6 ? `$${(bn / 1e6).toFixed(2)} quadrillion` : bn >= 1000 ? `$${(bn / 1000).toFixed(bn >= 10000 ? 1 : 2)}trn` : bn >= 1 ? `$${bn >= 100 ? Math.round(bn) : bn.toFixed(1)}bn` : bn > 0 ? `$${Math.round(bn * 1000)}m` : "—";
   const num = n => n === 0 ? "0" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : Math.round(n).toLocaleString("en-US");
-  const kPers = k => k === 0 ? "0" : k >= 1000 ? (k / 1000).toFixed(2) + "M" : k >= 1 ? Math.round(k) + "k" : Math.round(k * 1000).toString();
+  const kPers = k => k === 0 ? "0" : k >= 1000 ? (k / 1000).toFixed(2) + "M" : k >= 0.95 ? Math.max(1, Math.round(k)) + "k" : Math.round(k * 1000).toString();
   const popFmt = m => m >= 1000 ? (m / 1000).toFixed(2) + "bn" : m >= 1 ? m.toFixed(1) + "M" : Math.round(m * 1000) + "k";
   const flag = iso2 => String.fromCodePoint(...[...iso2].map(ch => 0x1f1a5 + ch.charCodeAt(0)));
   const pct = p => Math.round(p * 100) + "%";
@@ -77,6 +77,14 @@
     return best;
   }
   function computeDeployment(iso) {
+    const zones = deploymentFor(iso);
+    // Tanks sit at army garrisons: none at naval bases, few at air-heavy bases.
+    const tw = z => (z.navalPct > 0 ? 0 : z.groundPct * (z.airPct > z.groundPct * 3 ? 0.2 : 1));
+    const tt = zones.reduce((a, z) => a + tw(z), 0) || 1;
+    zones.forEach(z => (z.tankPct = tw(z) / tt));
+    return zones;
+  }
+  function deploymentFor(iso) {
     const hand = window.DEPLOYMENTS && window.DEPLOYMENTS[iso];
     if (hand) {
       const zones = hand.map(([name, lon, lat, ground, air, naval, note, host]) => ({ name, at: [lon, lat], ground, air, naval, note, host }));
@@ -194,6 +202,11 @@
     .on("mousemove", (e, m) => showTip(e, { iso: m.c.iso3 }))
     .on("mouseleave", hideTip);
   const deployLayer = root.append("g").attr("class", "deploy-layer");
+  let pickedZone = null;
+  const baseCard = document.createElement("div");
+  baseCard.className = "basecard";
+  baseCard.hidden = true;
+  wrap.appendChild(baseCard);
 
   let k = 1;
   function garrR(z) { return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / Math.sqrt(k); }
@@ -203,8 +216,10 @@
     deployLayer.selectAll("circle").data(zones).join("circle")
       .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
       .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR)
+      .classed("picked", z => z.name === pickedZone)
       .on("mousemove", (e, z) => zoneTip(e, z))
-      .on("mouseleave", hideTip);
+      .on("mouseleave", hideTip)
+      .on("click", (e, z) => { e.stopPropagation(); hideTip(); pickZone(z, false); });
   }
   const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
     k = e.transform.k;
@@ -312,17 +327,56 @@
     tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 6) + "px";
     tip.style.top = Math.min(e.clientY - r.top + 14, r.height - tip.offsetHeight - 6) + "px";
   }
+  const hostLabel = z => (z.host ? (z.host === "TERR" ? "Overseas territory" : BY[z.host] ? BY[z.host].name : z.host) : "");
+  // Counts at one base; anything that rounds to zero is left out.
+  const countOf = (n, one, many) => { const r = Math.round(n); return r >= 1 ? `${num(r)} ${r === 1 ? one : many}` : ""; };
+  function zoneStats(c, z) {
+    return [
+      z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
+      countOf(c.tanks * z.tankPct, "tank", "tanks"),
+      countOf(c.aircraft * z.airPct, "aircraft", "aircraft"),
+      countOf(c.ships * z.navalPct, "vessel", "vessels"),
+    ].filter(Boolean);
+  }
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
-    const c = BY[selected];
-    const host = z.host ? (z.host === "TERR" ? "Overseas territory" : BY[z.host] ? BY[z.host].name : z.host) : "";
-    const parts = [
-      z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
-      c.aircraft && z.airPct > 0 ? `${num(Math.round(c.aircraft * z.airPct))} aircraft` : "",
-      c.ships && z.navalPct > 0 ? `${num(Math.round(c.ships * z.navalPct))} vessels` : "",
-    ].filter(Boolean).join(" · ");
-    tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(parts)}</div><div class="tipnote">${esc(z.note)}</div>`;
+    const c = BY[selected], host = hostLabel(z);
+    tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
     placeTip(e);
+  }
+  // Clicking a base pins its card on the map and highlights it in the dossier list.
+  function pickZone(z, fly) {
+    pickedZone = z.name;
+    deployLayer.selectAll("circle").classed("picked", d => d.name === pickedZone);
+    const c = BY[selected], host = hostLabel(z);
+    baseCard.innerHTML = `<button class="bc-close" aria-label="Close base card">×</button>
+      <div class="bc-kind">${z.host ? "Forces abroad" : "Home base"} · ${esc(c.name)}</div>
+      <h4>${esc(z.name)}</h4>${host ? `<span class="tag">${esc(host)}</span>` : ""}
+      <dl>${zoneStats(c, z).map(t => { const [n, ...rest] = t.split(" "); return `<div><dd>${n}</dd><dt>${rest.join(" ")}</dt></div>`; }).join("")}</dl>
+      <p>${esc(z.note)}</p>
+      <button class="bc-fly">Zoom to base</button>`;
+    baseCard.hidden = false;
+    baseCard.querySelector(".bc-close").onclick = unpickZone;
+    baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, 9);
+    if (fly) flyTo(z.at, 8);
+    if (tab !== "dossier") setTab("dossier");
+    const pane = $("#pane-dossier");
+    pane.querySelectorAll("li.picked").forEach(x => x.classList.remove("picked"));
+    const li = pane.querySelector(`li[data-zone="${CSS.escape(z.name)}"]`);
+    if (li) { const d = li.closest("details"); if (d) d.open = true; li.classList.add("picked"); li.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+  }
+  function unpickZone() {
+    pickedZone = null;
+    baseCard.hidden = true;
+    deployLayer.selectAll("circle").classed("picked", false);
+    document.querySelectorAll("#pane-dossier li.picked").forEach(x => x.classList.remove("picked"));
+  }
+  function flyTo(at, minK) {
+    const w = wrap.clientWidth, h = wrap.clientHeight, [x, y] = projection(at);
+    const kk = Math.max(minK, d3.zoomTransform(svg.node()).k);
+    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(Math.min(40, kk)).translate(-x, -y);
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    (reduce ? svg : svg.transition().duration(650)).call(zoom.transform, t);
   }
 
   // ── Dossier card ───────────────────────────────────────────
@@ -389,20 +443,13 @@
     const hostName = h => (h === "TERR" ? "Overseas territory" : BY[h] ? BY[h].name : h);
     const maxShare = Math.max(...zones.map(z => Math.max(z.groundPct, z.navalPct, z.airPct))) || 1;
     const shareTxt = p => (p >= 0.995 ? "100%" : p >= 0.01 ? Math.round(p * 100) + "%" : "<1%");
-    const zoneLi = z => `<li>
+    const zoneLi = z => `<li data-zone="${esc(z.name)}" tabindex="0" title="Show on map">
           <div class="z-h"><b>${esc(z.name)}</b><span>${z.groundPct > 0 ? shareTxt(z.groundPct) + " of troops" : z.navalPct > 0 ? shareTxt(z.navalPct) + " of navy" : shareTxt(z.airPct) + " of aircraft"}</span></div>
           ${z.host ? `<span class="tag">${esc(hostName(z.host))}</span>` : ""}
           <div class="z-bar"><i style="width:${(Math.max(z.groundPct, z.navalPct, z.airPct) / maxShare) * 100}%;background:${z.navalPct > z.groundPct ? COL.teal : COL.brass}"></i></div>
-          <div class="z-stats">${[
-            z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
-            c.tanks && tankW(z) > 0 ? `${num(Math.round((c.tanks * tankW(z)) / tankTotal))} tanks` : "",
-            c.aircraft && z.airPct > 0 ? `${num(Math.round(c.aircraft * z.airPct))} aircraft` : "",
-            z.navalPct > 0 && c.ships ? `${num(Math.round(c.ships * z.navalPct))} vessels` : "",
-          ].filter(Boolean).join(" · ")}</div>
+          <div class="z-stats">${zoneStats(c, z).join(" · ")}</div>
           <p class="z-note">${esc(z.note)}</p></li>`;
     const weight = z => z.groundPct + z.navalPct * 0.5 + z.airPct * 0.3;
-    const tankW = z => (z.navalPct > 0 ? 0 : z.groundPct * (z.airPct > z.groundPct * 3 ? 0.2 : 1));
-    const tankTotal = zones.reduce((a, z) => a + tankW(z), 0) || 1;
     const zoneList = (list, show) => {
       const sorted = [...list].sort((x, y) => weight(y) - weight(x));
       return `<ul class="zones">${sorted.slice(0, show).map(zoneLi).join("")}</ul>` +
@@ -463,6 +510,12 @@
 
       <div class="section actions">${actionsHtml(c)}</div>`;
     pane.querySelectorAll("[data-act]").forEach(b => (b.onclick = () => act(b.dataset.act, c.iso3)));
+    pane.querySelectorAll("li[data-zone]").forEach(li => {
+      const go = () => { const z = zones.find(x => x.name === li.dataset.zone); if (z) pickZone(z, true); };
+      li.onclick = go;
+      li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+    });
+    if (pickedZone) { const li = pane.querySelector(`li[data-zone="${CSS.escape(pickedZone)}"]`); if (li) li.classList.add("picked"); }
     pane.querySelectorAll("[data-unlock]").forEach(b => (b.onclick = () => {
       const err = G.unlockWeapon(c.iso3, b.dataset.unlock);
       if (err) return toast(err);
@@ -585,7 +638,7 @@
     if (!r.err) { promoIn.value = ""; refresh(); }
   };
   document.addEventListener("keydown", e => { if (e.key === "Escape") promo.hidden = true; });
-  function select(iso) { selected = iso; paint(); drawDeploy(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
+  function select(iso) { if (iso !== selected) unpickZone(); selected = iso; paint(); drawDeploy(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
 
   // Fly the map to a country, framing its largest landmass (e.g. the contiguous US, metropolitan France).
   function zoomTo(iso) {
