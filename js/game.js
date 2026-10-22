@@ -515,6 +515,13 @@
     return { amount };
   }
 
+  // Wipe everything saved by the game (campaign, coins, purchases, promo codes, armies) and start over.
+  function resetAll() {
+    try { Object.keys(localStorage).filter(k => k.startsWith("ww3-")).forEach(k => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
+    G.state = fresh();
+    save();
+  }
+
   function newGame(keepRoster) {
     G.state = fresh(keepRoster ? G.state.seed : undefined);
     save();
@@ -528,6 +535,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, arsenal, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, bordersEmpire, unlockWeapon, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, unlockWeapon, redeem, buy, fmtCoins,
   });
 })();

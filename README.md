@@ -48,6 +48,8 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
 
 **Technology.** Each nation in your empire can research four tracks, up to level 5 each, with coins from its dossier: weapons systems (+10% combat power for that nation's units per level), logistics & sealift (+20% sealift capacity and +20% faster regrowth for that nation per level), industry (+0.4% of its GDP in $bn as coins per turn per level, at least 2) and governance (+1 point garrison recovery and −15% revolt risk per level). The next level costs (40 + 5% of the nation's GDP in $bn) × 2^current level coins.
 
+**Reset.** The Reset button in the top bar erases everything the game has saved: your campaign, coins, purchases, armies, research and redeemed promo codes. It starts a fresh campaign with new random nations. Click it twice to confirm.
+
 **Promo codes.** The Promo code button in the top bar redeems codes for coins. Each code works once per campaign. The codes are listed in `js/economy.js`.
 
 **Revolts.** Weakly held conquests can rise up, but they don't break away at once. The rebels (15–50% of the country's ground forces, more when order is low) fight its loyal forces and any of your armies stationed there, one round per turn. Their progress bar fills when they win rounds. They gain independence at 100%, which takes about 4–6 turns if you do nothing, and the revolt is crushed once 85% of the rebels are destroyed. Send forces to put it down. Stationed armies cut the chance of a revolt by 70%, and a territory in revolt pays no income. Bought nations never revolt. You win when you control 50% of world GDP.

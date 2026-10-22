@@ -832,6 +832,19 @@
     if (!r.err) { promoIn.value = ""; refresh(); }
   };
   document.addEventListener("keydown", e => { if (e.key === "Escape") promo.hidden = true; });
+  // Reset everything: needs a second click within 4 seconds to confirm.
+  let resetArmed = null;
+  $("#reset-btn").onclick = e => {
+    const b = e.currentTarget;
+    if (!resetArmed) {
+      b.textContent = "Click again to erase all"; b.classList.add("armed");
+      resetArmed = setTimeout(() => { resetArmed = null; b.textContent = "Reset"; b.classList.remove("armed"); }, 4000);
+      return;
+    }
+    clearTimeout(resetArmed); resetArmed = null; b.textContent = "Reset"; b.classList.remove("armed");
+    G.resetAll(); selected = null; unpickZone(); drawDeploy(); setTab("campaign"); refresh();
+    toast("Everything was reset: new campaign, 300 coins, fresh random nations, promo codes usable again.");
+  };
   function select(iso) { if (iso !== selected) unpickZone(); selected = iso; paint(); drawDeploy(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0; }
 
   // Fly the map to a country, framing its largest landmass (e.g. the contiguous US, metropolitan France).
