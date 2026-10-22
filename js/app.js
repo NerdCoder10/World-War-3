@@ -79,9 +79,15 @@
   function computeDeployment(iso) {
     const hand = window.DEPLOYMENTS && window.DEPLOYMENTS[iso];
     if (hand) {
-      const zones = hand.map(([name, lon, lat, ground, air, naval, note]) => ({ name, at: [lon, lat], ground, air, naval, note }));
+      const zones = hand.map(([name, lon, lat, ground, air, naval, note, host]) => ({ name, at: [lon, lat], ground, air, naval, note, host }));
       const norm = key => { const t = zones.reduce((a, z) => a + z[key], 0) || 1; zones.forEach(z => (z[key + "Pct"] = z[key] / t)); };
-      norm("ground"); norm("air"); norm("naval");
+      norm("air"); norm("naval");
+      // Forces abroad are absolute personnel (thousands); home rows fill the rest of the active force.
+      const active = BY[iso].active;
+      const abroadK = zones.filter(z => z.host).reduce((a, z) => a + z.ground, 0);
+      const homeW = zones.filter(z => !z.host).reduce((a, z) => a + z.ground, 0) || 1;
+      const total = Math.max(active, abroadK * 1.05);
+      zones.forEach(z => (z.groundPct = z.host ? z.ground / total : (z.ground / homeW) * (total - abroadK) / total));
       zones.hand = true;
       return zones;
     }
@@ -112,9 +118,56 @@
       zones.push({ name: "Coastal & naval bases", at, ground: nbs.length ? 0 : 1 - home, air: 0.1, naval: 1,
         note: nbs.length ? "Fleet, naval aviation and coastal-defence units at the main ports." : "Fleet plus marines and coastal-defence brigades at the main ports and outlying islands." });
     }
+    // Bigger armies spread their home share over more regional garrisons and training areas.
+    const nRegional = feat ? Math.max(0, Math.min(12, Math.round(Math.log2(1 + c.active) * 1.5) - zones.length)) : 0;
+    const pts = nRegional ? interiorPoints(feat, iso, nRegional, zones.map(z => z.at)) : [];
+    if (pts.length) {
+      const each = (home * 0.55) / pts.length;
+      zones[0].ground = home * 0.45;
+      const used = {};
+      pts.forEach(p => {
+        let name = compass(cen, p) + " garrison";
+        used[name] = (used[name] || 0) + 1;
+        if (used[name] > 1) name += " " + used[name];
+        zones.push({ name, at: p, ground: each, air: 0.12, naval: 0, note: "Regional garrison, air base and training area (modelled)." });
+      });
+    }
     const norm = key => { const t = zones.reduce((a, z) => a + z[key], 0) || 1; zones.forEach(z => (z[key + "Pct"] = z[key] / t)); };
     norm("ground"); norm("air"); norm("naval");
     return zones;
+  }
+  // Seeded sample of points inside a country, spread out by farthest-point selection.
+  function interiorPoints(feat, iso, n, existing) {
+    let seed = [...iso].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7);
+    const rand = () => { // mulberry32
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    let [[w, so], [e, no]] = d3.geoBounds(feat);
+    if (e < w) e += 360; // crosses the antimeridian
+    const cand = [];
+    for (let i = 0; i < 700 && cand.length < 250; i++) {
+      let lon = w + rand() * (e - w);
+      if (lon > 180) lon -= 360;
+      const p = [lon, so + rand() * (no - so)];
+      if (d3.geoContains(feat, p)) cand.push(p);
+    }
+    const chosen = [], anchors = existing.slice();
+    while (chosen.length < n && cand.length) {
+      let bi = 0, bd = -1;
+      cand.forEach((p, i) => { const d = Math.min(...anchors.map(q => d3.geoDistance(p, q))); if (d > bd) { bd = d; bi = i; } });
+      const p = cand.splice(bi, 1)[0];
+      chosen.push(p); anchors.push(p);
+    }
+    return chosen;
+  }
+  function compass(from, to) {
+    const dx = (to[0] - from[0]) * Math.cos((from[1] * Math.PI) / 180), dy = to[1] - from[1];
+    if (Math.hypot(dx, dy) < 0.6) return "Central";
+    const names = ["Eastern", "Northeastern", "Northern", "Northwestern", "Western", "Southwestern", "Southern", "Southeastern"];
+    return names[(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];
   }
 
   // ── SVG ────────────────────────────────────────────────────
@@ -143,11 +196,11 @@
   const deployLayer = root.append("g").attr("class", "deploy-layer");
 
   let k = 1;
-  function garrR(z) { return (3 + 14 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, 0.02))) / Math.sqrt(k); }
+  function garrR(z) { return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / Math.sqrt(k); }
   function drawDeploy() {
     const zones = selected ? computeDeployment(selected) : [];
     deployLayer.selectAll("circle").data(zones).join("circle")
-      .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : ""))
+      .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
       .attr("cx", z => projection(z.at)[0]).attr("cy", z => projection(z.at)[1]).attr("r", garrR);
   }
   const zoom = d3.zoom().scaleExtent([1, 40]).on("zoom", e => {
@@ -309,6 +362,31 @@
     const lockedCount = mine ? c.weapons.filter(w => w.count && !have.includes(w.key)).length : 0;
     const v = c.value, vt = v.total;
     const zones = computeDeployment(c.iso3);
+    const homeZ = zones.filter(z => !z.host), abroadZ = zones.filter(z => z.host);
+    const abroadTroops = abroadZ.reduce((a, z) => a + c.active * z.groundPct, 0);
+    const hosts = new Set(abroadZ.map(z => z.host));
+    const hostName = h => (h === "TERR" ? "Overseas territory" : BY[h] ? BY[h].name : h);
+    const maxShare = Math.max(...zones.map(z => Math.max(z.groundPct, z.navalPct, z.airPct))) || 1;
+    const shareTxt = p => (p >= 0.995 ? "100%" : p >= 0.01 ? Math.round(p * 100) + "%" : "<1%");
+    const zoneLi = z => `<li>
+          <div class="z-h"><b>${esc(z.name)}</b><span>${z.groundPct > 0 ? shareTxt(z.groundPct) + " of troops" : z.navalPct > 0 ? shareTxt(z.navalPct) + " of navy" : shareTxt(z.airPct) + " of aircraft"}</span></div>
+          ${z.host ? `<span class="tag">${esc(hostName(z.host))}</span>` : ""}
+          <div class="z-bar"><i style="width:${(Math.max(z.groundPct, z.navalPct, z.airPct) / maxShare) * 100}%;background:${z.navalPct > z.groundPct ? COL.teal : COL.brass}"></i></div>
+          <div class="z-stats">${[
+            z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
+            c.tanks && tankW(z) > 0 ? `${num(Math.round((c.tanks * tankW(z)) / tankTotal))} tanks` : "",
+            c.aircraft && z.airPct > 0 ? `${num(Math.round(c.aircraft * z.airPct))} aircraft` : "",
+            z.navalPct > 0 && c.ships ? `${num(Math.round(c.ships * z.navalPct))} vessels` : "",
+          ].filter(Boolean).join(" · ")}</div>
+          <p class="z-note">${esc(z.note)}</p></li>`;
+    const weight = z => z.groundPct + z.navalPct * 0.5 + z.airPct * 0.3;
+    const tankW = z => (z.navalPct > 0 ? 0 : z.groundPct * (z.airPct > z.groundPct * 3 ? 0.2 : 1));
+    const tankTotal = zones.reduce((a, z) => a + tankW(z), 0) || 1;
+    const zoneList = (list, show) => {
+      const sorted = [...list].sort((x, y) => weight(y) - weight(x));
+      return `<ul class="zones">${sorted.slice(0, show).map(zoneLi).join("")}</ul>` +
+        (sorted.length > show ? `<details class="more"><summary>Show ${sorted.length - show} more</summary><ul class="zones">${sorted.slice(show).map(zoneLi).join("")}</ul></details>` : "");
+    };
     const allies = (window.ALLIES_OF[c.iso3] || []).map(a => a.bloc);
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -338,17 +416,13 @@
           <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
 
       <div class="section"><h3>Force disposition <small>${zones.hand ? "hand-placed" : "modelled"}</small></h3>
-        <p class="hint">${zones.hand ? "Hand-placed from open sources: command HQs, corps and division garrisons, fleet home ports and declared overseas bases." : "Modelled: home garrisons near the capital, units on tense borders sized by threat, and the fleet on the coast."} Shown as rings on the map. These are where forces sit, not an ideal spread.</p>
-        <ul class="zones">${zones.map(z => `<li>
-          <div class="z-h"><b>${esc(z.name)}</b><span>${z.groundPct > 0 ? Math.round(z.groundPct * 100) + "% of troops" : Math.round(z.navalPct * 100) + "% of navy"}</span></div>
-          <div class="z-bar"><i style="width:${Math.max(z.groundPct, z.navalPct) * 100}%;background:${z.navalPct > z.groundPct ? COL.teal : COL.brass}"></i></div>
-          <div class="z-stats">${[
-            z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : "",
-            z.groundPct > 0 && c.tanks ? `${num(Math.round(c.tanks * z.groundPct))} tanks` : "",
-            c.aircraft ? `${num(Math.round(c.aircraft * z.airPct))} aircraft` : "",
-            z.navalPct > 0 && c.ships ? `${num(Math.round(c.ships * z.navalPct))} vessels` : "",
-          ].filter(Boolean).join(" · ")}</div>
-          <p class="z-note">${esc(z.note)}</p></li>`).join("")}</ul></div>
+        <p class="hint">${zones.hand ? "Hand-placed from open sources: command HQs, corps, division and brigade garrisons, air and naval bases, and declared overseas deployments." : "Modelled: the capital reserve, regional garrisons, units on tense borders sized by threat, and the fleet on the coast."} Shown as rings on the map, with dashed rings for forces abroad. These are where forces sit, not an ideal spread.</p>
+        <dl class="kv">
+          <div><dt>Locations</dt><dd>${zones.length} <small>${homeZ.length} at home</small></dd></div>
+          <div><dt>Forward deployed</dt><dd>${abroadZ.length ? kPers(abroadTroops) + " troops" : "None"} <small>${abroadZ.length ? `${abroadZ.length} sites · ${hosts.size} ${hosts.size === 1 ? "country" : "countries & territories"}` : ""}</small></dd></div>
+        </dl>
+        ${abroadZ.length ? `<h4 class="zgroup">At home</h4>` : ""}${zoneList(homeZ, 10)}
+        ${abroadZ.length ? `<h4 class="zgroup">Abroad</h4>${zoneList(abroadZ, 8)}` : ""}</div>
 
       <div class="section"><h3>Secret assets <span class="tag">${s.estimated ? "modelled estimate" : "researched profile"}</span></h3>
         <div class="big"><strong>${c.secretIndex}</strong><span>/ 100 secret-assets index · #${c.secretRank}</span></div>
