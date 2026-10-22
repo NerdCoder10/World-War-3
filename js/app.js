@@ -259,6 +259,7 @@
     .on("mouseleave", hideTip);
   const deployLayer = root.append("g").attr("class", "deploy-layer");
   const armyLayer = root.append("g").attr("class", "army-layer");
+  const fleetLayer = root.append("g").attr("class", "fleet-layer");
   let pickedZone = null;
   const baseCard = document.createElement("div");
   baseCard.className = "basecard";
@@ -331,7 +332,8 @@
 
   let k = 1;
   // Markers grow gently up to 10× zoom, then hold their on-screen size for the province and base views.
-  const shrink = () => (k <= 10 ? Math.sqrt(k) : Math.sqrt(10) * Math.pow(k / 10, 0.8));
+  // Past 200× they stop growing altogether.
+  const shrink = () => (k <= 10 ? Math.sqrt(k) : k <= 200 ? Math.sqrt(10) * Math.pow(k / 10, 0.8) : Math.sqrt(10) * Math.pow(20, 0.8) * (k / 200));
   function garrR(z) { return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / shrink(); }
   const iconR = r => Math.max(r * 1.25, 5 / shrink());
   function drawDeploy() {
@@ -397,9 +399,10 @@
   const attrib = document.createElement("div");
   attrib.className = "attrib";
   wrap.appendChild(attrib);
-  function attribution(s2) {
+  function attribution(src) {
     attrib.hidden = !terrainOn;
-    attrib.innerHTML = `Imagery: NASA Blue Marble${s2 ? ` · <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless 2016</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0` : ""}`;
+    attrib.innerHTML = `Imagery: NASA Blue Marble` + (src === "esri" ? ` · Esri World Imagery: Esri, Maxar, Earthstar Geographics and the GIS User Community` :
+      src ? ` · <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless 2016</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0` : "");
   }
   const terrainBox = document.createElement("div");
   terrainBox.className = "terrain";
@@ -423,7 +426,48 @@
     p.catch(() => s2Cache.delete(key));
     return p;
   }
-  const S2_FROM = 40; // zoom at which the streamed Sentinel-2 imagery takes over
+  const S2_FROM = 40; // zoom at which Sentinel-2 takes over if Esri imagery is unavailable
+  // Streamed aerial and satellite photos: Esri World Imagery (sub-metre in most populated
+  // areas), Web Mercator tiles of 256 px. Used for every zoomed view; if it can't load,
+  // Sentinel-2 and then the bundled NASA terrain are used instead.
+  const ESRI_URL = (z, y, x) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  let esriOK = true;
+  const esriCache = new Map();
+  function loadEsri(z, y, x) {
+    const key = `${z}/${y}/${x}`;
+    if (esriCache.has(key)) { const v = esriCache.get(key); esriCache.delete(key); esriCache.set(key, v); return v; }
+    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = rej; i.src = ESRI_URL(z, y, x); });
+    esriCache.set(key, p);
+    if (esriCache.size > 500) esriCache.delete(esriCache.keys().next().value);
+    p.catch(() => esriCache.delete(key));
+    return p;
+  }
+  const mercY = lat => { const r = (Math.max(-85.05, Math.min(85.05, lat)) * Math.PI) / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2; };
+  const tileLat = (y, n) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  function drawEsri(job, v) {
+    const screenPpd = (v.w * DPR) / Math.max(1e-9, v.lon1 - v.lon0);
+    let z = 2;
+    while (z < 19 && (256 * 2 ** z) / 360 < screenPpd) z++;
+    const n = 2 ** z;
+    const x0 = Math.max(0, Math.floor(((v.lon0 + 180) / 360) * n)), x1 = Math.min(n - 1, Math.floor(((v.lon1 + 180) / 360) * n));
+    const y0 = Math.max(0, Math.floor(mercY(Math.min(85, v.lat1)) * n)), y1 = Math.min(n - 1, Math.floor(mercY(Math.max(-85, v.lat0)) * n));
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 90) return;
+    const ctx = detailCv.getContext("2d");
+    let failed = 0;
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      const tl0 = (tx / n) * 360 - 180, tl1 = ((tx + 1) / n) * 360 - 180, tb1 = tileLat(ty, n), tb0 = tileLat(ty + 1, n);
+      const src = (lon, lat) => [((lon + 180) / 360) * n * 256 - tx * 256, mercY(lat) * n * 256 - ty * 256];
+      const step = Math.min(v.step, tl1 - tl0, tb1 - tb0);
+      loadEsri(z, ty, tx).then(img => {
+        if (job !== detailJob) return;
+        drawMapped(ctx, img, src, Math.max(v.lon0, tl0), Math.min(v.lon1, tl1), Math.max(v.lat0, tb0), Math.min(v.lat1, tb1), step, v.s, v.x0, v.y0);
+        attribution("esri");
+      }).catch(() => {
+        // Blocked or offline: fall back to Sentinel-2 for this view and stop asking Esri.
+        if (++failed === 1 && job === detailJob) { esriOK = false; if (v.k >= S2_FROM) drawS2(job, v); }
+      });
+    }
+  }
   let worldBox = null, detailBox = null, detailJob = 0;
   const DPR = Math.min(2, window.devicePixelRatio || 1);
 
@@ -454,6 +498,21 @@
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
+  // Same idea for any image whose pixel position is a function of lon/lat (e.g. Web Mercator tiles).
+  function drawMapped(ctx, img, src, lonA, lonB, latA, latB, step, s, ox, oy) {
+    const pad = step * 0.08;
+    for (let lon = lonA; lon < lonB - 1e-12; lon += step) {
+      for (let lat = latB; lat > latA + 1e-12; lat -= step) {
+        const e1 = Math.min(lon + step + pad, lonB), e0 = Math.max(lat - step - pad, latA);
+        const [sx, sy] = src(lon, lat), sw = src(e1, lat)[0] - sx, sh = src(lon, e0)[1] - sy;
+        if (sw <= 0 || sh <= 0) continue;
+        const p0 = projection([lon, lat]), p1 = projection([e1, lat]), p2 = projection([lon, e0]);
+        ctx.setTransform((p1[0] - p0[0]) * s / sw, (p1[1] - p0[1]) * s / sw, (p2[0] - p0[0]) * s / sh, (p2[1] - p0[1]) * s / sh, (p0[0] - ox) * s, (p0[1] - oy) * s);
+        ctx.drawImage(img, Math.max(0, sx), Math.max(0, sy), Math.min(sw, img.width - sx), Math.min(sh, img.height - sy), 0, 0, Math.min(sw, img.width - sx), Math.min(sh, img.height - sy));
+      }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
   function drawWorldTerrain() {
     if (!terrainOn) return;
     loadImg("vendor/terrain/world.jpg?v=15").then(img => {
@@ -466,7 +525,7 @@
       ctx.beginPath(); d3.geoPath(projection, ctx)({ type: "Sphere" }); ctx.clip();
       drawCells(ctx, img, -180, 90, img.width / 360, -180, 180, -90, 90, 3, s, x0, y0);
       ctx.restore();
-      worldBox = { x0, y0, x1, y1, cv: worldCv };
+      worldBox = { x0, y0, x1, y1, cv: worldCv, kr: 1 };
       positionTerrain(d3.zoomTransform(svg.node()));
     }).catch(() => {});
   }
@@ -514,10 +573,11 @@
       // Swap in the finished canvas so the old view stays up while the new one draws.
       detailCv.width = cv.width; detailCv.height = cv.height;
       detailCv.getContext("2d").drawImage(cv, 0, 0);
-      detailBox = { x0, y0, x1, y1, cv: detailCv };
+      detailBox = { x0, y0, x1, y1, cv: detailCv, kr: t.k };
       detailCv.style.display = "";
       positionTerrain(d3.zoomTransform(svg.node()));
-      if (t.k >= S2_FROM) drawS2(job, { x0, y0, x1, y1, lon0, lon1, lat0, lat1, s, step, w });
+      const view = { x0, y0, x1, y1, lon0, lon1, lat0, lat1, s, step, w, k: t.k };
+      if (esriOK) drawEsri(job, view); else if (t.k >= S2_FROM) drawS2(job, view);
     }).catch(() => {});
   }
   // Sharper Sentinel-2 tiles drawn over the bundled terrain as they arrive. If they can't load
@@ -542,11 +602,13 @@
       }).catch(() => {});
     }
   }
+  // Each canvas is laid out at the zoom it was drawn for (kr) and only scaled by the change since,
+  // so a deep-zoom canvas isn't squeezed into a sub-pixel box and blown up again.
   function positionTerrain(t) {
     [worldBox, detailBox].forEach(bx => {
       if (!bx) return;
-      bx.cv.style.width = bx.x1 - bx.x0 + "px"; bx.cv.style.height = bx.y1 - bx.y0 + "px";
-      bx.cv.style.transform = `translate(${t.x + t.k * bx.x0}px, ${t.y + t.k * bx.y0}px) scale(${t.k})`;
+      bx.cv.style.width = (bx.x1 - bx.x0) * bx.kr + "px"; bx.cv.style.height = (bx.y1 - bx.y0) * bx.kr + "px";
+      bx.cv.style.transform = `translate(${t.x + t.k * bx.x0}px, ${t.y + t.k * bx.y0}px) scale(${t.k / bx.kr})`;
     });
   }
   function setTerrain(on) {
@@ -559,7 +621,7 @@
     paint();
   }
 
-  const zoom = d3.zoom().scaleExtent([1, 2500]).on("zoom", e => {
+  const zoom = d3.zoom().scaleExtent([1, 30000]).on("zoom", e => {
     k = e.transform.k;
     root.attr("transform", e.transform);
     positionTerrain(e.transform);
@@ -569,6 +631,7 @@
     markerSel.attr("r", 3.2 / shrink());
     placeBases();
     placeArmies();
+    placeShips();
   });
   svg.call(zoom).on("dblclick.zoom", null);
 
@@ -582,6 +645,7 @@
     zoom.translateExtent([[-w * 0.2, -h * 0.2], [w * 1.2, h * 1.2]]);
     drawDeploy();
     drawArmies();
+    drawShips();
     worldBox = null;
     drawWorldTerrain();
     scheduleView();
@@ -776,7 +840,7 @@
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.
-    const baseK = () => Math.min(1500, Math.max(d3.zoomTransform(svg.node()).k * 4, province ? 900 : 600));
+    const baseK = () => Math.min(12000, Math.max(d3.zoomTransform(svg.node()).k * 6, 6000));
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, baseK());
     if (fly) flyTo(z.at, baseK());
     if (tab !== "dossier") setTab("dossier");
@@ -785,6 +849,56 @@
     const li = pane.querySelector(`li[data-zone="${CSS.escape(z.name)}"]`);
     if (li) { const d = li.closest("details"); if (d) d.open = true; li.classList.add("picked"); li.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
   }
+  // ── Named capital ships (js/fleet.js) ─────────────────────
+  // The selected country's carriers, assault ships and flagships at their 2025 positions.
+  const shipsOf = iso => (window.FLEET || []).filter(sh => sh.nat === iso);
+  function drawShips() {
+    const ships = selected ? shipsOf(selected) : [];
+    const g = fleetLayer.selectAll("g.ship").data(ships, sh => sh.hull).join(en => {
+      const e = en.append("g").attr("class", "ship");
+      e.append("circle");
+      e.append("use");
+      e.append("text");
+      return e;
+    });
+    g.classed("inactive", sh => !sh.active);
+    g.select("use").attr("href", sh => iconHref(sh.kind === "command" ? "ship" : "carrier", sh.nat)).attr("class", sh => iconClass(sh.nat));
+    g.select("text").text(sh => sh.name);
+    g.on("click", (e, sh) => { e.stopPropagation(); hideTip(); pickShip(sh, true); })
+      .on("mousemove", (e, sh) => { tip.innerHTML = `<b>${esc(sh.name)}</b> <span class="k">${esc(sh.hull)}</span><div class="k">${esc(sh.cls)}-class · ${esc(sh.status)}</div><div class="k">${esc(sh.where)}</div>`; placeTip(e); })
+      .on("mouseleave", hideTip);
+    placeShips();
+  }
+  function placeShips() {
+    const r = Math.min(9 / shrink(), 15 / k);
+    fleetLayer.selectAll("g.ship").each(function (sh) {
+      const [x, y] = projection(sh.at), g = d3.select(this), ir = r * 1.6;
+      g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
+      g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
+      g.select("text").attr("x", x).attr("y", y + r * 2.1).style("font-size", Math.min(9 / shrink(), 12 / k) + "px").style("stroke-width", Math.min(2.5 / shrink(), 3 / k) + "px").style("display", k >= 8 ? null : "none");
+    });
+  }
+  function shipStats(sh) {
+    return [["Displacement", `${num(sh.disp)} t`], ["Length", `${sh.len} m`], ["Speed", `${sh.kn} kn`], ["Aircraft", sh.air], ["Crew", num(sh.crew)], [sh.active ? "Commissioned" : "Expected", sh.year]];
+  }
+  // Ship card: class, status, location and approximate capabilities; flies to its pier or sea area.
+  function pickShip(sh, fly) {
+    unpickZone();
+    baseCard.innerHTML = `<button class="bc-close" aria-label="Close ship card">×</button>
+      <div class="bc-kind">${esc(sh.kind === "carrier" ? "Aircraft carrier" : sh.kind === "amphib" ? "Amphibious assault ship" : "Flagship")} · ${esc(BY[sh.nat].name)}</div>
+      <h4>${esc(sh.name)} <small>${esc(sh.hull)}</small></h4><span class="tag">${esc(sh.cls)} class</span> <span class="tag ${sh.active ? "" : "warn"}">${esc(sh.status)}</span>
+      <dl>${shipStats(sh).map(([t, v]) => `<div><dd>${esc(String(v))}</dd><dt>${esc(t)}</dt></div>`).join("")}</dl>
+      <p><b>${esc(sh.power)}</b>. ${esc(sh.note)}</p>
+      <p class="hint">${esc(sh.where)}. Positions at sea are approximate.</p>
+      <button class="bc-fly">Zoom to ship</button>`;
+    baseCard.hidden = false;
+    baseCard.querySelector(".bc-close").onclick = unpickZone;
+    // In port the satellite view can show the pier; at sea a wider view makes more sense.
+    const kk = /deployed|sea|ocean/i.test(sh.where) && !/port|base|yard|naval station/i.test(sh.where) ? 300 : 9000;
+    baseCard.querySelector(".bc-fly").onclick = () => flyTo(sh.at, kk);
+    if (fly) flyTo(sh.at, kk);
+  }
+
   function unpickZone() {
     pickedZone = null;
     baseCard.hidden = true;
@@ -794,7 +908,7 @@
   function flyTo(at, minK) {
     const w = wrap.clientWidth, h = wrap.clientHeight, [x, y] = projection(at);
     const kk = Math.max(minK, d3.zoomTransform(svg.node()).k);
-    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(Math.min(2500, kk)).translate(-x, -y);
+    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(Math.min(30000, kk)).translate(-x, -y);
     const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     (reduce ? svg : svg.transition().duration(650)).call(zoom.transform, t);
   }
@@ -1066,6 +1180,10 @@
 
       ${profileHtml}
       ${equipHtml}
+      ${shipsOf(c.iso3).length ? `<div class="section"><h3>Capital ships <small>2025 positions</small></h3><ul class="zones">${shipsOf(c.iso3).map((sh, i) => `<li data-ship="${i}" tabindex="0" title="Show on map">
+          <div class="z-h"><b>${esc(sh.name)}</b><span>${esc(sh.hull)}</span></div>
+          <div class="z-stats">${esc(sh.cls)}-class · ${num(sh.disp)} t · ${sh.air} aircraft · ${esc(sh.power)}</div>
+          <p class="z-note">${sh.active ? "" : "⚠️ "}${esc(sh.status)} — ${esc(sh.where)}</p></li>`).join("")}</ul></div>` : ""}
 
       <div class="section"><h3>Force disposition <small>${zones.hand ? "hand-placed" : "modelled"}</small></h3>
         <p class="hint">${zones.hand ? "Hand-placed from open sources: command HQs, corps, division and brigade garrisons, air and naval bases, and declared overseas deployments." : "Modelled: the capital reserve, regional garrisons, units on tense borders sized by threat, and the fleet on the coast."} Shown as rings on the map, with dashed rings for forces abroad. These are where forces sit, not an ideal spread.</p>
@@ -1110,6 +1228,11 @@
       toast(G.state.log[0].msg); refresh();
     }));
     pane.querySelectorAll("[data-act]").forEach(b => (b.onclick = () => act(b.dataset.act, c.iso3)));
+    pane.querySelectorAll("li[data-ship]").forEach(li => {
+      const go = () => pickShip(shipsOf(c.iso3)[+li.dataset.ship], true);
+      li.onclick = go;
+      li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+    });
     const ps = pane.querySelector("#prov-sel");
     if (ps) ps.onchange = () => { if (ps.value) selectProvince(ps.value); else { province = null; unpickZone(); drawProvinces(); zoomTo(c.iso3); dossier(); } };
     pane.querySelectorAll("li[data-zone]").forEach(li => {
@@ -1279,7 +1402,7 @@
   };
   function select(iso) {
     if (iso !== selected) { unpickZone(); province = null; }
-    selected = iso; paint(); drawDeploy(); drawProvinces(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0;
+    selected = iso; paint(); drawDeploy(); drawShips(); drawProvinces(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0;
     loadAdmin1(iso, () => { if (selected === iso) { drawProvinces(); if (tab === "dossier") dossier(); } });
   }
 

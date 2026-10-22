@@ -405,3 +405,12 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .attrib a { color: inherit; }
 /* Controls stay above the map SVG (which is positioned to sit over the terrain canvases). */
 .zoomctl, .legend { z-index: 4; }
+
+/* Named capital ships */
+.ship { cursor: pointer; }
+.ship circle { fill: #0c1316dd; stroke: #9eefff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.ship.inactive circle { stroke-dasharray: 3 2; stroke: #f0a03c; }
+.ship use { pointer-events: none; }
+.ship text { fill: #fff; text-anchor: middle; font-family: var(--font-display); letter-spacing: .03em; paint-order: stroke; stroke: #0c1316; pointer-events: none; }
+.tag.warn { color: #f0a03c; border-color: #f0a03c88; }
+.basecard h4 small { font: 12px var(--font-data); color: var(--muted); }
