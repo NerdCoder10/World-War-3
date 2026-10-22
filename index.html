@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>World War 3 Theatre Command</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=Saira+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><h1>World War <b>3</b></h1><span>Theatre command · 195 nations</span></div>
+  <nav class="modes" aria-label="Map layer">
+    <button data-mode="campaign" aria-pressed="true">Campaign</button>
+    <button data-mode="power" aria-pressed="false">Military</button>
+    <button data-mode="hidden" aria-pressed="false">Secret assets</button>
+    <button data-mode="gdp" aria-pressed="false">GDP</button>
+    <button data-mode="soft" aria-pressed="false">Soft power</button>
+  </nav>
+  <div class="search">
+    <input id="search" type="search" placeholder="Find a country…" autocomplete="off" aria-label="Find a country">
+    <ul id="search-results" hidden></ul>
+  </div>
+</header>
+<main>
+  <div class="mapwrap">
+    <div class="zoomctl"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zreset" aria-label="Reset zoom">⟲</button></div>
+    <div class="legend"></div>
+    <div class="tooltip" hidden></div>
+  </div>
+  <aside>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="dossier" aria-selected="true">Dossier</button>
+      <button role="tab" data-tab="rankings" aria-selected="false">Rankings</button>
+      <button role="tab" data-tab="campaign" aria-selected="false">Campaign</button>
+    </div>
+    <section class="pane" id="pane-dossier"></section>
+    <section class="pane" id="pane-rankings" hidden></section>
+    <section class="pane" id="pane-campaign" hidden></section>
+  </aside>
+</main>
+<div class="toast" hidden></div>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/topojson-client.min.js"></script>
+<script src="vendor/world-50m.js"></script>
+<script src="js/data.js"></script>
+<script src="js/intel.js"></script>
+<script src="js/model.js"></script>
+<script src="js/game.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
