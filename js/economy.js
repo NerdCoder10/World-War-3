@@ -28,7 +28,7 @@ window.VALUE_OVERRIDES = {
 // Buying a country costs its national value in coins (1 coin = US$1), plus a premium
 // for the most valuable nations by value rank.
 window.PRICE_PREMIUMS = [
-  { upTo: 5, premium: 0.5 },
+  { upTo: 5, premium: 1.325 },  // 50% markup, then raised a further 55%: 1.5 × 1.55 = 2.325× value
   { upTo: 10, premium: 0.4 },
   { upTo: 20, premium: 0.3 },
   { upTo: 35, premium: 0.15 },
