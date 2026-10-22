@@ -347,3 +347,8 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .armies .z-h span { font: 11px var(--font-data); color: var(--muted); }
 .armies .z-stats { font: 11px var(--font-data); color: var(--muted); }
 .armies .z-note { margin: 4px 0 0; font-size: 13px; }
+.reset-btn {
+  background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 4px; padding: 5px 10px;
+  font: 600 13px var(--font-display); letter-spacing: .1em; text-transform: uppercase;
+}
+.reset-btn:hover, .reset-btn.armed { border-color: var(--danger); color: var(--danger); }
