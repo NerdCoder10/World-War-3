@@ -147,6 +147,8 @@
     const tier = window.PRICE_PREMIUMS.find(t => c.valueRank <= t.upTo);
     c.pricePremium = tier ? tier.premium : 0;
     c.price = Math.round(c.nationalValue * 1e9 * (1 + c.pricePremium));
+    const fixed = window.PRICE_OVERRIDES[c.iso3];
+    if (fixed) { c.price = fixed; c.priceFixed = true; c.pricePremium = fixed / (c.nationalValue * 1e9) - 1; }
   });
   window.VALUE_PARTS = [
     ["human", "Human capital"], ["realEstate", "Real estate & land"], ["business", "Business equity"],
