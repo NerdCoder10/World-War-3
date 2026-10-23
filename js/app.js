@@ -122,13 +122,19 @@
     }
     return 0;
   }
+  window.computeDeployment = iso => computeDeployment(iso);
+  // Every known unit (nukes excluded) is assigned to a base, at home or abroad. During a campaign
+  // the totals are the nation's current home pool, so losses and units sent away show up.
   function computeDeployment(iso) {
     const zones = deploymentFor(iso), c = BY[iso];
-    const totals = { tanks: c.tanks, afv: c.afv, arty: c.arty, fighters: c.fighters, aircraft: Math.max(0, c.aircraft - c.fighters), helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers };
+    const live = G.state.forces[iso];
+    const totals = live ? { ...live } : G.baseForces(c);
     zones.forEach(z => (z.kit = {}));
     KIT.forEach(([key]) => {
-      const n = totals[key];
-      const w = zones.map(z => kitWeight(z, key)), tw = w.reduce((a, b) => a + b, 0);
+      const n = Math.round(totals[key] || 0);
+      let w = zones.map(z => kitWeight(z, key)), tw = w.reduce((a, b) => a + b, 0);
+      // Nowhere fits this kind (e.g. helicopters in a navy-only force): spread it by overall base size.
+      if (!tw) { w = zones.map(z => z.groundPct + z.airPct + z.navalPct + 1e-6); tw = w.reduce((a, b) => a + b, 0); }
       if (!n || !tw) return;
       // Largest-remainder rounding keeps whole units that add up to the national total.
       const raw = w.map(x => (n * x) / tw), out = raw.map(Math.floor);
@@ -136,6 +142,7 @@
       raw.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { out[i]++; left--; } });
       zones.forEach((z, i) => (z.kit[key] = out[i]));
     });
+    zones.forEach(z => (z.kit.troops = (totals.troops || 0) * z.groundPct));
     return zones;
   }
   function deploymentFor(iso) {
@@ -149,7 +156,8 @@
       const abroadK = zones.filter(z => z.host).reduce((a, z) => a + z.ground, 0);
       const homeW = zones.filter(z => !z.host).reduce((a, z) => a + z.ground, 0) || 1;
       const total = Math.max(active, abroadK * 1.05);
-      zones.forEach(z => (z.groundPct = z.host ? z.ground / total : (z.ground / homeW) * (total - abroadK) / total));
+      if (total > 0) zones.forEach(z => (z.groundPct = z.host ? z.ground / total : (z.ground / homeW) * (total - abroadK) / total));
+      else norm("ground"); // no standing army: police and border units still hold the ground kit
       zones.hand = true;
       return zones;
     }
@@ -316,7 +324,7 @@
     defs.append("symbol").attr("id", `ic-${type}-${tier}`).attr("viewBox", "0 0 24 24").html(body)));
 
   // Effective technology of a nation's forces: its design generation plus your weapons research.
-  const effGen = iso => BY[iso].tech.gen + 0.15 * G.techLvl(iso, "weapons");
+  const effGen = iso => BY[iso].tech.gen + 0.75 * G.techShare(iso, "weapons");
   const iconClass = iso => `unit-icon tier-${window.techTier(effGen(iso))}${BY[iso].tech.ready < 0.6 ? " worn" : ""}`;
   const iconHref = (type, iso) => `#ic-${type}-${window.techTier(effGen(iso))}`;
   // Most important kind of force at a base: fleet, air wing, armour or infantry.
@@ -904,7 +912,7 @@
   // Counts at one base; anything that rounds to zero is left out.
   const countOf = (n, one, many) => { const r = Math.round(n); return r >= 1 ? `${num(r)} ${r === 1 ? one : many}` : ""; };
   function zoneStats(c, z) {
-    return [z.groundPct > 0 ? `${kPers(c.active * z.groundPct)} troops` : ""]
+    return [(z.kit.troops ?? c.active * z.groundPct) > 0 ? `${kPers(z.kit.troops ?? c.active * z.groundPct)} troops` : ""]
       .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many))).filter(Boolean);
   }
   // Hover details for a base / garrison circle.
@@ -1160,25 +1168,54 @@
 
   // Home forces of one of your nations: ready, deployed, and locked.
   function forcesHtml(c) {
-    const f = G.forces(c.iso3), b = G.baseForces(c), dep = {};
+    const f = G.forces(c.iso3), b = G.baseForces(c), dep = {}, av = G.accessible(c.iso3);
     G.state.armies.filter(a => a.nat === c.iso3).forEach(a => window.UNITS.forEach(u => (dep[u.key] = (dep[u.key] || 0) + (a.units[u.key] || 0))));
     const tiles = window.UNITS.filter(u => b[u.key] > 0 || f[u.key] > 0).map(u => {
       const ok = G.usable(c.iso3, u.key);
-      return `<div class="${ok ? "" : "lockedw"}"><dt>${ok ? "" : "🔒 "}${u.label}</dt><dd>${unitFmt(u.key, f[u.key])}</dd>${dep[u.key] ? `<small class="hint">+${unitFmt(u.key, dep[u.key])} deployed</small>` : ""}</div>`;
+      return `<div class="${ok ? "" : "lockedw"}"><dt>${ok ? "" : "🔒 "}${u.label}</dt><dd>${unitFmt(u.key, av[u.key] || 0)}</dd><small class="hint">of ${unitFmt(u.key, f[u.key])} at home${dep[u.key] ? ` · +${unitFmt(u.key, dep[u.key])} deployed` : ""}</small></div>`;
     }).join("");
-    return `<div class="section"><h3>Home forces <small>regrow each turn</small></h3><dl class="assets">${tiles}</dl>
-      <p class="hint">Units at home are free to send. Open any country's dossier to send them there. Locked types (🔒) must be unlocked above first.</p></div>`;
+    return `<div class="section"><h3>Home forces <small>accessible now · regrow each turn</small></h3><dl class="assets">${tiles}</dl>
+      <p class="hint">The big number is what this nation's access levels let you send or defend with. Open any country's dossier to send units there. Raise access levels under Military power to call on more.</p></div>`;
+  }
+
+  // One tiered upgrade row: level bar (0–100, full access at 90) and +1 / +10 / Max buttons.
+  function levelRow(attr, key, label, lvl, info, quote, mine) {
+    const L = window.LEVEL_MAX, F = window.LEVEL_FULL;
+    const btn = n => {
+      let q = quote(n);
+      const none = n === "max" && !q.n;
+      if (none) q = quote(1);
+      if (!q.n) return "";
+      const short = none || G.state.coins < q.cost;
+      return `<button class="unlock" data-${attr}="${key}" data-n="${n}" title="${n === "max" ? `Buy ${q.n} level${q.n === 1 ? "" : "s"}` : `+${q.n} level${q.n === 1 ? "" : "s"}`} for ${G.fmtCoins(q.cost)} coins" ${short ? "aria-disabled=\"true\"" : ""}>${n === "max" ? "Max" : "+" + n} <span class="coin" aria-hidden="true"></span>${G.fmtCoins(q.cost)}</button>`;
+    };
+    const btns = !mine ? "" : lvl >= L ? `<span class="tag">max</span>` : `<span class="lvbtns">${btn(1)}${btn(10)}${btn("max")}</span>`;
+    return `<li><div class="lvhead"><b>${label}</b> <small>Lv ${lvl}/${L}</small>${btns}</div>
+      <div class="lvbar" aria-hidden="true"><i style="width:${lvl}%"></i><span style="left:${F}%"></span></div>
+      <span class="hint">${info}</span></li>`;
+  }
+  const pctTxt = x => `${Math.round(x * 100)}%`;
+  function accessInfo(lvl) {
+    const sh = window.tierShare(lvl), su = window.tierSurge(lvl);
+    return lvl <= 0 ? "Locked: none of it can fight." : `${pctTxt(sh)} of the force accessible${su ? ` · +${pctTxt(su)} surge combat power` : ""}`;
   }
 
   function techHtml(c, mine) {
     const rows = window.TECH.map(t => {
-      const lvl = G.techLvl(c.iso3, t.key), max = lvl >= window.TECH_MAX, cost = window.techCost(c, lvl);
-      const pips = d3.range(window.TECH_MAX).map(i => `<i class="${i < lvl ? "on" : ""}"></i>`).join("");
-      const btn = !mine ? "" : max ? `<span class="tag">max</span>` :
-        `<button class="unlock" data-tech="${t.key}" ${G.state.coins < cost ? "aria-disabled=\"true\"" : ""}><span class="coin" aria-hidden="true"></span>${G.fmtCoins(cost)}</button>`;
-      return `<li><div><b>${t.label}</b> <small>Lv ${lvl}/${window.TECH_MAX}</small><div class="pips">${pips}</div><span class="hint">${t.per} per level</span></div>${btn}</li>`;
+      const lvl = G.techLvl(c.iso3, t.key), now = window.tierShare(lvl) + window.tierSurge(lvl);
+      return levelRow("tech", t.key, t.label, lvl, `${lvl ? `Now ${pctTxt(now)} of full effect. ` : ""}At 100% (level ${window.LEVEL_FULL}): ${t.per}.`, n => G.techQuote(c.iso3, t.key, n), mine);
     }).join("");
-    return `<ul class="tech">${rows}</ul>${mine ? "" : `<p class="hint">Bring this nation into your empire to research upgrades for it.</p>`}`;
+    return `<ul class="tech">${rows}</ul><p class="hint">Level 1 gives 10% of a track's effect, rising linearly to 100% at level ${window.LEVEL_FULL}. Levels ${window.LEVEL_FULL + 1}–${window.LEVEL_MAX} add +1% each beyond that.${mine ? "" : " Bring this nation into your empire to research upgrades for it."}</p>`;
+  }
+
+  // Access levels for each weapon category (troops included) of one of your nations.
+  function accessHtml(c) {
+    const cats = [{ key: "troops", label: "Troops", count: c.active }].concat(c.weapons.filter(w => w.count));
+    const rows = cats.map(w => {
+      const lvl = G.accessLvl(c.iso3, w.key);
+      return levelRow("access", w.key, w.label, lvl, accessInfo(lvl), n => G.accessQuote(c.iso3, w.key, n), true);
+    }).join("");
+    return `<h4 class="zgroup">Access levels</h4><ul class="tech">${rows}</ul>`;
   }
 
   function dossier() {
@@ -1191,22 +1228,20 @@
     }
     const c = BY[selected], s = c.secret;
     const share = c.gdp / window.WORLD_GDP;
-    const mine = G.owns(c.iso3), have = G.arsenal(c.iso3);
+    const mine = G.owns(c.iso3), accShare = mine ? Object.fromEntries(window.UNITS.map(u => [u.key, G.accessShare(c.iso3, u.key)])) : null;
     const base = [["Defence budget", money(c.mil)], ["Active troops", kPers(c.active)], ["Reserves", kPers(c.reserve)]]
       .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`);
     const weaponTiles = c.weapons.map(w => {
       const val = num(w.count);
       if (!mine || !w.count) return `<div><dt>${w.label}</dt><dd>${val}</dd></div>`;
-      if (have.includes(w.key)) return `<div class="unlocked"><dt>${w.label} · ready</dt><dd>${val}</dd></div>`;
-      const short = G.state.coins < w.cost;
-      return `<div class="lockedw"><dt>🔒 ${w.label}</dt><dd>${val}</dd>
-        <button class="unlock" data-unlock="${w.key}" ${short ? "aria-disabled=\"true\"" : ""}><span class="coin" aria-hidden="true"></span>${w.cost.toLocaleString("en-US")}</button></div>`;
+      const lvl = G.accessLvl(c.iso3, w.key);
+      return `<div class="${lvl ? "unlocked" : "lockedw"}"><dt>${lvl ? "" : "🔒 "}${w.label} · Lv ${lvl}</dt><dd>${val}</dd></div>`;
     });
-    const lockedCount = mine ? c.weapons.filter(w => w.count && !have.includes(w.key)).length : 0;
+    const lockedCount = mine ? c.weapons.filter(w => w.count && !G.accessLvl(c.iso3, w.key)).length : 0;
     const v = c.value, vt = v.total;
     const zones = computeDeployment(c.iso3);
     const homeZ = zones.filter(z => !z.host), abroadZ = zones.filter(z => z.host);
-    const abroadTroops = abroadZ.reduce((a, z) => a + c.active * z.groundPct, 0);
+    const abroadTroops = abroadZ.reduce((a, z) => a + z.kit.troops, 0);
     const hosts = new Set(abroadZ.map(z => z.host));
     const hostName = h => (h === "TERR" ? "Overseas territory" : BY[h] ? BY[h].name : h);
     const maxShare = Math.max(...zones.map(z => Math.max(z.groundPct, z.navalPct, z.airPct))) || 1;
@@ -1230,7 +1265,7 @@
     let provBody = `<p class="hint">Click a state or province on the map, or choose one here, to zoom in and see the bases there.</p>`;
     if (pf) {
       const inside = basesIn(pf, zones), sum = {};
-      inside.forEach(z => { sum.troops = (sum.troops || 0) + c.active * z.groundPct; KIT.forEach(([k2]) => (sum[k2] = (sum[k2] || 0) + (z.kit[k2] || 0))); });
+      inside.forEach(z => { sum.troops = (sum.troops || 0) + z.kit.troops; KIT.forEach(([k2]) => (sum[k2] = (sum[k2] || 0) + (z.kit[k2] || 0))); });
       provBody = `<div class="provcard"><b>${esc(pf.properties.name)}</b> <span class="tag">${esc(pf.properties.type)}</span>
         <p class="hint">${inside.length ? `${inside.length} base${inside.length === 1 ? "" : "s"}: ${esc(zoneStats(c, { groundPct: (sum.troops || 0) / Math.max(c.active, 1e-9), kit: sum }).join(" · "))}. Click a base to zoom in further.` : "No listed bases in this region."}</p>
         ${inside.length ? `<ul class="zones">${inside.map(zoneLi).join("")}</ul>` : ""}</div>`;
@@ -1292,9 +1327,10 @@
         <div class="techrow"><svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-jet-${window.techTier(effGen(c.iso3))}"/></svg>
           <span><b>Gen ${effGen(c.iso3).toFixed(1)}</b> ${window.techTier(effGen(c.iso3))} technology · readiness <b>${Math.round(c.tech.ready * 100)}%</b> (${window.readyLabel(c.tech.ready)})${c.tech.estimated ? " <small>estimated</small>" : ""}</span></div>
         <div class="bar"><i style="width:${c.power}%;background:${MODES.power.hi}"></i></div>
-        ${mine ? `<p class="hint armory">${lockedCount ? `${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} locked. Locked weapons don't fight. You have <b>${G.fmtCoins(G.state.coins)}</b> coins.` : "All weapons unlocked and ready."} Usable strength ${window.truePowerWith(c, have).toFixed(1)} of ${c.truePower}.</p>` : ""}
+        ${mine ? `<p class="hint armory">Each category has an access level from 1 to ${window.LEVEL_MAX}: level 1 lets you call on 10% of it, rising to 100% at level ${window.LEVEL_FULL}.${lockedCount ? ` ${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} still at level 0 and can't fight.` : ""} You have <b>${G.fmtCoins(G.state.coins)}</b> coins. Usable strength ${window.truePowerWith(c, accShare).toFixed(1)} of ${c.truePower}.</p>` : ""}
         <dl class="assets">${base.join("")}${weaponTiles.join("")}
-          <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl></div>
+          <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready, outside access levels" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl>
+        ${mine ? accessHtml(c) : ""}</div>
 
       ${profileHtml}
       ${intelHtml}
@@ -1343,7 +1379,7 @@
     wireSend(pane, c);
     wireArmies(pane);
     pane.querySelectorAll("[data-tech]").forEach(b => (b.onclick = () => {
-      const err = G.upgradeTech(c.iso3, b.dataset.tech);
+      const err = G.upgradeTech(c.iso3, b.dataset.tech, b.dataset.n === "max" ? "max" : +b.dataset.n);
       if (err) return toast(err);
       toast(G.state.log[0].msg); refresh();
     }));
@@ -1361,8 +1397,8 @@
       li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
     });
     if (pickedZone) { const li = pane.querySelector(`li[data-zone="${CSS.escape(pickedZone)}"]`); if (li) li.classList.add("picked"); }
-    pane.querySelectorAll("[data-unlock]").forEach(b => (b.onclick = () => {
-      const err = G.unlockWeapon(c.iso3, b.dataset.unlock);
+    pane.querySelectorAll("[data-access]").forEach(b => (b.onclick = () => {
+      const err = G.raiseAccess(c.iso3, b.dataset.access, b.dataset.n === "max" ? "max" : +b.dataset.n);
       if (err) return toast(err);
       toast(G.state.log[0].msg); refresh();
     }));
@@ -1451,7 +1487,7 @@
         <button class="btn ghost" id="newgame">New campaign</button></div>
       <div class="section"><h3>How to play</h3>
         <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Armies take turns to arrive, by land if the target borders your territory, otherwise by sea, which needs enough sealift. Each <b>End turn</b>, every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
-        <p class="hint"><b>Coins & weapons.</b> Every nation you control starts with its weapons locked: only troops, budget and nukes fight. Open a nation's dossier and spend coins to unlock each weapon category (tanks, aircraft, ships and so on). Prices scale with the hardware's real replacement value. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
+        <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 add up to +10% surge combat power. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
       ${s.log.length ? `<div class="section"><h3>War log</h3><ul class="log">${s.log.map(l => `<li class="${l.kind}"><span>T${l.t}</span>${esc(l.msg)}</li>`).join("")}</ul></div>` : ""}
       <div class="section method"><details><summary>Methodology & sources</summary>
         <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Warheads: FAS Nuclear Notebook. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>

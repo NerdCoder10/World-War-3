@@ -18,13 +18,12 @@
     return clamp(0.6 + 0.4 * Math.log10(1 + gdpPcK) / Math.log10(81), 0.6, 1);
   };
 
-  // `disabled` (optional Set) zeroes capabilities, e.g. weapons a player has not unlocked yet.
-  function rawPower(c, budget, disabled) {
+  // `share` (optional, key → 0..1) scales capabilities, e.g. the access level a player has bought.
+  function rawPower(c, budget, share) {
     let s = 0;
     const q = quality(c);
     for (const k in WEIGHTS) {
-      if (disabled && disabled.has(k)) continue;
-      const v = k === "mil" ? budget : c[k];
+      const v = (k === "mil" ? budget : c[k]) * (share && k in share ? share[k] : 1);
       const w = k === "mil" || k === "gdp" || k === "pop" || k === "soft" ? 1 : q;
       s += WEIGHTS[k] * w * Math.sqrt(Math.min(1, v / MAX[k]));
     }
@@ -88,11 +87,13 @@
   rank("soft", "softRank");
   rank("secretIndex", "secretRank");
 
-  // Estimated true strength with only some weapon categories usable (nukes always count).
+  // Estimated true strength when only a share of each weapon category is usable (nukes always count).
+  // `share` maps a category (and "troops") to 0..1; a missing key counts as 0.
   const WEAPON_KEYS = window.WEAPONS.map(w => w.key);
-  window.truePowerWith = (c, unlocked) => {
-    const disabled = new Set(WEAPON_KEYS.filter(k => !unlocked.includes(k)));
-    return (rawPower(c, c.secret.trueBudget, disabled) * c._mult * c._ready / tTrue) * 100;
+  window.truePowerWith = (c, share) => {
+    const sc = { active: share.troops || 0 };
+    WEAPON_KEYS.forEach(k => (sc[k] = share[k] || 0));
+    return (rawPower(c, c.secret.trueBudget, sc) * c._mult * c._ready / tTrue) * 100;
   };
 
   // ── Valuation: value the world's assets, then give each country its share ──
@@ -118,6 +119,8 @@
       const valueBn = (count * w.unit * q) / 1000;
       return { ...w, count: c[w.key], valueBn, cost: c[w.key] > 0 ? Math.max(window.MIN_UNLOCK, Math.round(valueBn * window.COINS_PER_BN)) : 0 };
     });
+    // Full price of troop access: kit, pay and readiness per thousand active troops.
+    c.troopCost = c.active > 0 ? Math.max(window.MIN_UNLOCK, Math.round((c.active * window.TROOP_UNIT * q) / 1000 * window.COINS_PER_BN)) : 0;
     const v = (c.value = {
       human: WA.human * 1000 * S.human[i],
       realEstate: WA.realEstate * 1000 * S.realEstate[i],
