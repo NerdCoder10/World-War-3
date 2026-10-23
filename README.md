@@ -32,7 +32,7 @@ Every new campaign unlocks:
 - 3 South American countries: Argentina always, plus 2 random (Brazil is never picked)
 - Mexico, Mongolia, Kazakhstan and Bangladesh (always)
 
-**Buying countries.** You can buy any country for its national value in coins, at 1 coin = $1. Before a campaign starts, buying a locked country makes it playable. During a campaign, buying a country adds it to your empire peacefully, and it never revolts. It arrives with troops at access level 1 and its weapons at level 0. The 50 most valuable countries cost extra: ranks 1–5 +132.5% (a 50% markup, then raised another 55%), 6–10 +40%, 11–20 +30%, 21–35 +15% and 36–50 +5%. For example, the United States costs about 1.54 quadrillion coins and Tuvalu about 1.5 billion.
+**Buying countries.** You can buy any country for its national value in coins, at 1 coin = $1. Before a campaign starts, buying a locked country makes it playable. During a campaign, buying a country adds it to your empire peacefully, and it never revolts. It arrives with troops at access level 1 and its weapons at level 0. The 50 most valuable countries cost extra: ranks 1–5 +132.5% (a 50% markup, then raised another 55%), 6–10 +40%, 11–20 +30%, 21–35 +15% and 36–50 +5%. The three superpowers have fixed prices instead: the United States costs 120 quadrillion coins, China 50 quadrillion and Russia 10 quadrillion. For comparison, Tuvalu costs about 3 billion.
 
 All other countries, including Taiwan, are locked: you can't play as them, but you can inspect, invade or court them. Before you choose a nation you can reroll the random picks. The campaign is saved in your browser's localStorage.
 

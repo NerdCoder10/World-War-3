@@ -34,6 +34,13 @@ window.PRICE_PREMIUMS = [
   { upTo: 35, premium: 0.15 },
   { upTo: 50, premium: 0.05 },
 ];
+// Fixed purchase prices (coins) for the superpowers, set by design. They replace the
+// value-plus-premium price.
+window.PRICE_OVERRIDES = {
+  USA: 120e15, // 120 quadrillion
+  CHN: 50e15,  // 50 quadrillion
+  RUS: 10e15,  // 10 quadrillion
+};
 window.GOLD_BN_PER_TONNE = 0.122; // ~$3,800/oz
 
 // Gross natural-resource endowment (US$ trn of reserves in the ground), from widely cited

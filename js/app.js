@@ -1070,7 +1070,7 @@
 
   function buyHtml(c) {
     const s = G.state, short = s.coins < c.price;
-    const prem = c.pricePremium ? ` incl. +${Math.round(c.pricePremium * 100)}% top-${window.PRICE_PREMIUMS.find(t => c.valueRank <= t.upTo).upTo} premium` : "";
+    const prem = c.priceFixed ? `, but this superpower has a fixed price of ${G.fmtCoins(c.price)} (${(c.price / (c.nationalValue * 1e9)).toFixed(0)}× its value)` : c.pricePremium ? ` incl. +${Math.round(c.pricePremium * 100)}% top-${window.PRICE_PREMIUMS.find(t => c.valueRank <= t.upTo).upTo} premium` : "";
     return `<button class="btn buy" data-act="buy" ${short ? "aria-disabled=\"true\"" : ""}>${s.player ? "Buy into empire" : "Buy & unlock"} <small><span class="coin" aria-hidden="true"></span>${G.fmtCoins(c.price)}</small></button>
       <p class="hint">Price is its national value in coins (1 coin = $1)${prem}.${short ? ` You have ${G.fmtCoins(s.coins)}.` : ""}</p>`;
   }
@@ -1360,7 +1360,7 @@
         <div class="stack" role="img" aria-label="Value breakdown">${window.VALUE_PARTS.map(([k]) => `<i style="width:${v[k] / vt * 100}%;background:${VALUE_COL[k]}"></i>`).join("")}</div>
         <dl class="kv">${window.VALUE_PARTS.map(([k, label]) => `<div><dt><span class="sw" style="background:${VALUE_COL[k]}"></span>${label}</dt><dd>${money(v[k])}</dd></div>`).join("")}
           <div><dt>Value per citizen</dt><dd>$${num(c.valuePerCap)}</dd></div>
-          <div><dt>Purchase price</dt><dd>${G.fmtCoins(c.price)} <small>coins${c.pricePremium ? ` · +${Math.round(c.pricePremium * 100)}%` : ""}</small></dd></div>
+          <div><dt>Purchase price</dt><dd>${G.fmtCoins(c.price)} <small>coins${c.priceFixed ? " · fixed" : c.pricePremium ? ` · +${Math.round(c.pricePremium * 100)}%` : ""}</small></dd></div>
         </dl>${c.valueNote ? `<p class="note">${esc(c.valueNote)}</p>` : ""}</div>
 
       <div class="section"><h3>Military power <small>declared · rank #${c.powerRank}/${C.length}</small></h3>
