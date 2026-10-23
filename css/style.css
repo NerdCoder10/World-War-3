@@ -438,4 +438,8 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .sat.gov { fill: #9eefff; }
 .sat.priv { fill: #ffffffb0; }
 .sat.mob { fill: var(--brass); }
-.zoomctl button[aria-pressed="true"]#zsats { color: var(--brass); }
+.zoomctl button[aria-pressed="true"]#zsats, .zoomctl button[aria-pressed="true"]#zbases { color: var(--brass); }
+/* Other countries' bases: fainter, until hovered */
+.base.other { opacity: .6; }
+.base.other:hover { opacity: 1; }
+.base.other .garrison { stroke-width: 1; }

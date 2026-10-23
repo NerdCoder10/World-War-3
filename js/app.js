@@ -344,52 +344,86 @@
   // Markers grow gently up to 10× zoom, then hold their on-screen size for the province and base views.
   // Past 200× they stop growing altogether.
   const shrink = () => (k <= 10 ? Math.sqrt(k) : k <= 200 ? Math.sqrt(10) * Math.pow(k / 10, 0.8) : Math.sqrt(10) * Math.pow(20, 0.8) * (k / 200));
-  function garrR(z) { return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / shrink(); }
+  // The selected country's bases are sized by their share of its forces. Every other country's
+  // bases are drawn too, smaller and fainter, sized by their absolute strength.
+  const basePower = z => window.UNITS.reduce((a, u) => a + (z.kit[u.key] || 0) * u.power, 0);
+  let maxBasePower = 1;
+  function garrR(z) {
+    if (z.iso !== selected) return (1.4 + 9 * Math.sqrt(Math.max(z.pw / maxBasePower, 0.0004))) / shrink();
+    return (2.5 + 16 * Math.sqrt(Math.max(z.groundPct, z.navalPct * 0.6, z.airPct * 0.5, 0.003))) / shrink();
+  }
   const iconR = r => Math.max(r * 1.25, 5 / shrink());
+  let allBases = true;
+  try { allBases = localStorage.getItem("ww3-bases") !== "off"; } catch (e) { /* storage unavailable */ }
+  const zoneKey = z => z.iso + "|" + z.name;
+  const isPicked = z => z.iso === selected && z.name === pickedZone;
+  // One country's bases, tagged with their country and absolute strength.
+  const basesOf = iso => computeDeployment(iso).map(z => { z.iso = iso; z.pw = basePower(z); return z; });
   function drawDeploy() {
-    // Largest rings first so smaller bases sit on top and stay hoverable.
-    const zones = (selected ? computeDeployment(selected) : []).sort((x, y) => garrR(y) - garrR(x));
-    const c = selected && BY[selected];
-    const g = deployLayer.selectAll("g.base").data(zones, z => z.name).join(enter => {
+    const others = allBases ? C.filter(c => c.iso3 !== selected).flatMap(c => basesOf(c.iso3)) : [];
+    const mine = selected ? basesOf(selected) : [];
+    maxBasePower = Math.max(1, ...others.concat(mine).map(z => z.pw));
+    // Largest rings first so smaller bases sit on top and stay hoverable; the selected country above the rest.
+    const zones = others.sort((x, y) => y.pw - x.pw).concat(mine.sort((x, y) => garrR(y) - garrR(x)));
+    const g = deployLayer.selectAll("g.base").data(zones, zoneKey).join(enter => {
       const e = enter.append("g").attr("class", "base");
       e.append("circle");
       e.append("use");
       e.append("g").attr("class", "kits");
       return e;
-    });
-    // At province and base zoom each base shows a ring of icons, one per kind of unit there.
-    g.select("g.kits").each(function (z) {
-      const units = zoneUnits(c, z), kinds = window.UNITS.filter(u => (u.key === "troops" ? units.troops >= 0.05 : units[u.key] >= 1));
-      const kg = d3.select(this).selectAll("g.kit").data(kinds.map(u => ({ key: u.key, n: units[u.key], label: u.label })), d => d.key).join(en => {
-        const x = en.append("g").attr("class", "kit");
-        x.append("circle").attr("class", "kit-bg");
-        x.append("use");
-        x.append("text");
-        return x;
-      });
-      kg.select("use").attr("href", d => iconHref(KIT_ICON[d.key], selected)).attr("class", iconClass(selected));
-      kg.select("text").text(d => (d.key === "troops" ? kPers(d.n) : num(d.n)));
-      kg.on("mousemove", (e, d) => { const ms = window.splitModels(c, d.key, Math.round(d.n));
-        tip.innerHTML = `<b>${esc(d.key === "troops" ? kPers(d.n) + " troops" : num(d.n) + " " + d.label.toLowerCase())}</b><div class="k">${esc(z.name)}</div>${d.key === "troops" ? `<div class="tipnote">${esc(c.equipment.small)}</div>` : ms.length ? `<div class="tipnote">${ms.map(m => `${num(m[1])} × ${esc(m[0])}`).join("<br>")}</div>` : ""}`; placeTip(e); })
-        .on("mouseleave", hideTip);
-    });
+    }).order();
+    g.classed("other", z => z.iso !== selected);
+    // Unit rings are built for the selected country now, and for other bases when first seen up close.
+    g.select("g.kits").each(function (z) { this.__built = false; d3.select(this).selectAll("*").remove(); if (z.iso === selected) buildKits(this, z); });
     g.select("circle")
       .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
-      .classed("picked", z => z.name === pickedZone)
+      .classed("picked", isPicked)
       .on("mousemove", (e, z) => zoneTip(e, z))
       .on("mouseleave", hideTip)
-      .on("click", (e, z) => { e.stopPropagation(); hideTip(); pickZone(z, true); });
-    g.select("use").attr("href", z => iconHref(zoneType(c, z), selected)).attr("class", iconClass(selected || "USA"));
+      .on("click", (e, z) => {
+        e.stopPropagation(); hideTip();
+        if (z.iso === selected) return pickZone(z, true);
+        // Another country's base: open that country, then its base card.
+        const name = z.name;
+        select(z.iso);
+        const own = deployLayer.selectAll("g.base").data().find(x => x.iso === selected && x.name === name);
+        if (own) pickZone(own, true);
+      });
+    g.select("use").attr("href", z => iconHref(zoneType(BY[z.iso], z), z.iso)).attr("class", z => iconClass(z.iso));
     placeBases();
   }
+  // A ring of icons around a base, one per kind of unit stationed there, with counts.
+  function buildKits(node, z) {
+    node.__built = true;
+    const c = BY[z.iso], units = zoneUnits(c, z), kinds = window.UNITS.filter(u => (u.key === "troops" ? units.troops >= 0.05 : units[u.key] >= 1));
+    const kg = d3.select(node).selectAll("g.kit").data(kinds.map(u => ({ key: u.key, n: units[u.key], label: u.label })), d => d.key).join(en => {
+      const x = en.append("g").attr("class", "kit");
+      x.append("circle").attr("class", "kit-bg");
+      x.append("use");
+      x.append("text");
+      return x;
+    });
+    kg.select("use").attr("href", d => iconHref(KIT_ICON[d.key], z.iso)).attr("class", iconClass(z.iso));
+    kg.select("text").text(d => (d.key === "troops" ? kPers(d.n) : num(d.n)));
+    kg.on("mousemove", (e, d) => { const ms = window.splitModels(c, d.key, Math.round(d.n));
+      tip.innerHTML = `<b>${esc(d.key === "troops" ? kPers(d.n) + " troops" : num(d.n) + " " + d.label.toLowerCase())}</b><div class="k">${esc(z.name)} · ${esc(c.name)}</div>${d.key === "troops" ? `<div class="tipnote">${esc(c.equipment.small)}</div>` : ms.length ? `<div class="tipnote">${ms.map(m => `${num(m[1])} × ${esc(m[0])}`).join("<br>")}</div>` : ""}`; placeTip(e); })
+      .on("mouseleave", hideTip);
+  }
   function placeBases() {
+    const t = d3.zoomTransform(svg.node()), w = wrap.clientWidth, h = wrap.clientHeight, pad = 60;
     deployLayer.selectAll("g.base").each(function (z) {
-      const [x, y] = projection(z.at), r = garrR(z), ir = iconR(r);
-      const g = d3.select(this);
+      const [x, y] = projection(z.at), g = d3.select(this);
+      // Off-screen bases are hidden so zooming stays smooth with every country's bases on the map.
+      const sx = t.applyX(x), sy = t.applyY(y), on = sx > -pad && sx < w + pad && sy > -pad && sy < h + pad;
+      g.style("display", on ? null : "none");
+      if (!on) return;
+      const r = garrR(z), ir = iconR(r), other = z.iso !== selected;
       g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
-      g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
-      const kits = g.select("g.kits").style("display", k >= 60 ? null : "none");
+      // Other countries' bases are plain dots at world zoom and show their unit icon from 4×.
+      g.select("use").style("display", other && k < 4 ? "none" : null).attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
+      const kitsNode = g.select("g.kits").node(), kits = d3.select(kitsNode).style("display", k >= 60 ? null : "none");
       if (k < 60) return;
+      if (!kitsNode.__built) buildKits(kitsNode, z);
       const items = kits.selectAll("g.kit"), n = items.size(), s2 = 18 / k, R = r + s2 * 1.2 + n * 1.5 / k;
       items.each(function (d, i) {
         const a = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(1, n), kx = x + R * Math.cos(a), ky = y + R * Math.sin(a);
@@ -803,6 +837,13 @@
   $("#zout").onclick = () => svg.transition().call(zoom.scaleBy, 1 / 1.8);
   $("#zreset").onclick = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
   $("#zterrain").onclick = () => setTerrain(!terrainOn);
+  $("#zbases").setAttribute("aria-pressed", allBases);
+  $("#zbases").onclick = () => {
+    allBases = !allBases;
+    try { localStorage.setItem("ww3-bases", allBases ? "on" : "off"); } catch (e) { /* ignore */ }
+    $("#zbases").setAttribute("aria-pressed", allBases);
+    drawDeploy();
+  };
   $("#zsats").setAttribute("aria-pressed", satsOn);
   $("#zsats").onclick = () => {
     satsOn = !satsOn;
@@ -917,8 +958,8 @@
   }
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
-    const c = BY[selected], host = hostLabel(z);
-    tip.innerHTML = `<b>${esc(z.name)}</b>${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(selected))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
+    const iso = z.iso || selected, c = BY[iso], host = hostLabel(z);
+    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
     placeTip(e);
   }
   // Weapon models behind a set of unit counts, one line per kind, with its icon.
@@ -933,7 +974,7 @@
   // Clicking a base pins its card on the map and highlights it in the dossier list.
   function pickZone(z, fly) {
     pickedZone = z.name;
-    deployLayer.selectAll("circle.garrison").classed("picked", d => d.name === pickedZone);
+    deployLayer.selectAll("circle.garrison").classed("picked", isPicked);
     const c = BY[selected], host = hostLabel(z);
     baseCard.innerHTML = `<button class="bc-close" aria-label="Close base card">×</button>
       <div class="bc-kind">${z.host ? "Forces abroad" : "Home base"} · ${esc(c.name)}</div>
@@ -1527,7 +1568,7 @@
     if (err) return toast(err);
     const news = G.state.log.filter(l => l.t === G.state.turn && !l.msg.startsWith("📍"));
     toast(news.length ? news.slice(0, 2).map(l => l.msg).join("  ") + (news.length > 2 ? `  (+${news.length - 2} more in the war log)` : "") : `Turn ${G.state.turn}. +${G.income()} coins.`);
-    refresh();
+    refresh(); drawDeploy();
   };
 
   // ── Promo codes ────────────────────────────────────────────
