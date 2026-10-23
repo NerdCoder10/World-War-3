@@ -49,7 +49,7 @@ window.NATURAL_RESOURCES = {
   SUR: 0.3, MRT: 0.3, NER: 0.3, MLI: 0.3, BFA: 0.2, SLE: 0.2, LBR: 0.2, ERI: 0.1,
 };
 
-// Weapon categories that must be bought with coins before an owned nation can use them.
+// Weapon categories whose access levels are bought with coins before an owned nation can use them.
 // unit = rough replacement cost per item (US$ m) at top-tier quality. Nukes are excluded.
 window.WEAPONS = [
   { key: "tanks", label: "Tanks", unit: 6 },
@@ -66,16 +66,29 @@ window.COINS_PER_BN = 10; // unlock price: 10 coins per $1bn of hardware value
 window.MIN_UNLOCK = 25;
 window.START_COINS = 300;
 
-// Technology upgrades: each nation you control can research every track up to level 5.
-// The next level costs (40 + 5% of the nation's GDP in $bn) × 2^current level coins.
+// Tiered access. Every weapon category (troops included) and every technology track runs from
+// level 0 (none) to level 100. Level 1 gives access to 10% of the nation's capacity, rising
+// linearly to 100% at level 90. Levels 91–100 are surge levels: access stays at 100% and each
+// adds +1% (up to +10%). Access is a ceiling on what you can call on, not what every attack uses.
+window.LEVEL_MAX = 100;
+window.LEVEL_FULL = 90;
+window.tierShare = L => (L <= 0 ? 0 : L >= window.LEVEL_FULL ? 1 : 0.1 + (0.9 * (L - 1)) / (window.LEVEL_FULL - 1));
+window.tierSurge = L => Math.max(0, Math.min(window.LEVEL_MAX, L) - window.LEVEL_FULL) * 0.01;
+// Price of going from level L to L + 1, given the price of one full unlock (`full`).
+// The first level costs 5% of `full`, levels 2–90 about 2.1× `full` in all, each surge level 5%.
+window.levelCost = (full, L) => Math.max(1, Math.round(full * (L === 0 ? 0.05 : L >= window.LEVEL_FULL ? 0.05 : 0.012 * (1 + L / 45))));
+// Troop access is priced per thousand active troops (kit, pay and readiness, US$ m).
+window.TROOP_UNIT = 50;
+
+// Technology tracks. `full` is the effect at 100% (level 90); level 1 gives 10% of it.
+// A track's full price is 12 × (40 + 5% of the nation's GDP in $bn) coins.
 window.TECH = [
-  { key: "weapons", label: "Weapons systems", per: "+10% combat power for this nation's units", step: 0.10 },
-  { key: "logistics", label: "Logistics & sealift", per: "+20% sealift capacity and +20% regrowth for this nation", step: 0.20 },
-  { key: "industry", label: "Industry", per: "+0.4% of its GDP ($bn) in coins per turn", step: 0.004 },
-  { key: "governance", label: "Governance", per: "+1 point recovery, −15% revolt risk", step: 0.15 },
+  { key: "weapons", label: "Weapons systems", full: 0.50, per: "+50% combat power for this nation's units" },
+  { key: "logistics", label: "Logistics & sealift", full: 1.00, per: "+100% sealift capacity and regrowth for this nation" },
+  { key: "industry", label: "Industry", full: 0.02, per: "+2% of its GDP ($bn, at least 10) in coins per turn" },
+  { key: "governance", label: "Governance", full: 0.75, per: "+5 points recovery per turn, −75% revolt risk" },
 ];
-window.TECH_MAX = 5;
-window.techCost = (c, level) => Math.round((40 + c.gdp * 0.05) * Math.pow(2, level));
+window.techFull = c => 12 * (40 + c.gdp * 0.05);
 
 // One redemption per code per campaign.
 window.PROMO_CODES = {

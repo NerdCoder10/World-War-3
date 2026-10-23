@@ -227,7 +227,7 @@ window.TRAITS = {
   VUT: ["Land Divers", "The original bungee jumpers bounce back.", { rec: 0.04 }],
 };
 
-// Attach each trait to its country and apply weapon-unlock discounts.
+// Attach each trait to its country and apply weapon-access discounts.
 (function () {
   window.COUNTRIES.forEach(c => {
     const t = window.TRAITS[c.iso3];
@@ -235,5 +235,6 @@ window.TRAITS = {
     c.trait = { name: t[0], desc: t[1], fx: t[2] };
     const arms = c.trait.fx.arms || 0;
     if (arms) c.weapons.forEach(w => { if (w.cost) w.cost = Math.max(window.MIN_UNLOCK, Math.round(w.cost * (1 - arms))); });
+    if (arms && c.troopCost) c.troopCost = Math.max(window.MIN_UNLOCK, Math.round(c.troopCost * (1 - arms)));
   });
 })();

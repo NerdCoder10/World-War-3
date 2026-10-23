@@ -310,6 +310,13 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .tech li > div { min-width: 0; }
 .tech small { font: 11px var(--font-data); color: var(--muted); }
 .tech .hint { display: block; margin: 2px 0 0; }
+.tech .lvhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.tech li { display: block; }
+.lvbtns { margin-left: auto; display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.lvbtns .unlock { margin-top: 0; }
+.lvbar { position: relative; height: 6px; background: var(--line); border-radius: 3px; margin: 4px 0 2px; }
+.lvbar i { display: block; height: 100%; background: var(--brass); border-radius: 3px; }
+.lvbar span { position: absolute; top: -2px; width: 1px; height: 10px; background: var(--teal); }
 .pips { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
 .pips i { width: 14px; height: 6px; background: var(--line); border-radius: 1px; }
 .pips i.on { background: var(--brass); }

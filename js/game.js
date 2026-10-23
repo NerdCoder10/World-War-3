@@ -46,16 +46,28 @@
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
     return {
       seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false,
-      coins: window.START_COINS, arsenal: {}, tech: {}, redeemed: [], purchased: [], ...EXTRA(),
+      coins: window.START_COINS, access: {}, tech: {}, tiers: 1, redeemed: [], purchased: [], ...EXTRA(),
     };
   }
 
   function load() {
     try {
       const s = JSON.parse(localStorage.getItem(STORE));
-      if (s && s.owner && Object.keys(s.owner).length === C.length) return Object.assign(EXTRA(), s);
+      if (s && s.owner && Object.keys(s.owner).length === C.length) return migrate(Object.assign(EXTRA(), s));
     } catch (e) { /* storage unavailable */ }
     return fresh();
+  }
+  // Saves from before tiered access: an unlocked category (and troops) becomes level 90 (100%),
+  // and each of the old 5 technology levels becomes 18 of the new 100.
+  function migrate(s) {
+    if (s.tiers) return s;
+    s.access = {};
+    Object.keys(s.owner).filter(iso => s.player && s.owner[iso] === s.player).forEach(iso => (s.access[iso] = { troops: window.LEVEL_FULL }));
+    Object.entries(s.arsenal || {}).forEach(([iso, keys]) => keys.forEach(k => ((s.access[iso] = s.access[iso] || {})[k] = window.LEVEL_FULL)));
+    Object.values(s.tech || {}).forEach(t => Object.keys(t).forEach(k => (t[k] = Math.min(window.LEVEL_FULL, t[k] * 18))));
+    delete s.arsenal;
+    s.tiers = 1;
+    return s;
   }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(G.state)); } catch (e) { /* ignore */ } }
 
@@ -63,15 +75,20 @@
   const empire = () => C.filter(c => G.state.owner[c.iso3] === G.state.player);
   const owns = iso => G.state.player && G.state.owner[iso] === G.state.player;
 
-  // Weapon categories the player has bought for one of their nations.
-  const arsenal = iso => G.state.arsenal[iso] || [];
-  // Troops always fight; every other unit type must be unlocked for that nation.
-  const usable = (iso, k) => k === "troops" || arsenal(iso).includes(k);
+  // Access levels (0–100) the player has bought for each weapon category of one of their nations.
+  // Troops start at level 1 (10%); every other category starts at 0 (locked).
+  const accessLvl = (iso, k) => (((G.state.access || {})[iso] || {})[k] ?? (k === "troops" ? 1 : 0));
+  const accessShare = (iso, k) => window.tierShare(accessLvl(iso, k));
+  const usable = (iso, k) => accessShare(iso, k) > 0;
+  // Surge levels (91–100) add up to +10% combat power, for nations you hold.
+  const surge = (iso, k) => (owns(iso) ? window.tierSurge(accessLvl(iso, k)) : 0);
+  const shareMap = iso => Object.fromEntries(UNITS.map(u => [u.key, accessShare(iso, u.key)]));
 
-  // Researched technology levels for one of their nations.
-  const TSTEP = Object.fromEntries(window.TECH.map(t => [t.key, t.step]));
+  // Researched technology levels (0–100) for one of their nations, as a share of the track's full effect.
+  const TFULL = Object.fromEntries(window.TECH.map(t => [t.key, t.full]));
   const techLvl = (iso, k) => ((G.state.tech || {})[iso] || {})[k] || 0;
-  const usableStrength = c => window.truePowerWith(c, arsenal(c.iso3)) * (1 + TSTEP.weapons * techLvl(c.iso3, "weapons"));
+  const techShare = (iso, k) => window.tierShare(techLvl(iso, k)) + window.tierSurge(techLvl(iso, k));
+  const usableStrength = c => window.truePowerWith(c, shareMap(c.iso3)) * techMult(c.iso3);
 
   // National traits: a nation's own effect, and empire-wide bonuses summed over every nation you control (capped).
   const fx = (iso, k) => BY[iso].trait.fx[k] || 0;
@@ -79,11 +96,11 @@
     const sum = empire().reduce((s, c) => s + fx(c.iso3, k), 0);
     return k in window.TRAIT_CAPS ? Math.min(window.TRAIT_CAPS[k], sum) : sum;
   }
-  const industryCoins = c => Math.max(2, c.gdp * TSTEP.industry) * techLvl(c.iso3, "industry");
+  const industryCoins = c => Math.max(10, c.gdp * TFULL.industry) * techShare(c.iso3, "industry");
 
   function empireStrength() {
     // Home nation at full weight; occupied lands contribute 60% of their (remaining) strength.
-    // Only unlocked weapon categories count. Used for diplomacy.
+    // Only the share of each category you have access to counts. Used for diplomacy.
     return empire().reduce((s, c) => s + usableStrength(c) * G.state.garrison[c.iso3] * (c.iso3 === G.state.player ? 1 : 0.6), 0);
   }
   const inRevolt = iso => !!G.state.revolts[iso];
@@ -125,8 +142,8 @@
     fighters: c.fighters, helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers,
   });
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
-  const rawPower = (units, iso) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power, 0) * window.combatQuality(BY[iso]);
-  const techMult = iso => 1 + TSTEP.weapons * techLvl(iso, "weapons");
+  const rawPower = (units, iso) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * (1 + surge(iso, u.key)), 0) * window.combatQuality(BY[iso]);
+  function techMult(iso) { return 1 + TFULL.weapons * techShare(iso, "weapons"); }
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
   // logistics when fighting away from home (near = overland, far = across the sea).
   const ms = iso => BY[iso].milStats;
@@ -179,7 +196,7 @@
     return P[a] && P[b] ? d3.geoDistance(P[a], P[b]) * 6371 : 3000;
   };
   // Sealift: ships, carriers and transport aircraft carry ground units overseas.
-  const liftMult = nat => 1 + bonus("proj") + TSTEP.logistics * techLvl(nat, "logistics");
+  const liftMult = nat => 1 + bonus("proj") + TFULL.logistics * techShare(nat, "logistics");
   function route(from, to, units, nat) {
     const km = distKm(from, to);
     const ground = UNITS.some(u => u.kind === "ground" && units[u.key] > 0);
@@ -192,13 +209,28 @@
     return { km, land, sea, need, cap, turns, ok: !sea || need <= cap };
   }
 
-  // Where units can be sent from: your nations' home pools (unlocked kinds only) and armies that have arrived.
+  // What a nation's access levels let you call on from its home pool: the accessible share of its
+  // whole force (home plus deployed), less what is already deployed.
+  function accessible(iso) {
+    const f = forces(iso), dep = deployedFrom(iso), out = {};
+    UNITS.forEach(u => {
+      const sh = accessShare(iso, u.key);
+      if (!sh || !(f[u.key] > 0)) return;
+      const v = Math.min(f[u.key], sh * (f[u.key] + (dep[u.key] || 0)) - (dep[u.key] || 0));
+      const r = u.key === "troops" ? v : Math.floor(v + 1e-9);
+      if (r > 0) out[u.key] = r;
+    });
+    return out;
+  }
+  // Units at home that defend: the accessible share of each category.
+  const homeShare = iso => { const f = forces(iso), u = {}; UNITS.forEach(x => (u[x.key] = (f[x.key] || 0) * accessShare(iso, x.key))); return u; };
+
+  // Where units can be sent from: your nations' home pools (accessible share only) and armies that have arrived.
   function sources(to) {
     const out = [];
     empire().forEach(c => {
       if (c.iso3 === to) return;
-      const f = forces(c.iso3), avail = {};
-      UNITS.forEach(u => { if (usable(c.iso3, u.key) && f[u.key] > 0) avail[u.key] = f[u.key]; });
+      const avail = accessible(c.iso3);
       if (total(avail) > 0) out.push({ key: "n:" + c.iso3, label: `${c.name} (home forces)`, at: c.iso3, nat: c.iso3, avail });
     });
     G.state.armies.filter(a => arrived(a) && a.to !== to).forEach(a => {
@@ -370,10 +402,9 @@
     return w && w.p0 > 0 ? Math.max(0, Math.min(1, (1 - rawPower(forces(iso), iso) / w.p0) / 0.8)) : 0;
   };
 
-  // Loyal side in a revolt: the territory's own unlocked forces plus your armies stationed there.
+  // Loyal side in a revolt: the territory's own accessible forces plus your armies stationed there.
   function loyalPower(iso) {
-    const f = forces(iso), u = {};
-    UNITS.forEach(x => { if (usable(iso, x.key)) u[x.key] = f[x.key]; });
+    const u = homeShare(iso);
     return rawPower(u, iso) * ms(iso).skill * ms(iso).defend * space(iso) * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
   }
 
@@ -435,10 +466,9 @@
     G.state.enemies.filter(e => e.nat === iso).forEach(e => UNITS.forEach(u => (d[u.key] = (d[u.key] || 0) + (e.units[u.key] || 0))));
     return d;
   };
-  // Your side when one of your nations is attacked: its own unlocked forces, order, trait and stationed armies.
+  // Your side when one of your nations is attacked: its own accessible forces, order, trait and stationed armies.
   function homeDefence(iso) {
-    const f = forces(iso), u = {};
-    UNITS.forEach(x => { if (usable(iso, x.key)) u[x.key] = f[x.key]; });
+    const u = homeShare(iso);
     return rawPower(u, iso) * techMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + 10;
   }
@@ -651,16 +681,16 @@
     // Recovery: home 8%/turn up to 100%, occupied 5%/turn up to 85%.
     C.forEach(c => {
       const iso = c.iso3, cap = owns(iso) && iso !== s.player ? 0.85 : 1;
-      if (!inRevolt(iso)) s.garrison[iso] = Math.min(cap, s.garrison[iso] + (cap === 1 ? 0.08 : 0.05) + fx(iso, "rec") + 0.01 * techLvl(iso, "governance"));
+      if (!inRevolt(iso)) s.garrison[iso] = Math.min(cap, s.garrison[iso] + (cap === 1 ? 0.08 : 0.05) + fx(iso, "rec") + 0.05 * techShare(iso, "governance"));
       if (!s.forces[iso] || inRevolt(iso) || s.wars[iso] || (s.aiWars || {})[iso]) return;
-      if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TSTEP.logistics * techLvl(iso, "logistics")), deployedFrom(iso));
+      if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TFULL.logistics * techShare(iso, "logistics")), deployedFrom(iso));
       else regrow(c, 0.05 + fx(iso, "rec"), enemyDeployed(iso));
     });
     // Occupied territories may rise up when weakly held; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
       if (iso === s.player || inRevolt(iso) || (s.purchased || []).includes(iso)) return;
-      const calm = (1 - fx(iso, "stab")) * (1 - TSTEP.governance * techLvl(iso, "governance")) * (armiesAt(iso).length ? 0.3 : 1);
+      const calm = (1 - fx(iso, "stab")) * (1 - TFULL.governance * Math.min(1, techShare(iso, "governance"))) * (armiesAt(iso).length ? 0.3 : 1);
       if (Math.random() < (0.06 * (1 - s.garrison[iso]) + 0.01) * calm) startRevolt(c);
     });
     if (!s.over) aiTurn();
@@ -681,7 +711,7 @@
   }
 
   // Buy a country for its price in coins. Before a campaign starts this unlocks it as playable;
-  // during a campaign it joins your empire peacefully (its weapons still need unlocking).
+  // during a campaign it joins your empire peacefully (its access levels start at troops level 1).
   function buy(iso) {
     const s = G.state, t = BY[iso];
     if (s.over) return "The campaign is over. Start a new one to keep buying.";
@@ -695,38 +725,67 @@
     } else {
       annex(iso, 1);
       s.purchased = (s.purchased || []).concat([iso]);
-      log(`💰 Bought ${t.name} for ${fmtCoins(t.price)} coins. It joins your empire; unlock its weapons to use them.`, "good");
+      log(`💰 Bought ${t.name} for ${fmtCoins(t.price)} coins. It joins your empire; raise its access levels to use more of its forces.`, "good");
     }
     save();
     return null;
   }
 
-  function unlockWeapon(iso, key) {
-    const s = G.state;
-    if (!owns(iso)) return "You can only unlock weapons for nations in your empire.";
-    const w = BY[iso].weapons.find(x => x.key === key);
-    if (!w || !w.count) return "This nation has none of that weapon.";
-    if (arsenal(iso).includes(key)) return "Already unlocked.";
-    if (s.coins < w.cost) return `You need ${w.cost - s.coins} more coins to unlock ${w.label.toLowerCase()}.`;
-    s.coins -= w.cost;
-    s.arsenal[iso] = arsenal(iso).concat([key]);
-    log(`🔓 Unlocked ${BY[iso].name}'s ${w.label.toLowerCase()} (${w.count.toLocaleString("en-US")}) for ${w.cost} coins.`, "good");
+  // Price of raising a level n times from `from`, stopping at `cap`. Returns { n, cost } for the
+  // levels bought, up to `budget` coins if given.
+  function levelPrice(full, from, n, cap, budget) {
+    let cost = 0, k = 0;
+    while (k < n && from + k < cap) {
+      const c = window.levelCost(full, from + k);
+      if (budget != null && cost + c > budget) break;
+      cost += c; k++;
+    }
+    return { n: k, cost };
+  }
+  // "max" buys up to level 90 (100% access), then up to 100 once there.
+  const capFor = (lvl, n) => (n === "max" && lvl < window.LEVEL_FULL ? window.LEVEL_FULL : window.LEVEL_MAX);
+  const steps = n => (n === "max" ? window.LEVEL_MAX : Math.max(1, Math.floor(n) || 1));
+  const accessFull = (c, key) => (key === "troops" ? c.troopCost : (c.weapons.find(w => w.key === key) || {}).cost || 0);
+  const accessQuote = (iso, key, n) => { const l = accessLvl(iso, key); return levelPrice(accessFull(BY[iso], key), l, steps(n), capFor(l, n), n === "max" ? G.state.coins : null); };
+  const techQuote = (iso, key, n) => { const l = techLvl(iso, key); return levelPrice(window.techFull(BY[iso]), l, steps(n), capFor(l, n), n === "max" ? G.state.coins : null); };
+
+  // Raise a weapon category's access level by n levels (or "max").
+  function raiseAccess(iso, key, n) {
+    const s = G.state, c = BY[iso];
+    if (!owns(iso)) return "You can only raise access for nations in your empire.";
+    const label = key === "troops" ? "Troops" : ((c.weapons.find(w => w.key === key) || {}).label);
+    if (!accessFull(c, key)) return "This nation has none of that.";
+    const lvl = accessLvl(iso, key);
+    if (lvl >= window.LEVEL_MAX) return `${label} are already at level ${window.LEVEL_MAX}.`;
+    const q = accessQuote(iso, key, n);
+    if (!q.n || s.coins < q.cost) {
+      const one = window.levelCost(accessFull(c, key), lvl);
+      return `You need ${fmtCoins(Math.max(one, q.cost) - s.coins)} more coins to raise ${label.toLowerCase()} access.`;
+    }
+    s.coins -= q.cost;
+    s.access = s.access || {};
+    s.access[iso] = Object.assign({}, s.access[iso], { [key]: lvl + q.n });
+    const L = lvl + q.n, sur = window.tierSurge(L);
+    log(`🔓 ${c.name}'s ${label.toLowerCase()} access is now level ${L} (${Math.round(window.tierShare(L) * 100)}% of the force${sur ? `, +${Math.round(sur * 100)}% surge` : ""}) for ${fmtCoins(q.cost)} coins.`, "good");
     save();
     return null;
   }
 
-  function upgradeTech(iso, key) {
+  function upgradeTech(iso, key, n) {
     const s = G.state, c = BY[iso], t = window.TECH.find(x => x.key === key);
     if (!owns(iso)) return "You can only research technology for nations in your empire.";
     if (!t) return "Unknown technology.";
     const lvl = techLvl(iso, key);
-    if (lvl >= window.TECH_MAX) return `${t.label} is already at the maximum level.`;
-    const cost = window.techCost(c, lvl);
-    if (s.coins < cost) return `You need ${fmtCoins(cost - s.coins)} more coins to research ${t.label.toLowerCase()}.`;
-    s.coins -= cost;
+    if (lvl >= window.LEVEL_MAX) return `${t.label} is already at the maximum level.`;
+    const q = techQuote(iso, key, n);
+    if (!q.n || s.coins < q.cost) {
+      const one = window.levelCost(window.techFull(c), lvl);
+      return `You need ${fmtCoins(Math.max(one, q.cost) - s.coins)} more coins to research ${t.label.toLowerCase()}.`;
+    }
+    s.coins -= q.cost;
     s.tech = s.tech || {};
-    s.tech[iso] = Object.assign({}, s.tech[iso], { [key]: lvl + 1 });
-    log(`🔬 ${c.name} researched ${t.label.toLowerCase()} level ${lvl + 1} for ${fmtCoins(cost)} coins.`, "good");
+    s.tech[iso] = Object.assign({}, s.tech[iso], { [key]: lvl + q.n });
+    log(`🔬 ${c.name} researched ${t.label.toLowerCase()} to level ${lvl + q.n} for ${fmtCoins(q.cost)} coins.`, "good");
     save();
     return null;
   }
@@ -774,8 +833,8 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, arsenal, usable, bonus, techLvl, upgradeTech, industryCoins,
+    owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, unlockWeapon, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
