@@ -114,8 +114,8 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-
 .basecard dt { font: 11px var(--font-data); color: var(--muted); }
 .basecard p { margin: 4px 0 10px; font-size: 13px; }
 .basecard .bc-close { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: var(--muted); font-size: 20px; line-height: 1; }
-.basecard .bc-fly { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; font: 600 12px var(--font-display); letter-spacing: .08em; text-transform: uppercase; }
-.basecard .bc-fly:hover { border-color: var(--brass); }
+.basecard .bc-fly, .basecard .bc-sel { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; font: 600 12px var(--font-display); letter-spacing: .08em; text-transform: uppercase; }
+.basecard .bc-fly:hover, .basecard .bc-sel:hover { border-color: var(--brass); }
 .garrison.naval { fill: #4cb5a840; stroke: var(--teal); }
 .garrison.abroad { stroke-dasharray: 3 2; fill-opacity: .6; }
 .zgroup { margin: 14px 0 0; font: 600 12px var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
@@ -458,3 +458,10 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .keyrow .gkey { flex: 1 1 auto; }
 /* The side panel lays out on its own, so map frames never relayout a long dossier. */
 .pane { contain: content; }
+/* Unit command bar and selection box (base zoom) */
+.cmdbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; max-width: min(760px, calc(100% - 24px)); background: var(--panel); border: 1px solid var(--brass); border-radius: 6px; padding: 8px 10px; font-size: 13px; box-shadow: 0 6px 24px #0008; }
+.cmdbar > div { min-width: 0; flex: 1; }
+.cmdbar .hint { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdbar .btn { width: auto; flex: none; padding: 6px 10px; font-size: 13px; }
+.selbox { position: absolute; z-index: 6; border: 1px dashed var(--brass); background: #d6a84e22; pointer-events: none; }
+.mapwrap.targeting svg { cursor: crosshair !important; }
