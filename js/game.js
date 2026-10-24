@@ -142,7 +142,9 @@
     fighters: c.fighters, helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers,
   });
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
-  const rawPower = (units, iso) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * (1 + surge(iso, u.key)), 0) * window.combatQuality(BY[iso]);
+  // Each kind of unit counts by its real models (js/models.js) and the country's readiness.
+  // `models` ({kind: {model: count}}) gives an army's actual mix; otherwise the national fleet mix is used.
+  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * (1 + surge(iso, u.key)) * window.unitQuality(BY[iso], u.key, models && models[u.key]), 0);
   function techMult(iso) { return 1 + TFULL.weapons * techShare(iso, "weapons"); }
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
   // logistics when fighting away from home (near = overland, far = across the sea).
@@ -155,7 +157,7 @@
     return !!(s.wars[iso] || (s.aiWars || {})[iso] || s.enemies.some(e => e.nat === iso || e.to === iso));
   }
   const space = iso => window.spaceMult(BY[iso], atWar(iso));
-  const armyPower = a => rawPower(a.units, a.nat) * techMult(a.nat) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * space(a.nat);
+  const armyPower = a => rawPower(a.units, a.nat, a.models) * techMult(a.nat) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * space(a.nat);
   const total = units => UNITS.reduce((s, u) => s + (units[u.key] || 0), 0);
   function scaleUnits(units, f) {
     UNITS.forEach(u => {
@@ -238,7 +240,17 @@
     });
     return out;
   }
-  const findSource = (key, to) => sources(to).find(s => s.key === key);
+  // A single base of one of your nations ("b:ISO|base name"): what it holds, capped by the nation's access levels.
+  function baseSource(key) {
+    const [iso, name] = key.slice(2).split("|");
+    if (!owns(iso) || !window.baseKit) return null;
+    const kit = window.baseKit(iso, name);
+    if (!kit) return null;
+    const acc = accessible(iso), avail = {};
+    UNITS.forEach(u => { const v = Math.min(kit[u.key] || 0, acc[u.key] || 0); if (v > 0) avail[u.key] = v; });
+    return { key, label: `${name} (${BY[iso].name})`, at: iso, nat: iso, base: name, avail };
+  }
+  const findSource = (key, to) => (key.startsWith("b:") ? baseSource(key) : sources(to).find(s => s.key === key));
 
   function clean(units, avail) {
     const out = {};
@@ -249,12 +261,13 @@
     return out;
   }
 
-  function preview(srcKey, to, units) {
+  function preview(srcKey, to, units, models) {
     const src = findSource(srcKey, to);
     if (!src) return { err: "Choose where the units come from." };
+    if (src.at === to) return { err: `Those units are already in ${BY[to].name}.` };
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat);
-    const power = rawPower(u, src.nat) * techMult(src.nat) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
+    const power = rawPower(u, src.nat, models) * techMult(src.nat) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
     return { src, units: u, route: r, power, empty: total(u) === 0 };
   }
 
@@ -270,9 +283,10 @@
   }
 
   // Send units from a home pool or an army to any country. Nothing fights until the next End turn.
-  function dispatch(srcKey, to, units) {
+  // `models` ({kind: {model: count}}) records exactly which models were picked, e.g. at a base.
+  function dispatch(srcKey, to, units, models) {
     const err = ready(); if (err) return err;
-    const s = G.state, p = preview(srcKey, to, units);
+    const s = G.state, p = preview(srcKey, to, units, models);
     if (p.err) return p.err;
     if (p.empty) return "Pick at least one unit to send.";
     if (!p.route.ok) return `Not enough sealift: these ground units need ${Math.ceil(p.route.need)} lift and your ships and transports give ${Math.floor(p.route.cap)}. Add ships, carriers or transport aircraft, or send fewer ground units.`;
@@ -283,13 +297,20 @@
     } else {
       const f = forces(src.at);
       UNITS.forEach(u => (f[u.key] -= p.units[u.key] || 0));
+      // Units taken from a particular base leave that base (see baseOut in js/app.js computeDeployment).
+      if (src.base) {
+        const out = (((s.baseOut = s.baseOut || {})[src.at] = s.baseOut[src.at] || {})[src.base] = s.baseOut[src.at][src.base] || {});
+        UNITS.forEach(u => { if (p.units[u.key]) out[u.key] = (out[u.key] || 0) + p.units[u.key]; });
+      }
     }
     const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, sent: s.turn, sea: p.route.sea };
+    if (models) a.models = JSON.parse(JSON.stringify(models));
+    else if (src.army && src.army.models) a.models = JSON.parse(JSON.stringify(src.army.models));
     s.armies.push(a);
     if (!owns(to)) provoke(s.owner[to]);
     const t = BY[to];
     const goal = owns(to) ? (inRevolt(to) ? "to put down the revolt in" : "to") : "to invade";
-    log(`🚚 Army ${a.id} (${unitList(p.units)}) left ${BY[src.at].name} ${goal} ${t.name}. Arrives turn ${eta} by ${p.route.sea ? "sea" : p.route.land ? "land" : "air"}.`, "info");
+    log(`🚚 Army ${a.id} (${unitList(p.units)}) left ${src.base ? src.base + ", " : ""}${BY[src.at].name} ${goal} ${t.name}. Arrives turn ${eta} by ${p.route.sea ? "sea" : p.route.land ? "land" : "air"}.`, "info");
     save();
     return null;
   }
@@ -316,6 +337,8 @@
     const f = forces(a.nat);
     UNITS.forEach(u => (f[u.key] += a.units[u.key] || 0));
     s.armies = s.armies.filter(x => x !== a);
+    // With nothing of this nation's out in the field, its bases fill up evenly again.
+    if (!s.armies.some(x => x.nat === a.nat) && s.baseOut) delete s.baseOut[a.nat];
     save();
     return null;
   }
@@ -678,6 +701,8 @@
     // A war ends when you have no armies fighting in or heading to that country.
     // (If an AI army is also fighting there, yours and theirs both fight the defender.)
     Object.keys(s.wars).forEach(iso => { if (!s.armies.some(x => x.to === iso)) delete s.wars[iso]; });
+    // Bases whose units are all back home or lost fill up evenly again.
+    Object.keys(s.baseOut || {}).forEach(iso => { if (!owns(iso) || !s.armies.some(x => x.nat === iso)) delete s.baseOut[iso]; });
     // Recovery: home 8%/turn up to 100%, occupied 5%/turn up to 85%.
     C.forEach(c => {
       const iso = c.iso3, cap = owns(iso) && iso !== s.player ? 0.85 : 1;
@@ -833,7 +858,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    baseSource, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });

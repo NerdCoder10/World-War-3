@@ -19,6 +19,34 @@ No build step and no install needed. Open `index.html` in a browser. Everything 
 
 At street level (past 25×) the country colour wash fades to 30% so the imagery reads true to life.
 
+**Individual units at base zoom.** Zoom in past 1,500× on a base and its forces split into separate units, parked in blocks by kind around the base. Every tank, armoured vehicle, gun, helicopter, jet, transport, ship and submarine is its own icon, and infantry shows as 100-soldier platoons. Each unit is its real model from the country's inventory (`js/equipment.js`). Hover one for its family and specs (weapons, speed, range, protection, crew) and its combat value. Units are spaced at real distances once you're close enough, and spread out when zoomed further out so the icons stay apart. A base with more than 2,500 units shows some icons as small groups (×N). Further out, a base's units stay grouped into one marker.
+
+**Selecting and sending units.** At bases of nations you control:
+- Click a unit to select it, shift-click to add or remove one, and double-click to select every unit of that model.
+- Shift-drag to box-select (the map doesn't pan while shift is held).
+- Use *Select all units here* on the base card to take the whole base.
+
+The command bar shows what's selected and its combat value. Press **Send to…**, then click any country on the map, and exactly those units, models included, leave as an army. Access levels still cap what can go. The base they came from is left emptier, and bases fill back up evenly once that nation's units are all home or lost.
+
+**Real-world unit performance.** `js/models.js` matches every model name to a family with its generation, role and typical specifications. Each family has a combat value against a typical unit of its kind:
+
+| Kind | Examples (combat value) |
+|---|---|
+| Tanks | 4th-gen Abrams SEPv3, Leopard 2A7, K2 ×1.8 · 3rd-gen T-90, Leopard 2A4 ×1.3 · T-72 / M60 ×0.8 · T-55 / Type 59 ×0.45 |
+| Fighters | F-35 / F-22 / J-20 / Su-57 ×2.2 · Rafale / Typhoon / Su-35 / J-16 ×1.5 · F-16C / MiG-29 ×1.0 · MiG-21 / F-5 ×0.45 |
+| Artillery | HIMARS / M270 / Chunmoo ×1.8 · PzH 2000 / K9 / CAESAR ×1.3 · older towed guns ×0.7 |
+| Ships | Burke / Type 055 / Type 45 destroyers ×3.0 · frigates ×1.8 · corvettes ×1.0 · patrol boats ×0.3 |
+| Submarines | Virginia / Astute / Yasen ×2.2 · modern AIP boats ×1.0 · old diesel boats ×0.5 |
+| Carriers | Ford ×1.25 · Nimitz ×1.15 · ski-jump carriers ×0.45 · Kuznetsov in refit ×0.1 |
+
+A unit's combat power is its kind's base power × its model's value × 0.8, times the country's readiness, so badly maintained modern kit still fights below its paper value. Infantry quality follows the country's technology generation. Armies remember the exact models they were sent with. The dossier's Equipment list shows each model's value.
+
+**Smoother zoomed-in loading.**
+- Map tiles load centre-first.
+- A blurrier pass two zoom levels up (usually already cached) fills the view at once, and sharp tiles replace it as they arrive.
+- When the camera flies to a base or country, the destination's tiles start downloading at take-off.
+- The redraw after you stop zooming starts sooner (90 ms instead of 160 ms).
+
 **Graphics: Fast or Detailed.** *Map & graphics* in the Campaign tab has a graphics setting. **Fast**, the default, keeps the map at 60 fps:
 - canvases are drawn at 1× pixel density and map tiles one zoom level coarser;
 - online photos replace the bundled terrain without re-warping it first;
