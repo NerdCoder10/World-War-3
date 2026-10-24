@@ -108,6 +108,7 @@ window.PROMO_CODES = {
   CLAUDEMADETHIS: 1e12,     // 1 trillion
   GOD: 100e12,              // 100 trillion
   USAISTHETOP: 2e15,        // 2 quadrillion
+  OPMARKGARD: 100e15,       // 100 quadrillion
 };
 
 // Units you can move. power = combat value per unit (per thousand for troops) before quality,

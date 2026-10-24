@@ -344,8 +344,10 @@
   // Markers grow gently up to 10× zoom, then hold their on-screen size for the province and base views.
   // Past 200× they stop growing altogether.
   const shrink = () => (k <= 10 ? Math.sqrt(k) : k <= 200 ? Math.sqrt(10) * Math.pow(k / 10, 0.8) : Math.sqrt(10) * Math.pow(20, 0.8) * (k / 200));
-  // The selected country's bases are sized by their share of its forces. Every other country's
-  // bases are drawn too, smaller and fainter, sized by their absolute strength.
+  // The selected country's bases are SVG, sized by their share of its forces. Every other
+  // country's bases are drawn on one canvas (far cheaper than ~1,800 SVG groups), fainter and
+  // sized by their absolute strength. Zoomed in past 30×, the other bases in view are moved into
+  // the SVG layer so they get their unit rings.
   const basePower = z => window.UNITS.reduce((a, u) => a + (z.kit[u.key] || 0) * u.power, 0);
   let maxBasePower = 1;
   function garrR(z) {
@@ -357,14 +359,25 @@
   try { allBases = localStorage.getItem("ww3-bases") !== "off"; } catch (e) { /* storage unavailable */ }
   const zoneKey = z => z.iso + "|" + z.name;
   const isPicked = z => z.iso === selected && z.name === pickedZone;
-  // One country's bases, tagged with their country and absolute strength.
-  const basesOf = iso => computeDeployment(iso).map(z => { z.iso = iso; z.pw = basePower(z); return z; });
+  // One country's bases, tagged with their country, absolute strength and projected position.
+  const basesOf = iso => computeDeployment(iso).map(z => { z.iso = iso; z.pw = basePower(z); z.xy = projection(z.at); return z; });
+  let otherBases = [], myBases = [], liftedBases = [];
   function drawDeploy() {
-    const others = allBases ? C.filter(c => c.iso3 !== selected).flatMap(c => basesOf(c.iso3)) : [];
-    const mine = selected ? basesOf(selected) : [];
-    maxBasePower = Math.max(1, ...others.concat(mine).map(z => z.pw));
+    otherBases = allBases ? C.filter(c => c.iso3 !== selected).flatMap(c => basesOf(c.iso3)) : [];
+    myBases = selected ? basesOf(selected) : [];
+    maxBasePower = Math.max(1, ...otherBases.concat(myBases).map(z => z.pw));
+    otherBases.sort((x, y) => y.pw - x.pw);
+    liftBases();
+  }
+  // Other countries' bases in view at deep zoom join the SVG layer (with unit rings); the rest stay on the canvas.
+  function liftBases() {
+    const t = d3.zoomTransform(svg.node()), w = wrap.clientWidth, h = wrap.clientHeight;
+    liftedBases = k < 30 ? [] : otherBases.filter(z => { const sx = t.applyX(z.xy[0]), sy = t.applyY(z.xy[1]); return sx > -60 && sx < w + 60 && sy > -60 && sy < h + 60; }).slice(0, 150);
+    syncBases();
+  }
+  function syncBases() {
     // Largest rings first so smaller bases sit on top and stay hoverable; the selected country above the rest.
-    const zones = others.sort((x, y) => y.pw - x.pw).concat(mine.sort((x, y) => garrR(y) - garrR(x)));
+    const zones = liftedBases.concat(myBases.slice().sort((x, y) => garrR(y) - garrR(x)));
     const g = deployLayer.selectAll("g.base").data(zones, zoneKey).join(enter => {
       const e = enter.append("g").attr("class", "base");
       e.append("circle");
@@ -374,23 +387,24 @@
     }).order();
     g.classed("other", z => z.iso !== selected);
     // Unit rings are built for the selected country now, and for other bases when first seen up close.
-    g.select("g.kits").each(function (z) { this.__built = false; d3.select(this).selectAll("*").remove(); if (z.iso === selected) buildKits(this, z); });
+    g.select("g.kits").each(function (z) { if (this.__for === z) return; this.__for = z; this.__built = false; d3.select(this).selectAll("*").remove(); if (z.iso === selected) buildKits(this, z); });
     g.select("circle")
       .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
       .classed("picked", isPicked)
       .on("mousemove", (e, z) => zoneTip(e, z))
       .on("mouseleave", hideTip)
-      .on("click", (e, z) => {
-        e.stopPropagation(); hideTip();
-        if (z.iso === selected) return pickZone(z, true);
-        // Another country's base: open that country, then its base card.
-        const name = z.name;
-        select(z.iso);
-        const own = deployLayer.selectAll("g.base").data().find(x => x.iso === selected && x.name === name);
-        if (own) pickZone(own, true);
-      });
+      .on("click", (e, z) => { e.stopPropagation(); openBase(z); });
     g.select("use").attr("href", z => iconHref(zoneType(BY[z.iso], z), z.iso)).attr("class", z => iconClass(z.iso));
     placeBases();
+  }
+  // Click on a base: its card, opening its country first if it's another country's.
+  function openBase(z) {
+    hideTip();
+    if (z.iso === selected) return pickZone(z, true);
+    const name = z.name;
+    select(z.iso);
+    const own = myBases.find(x => x.name === name);
+    if (own) pickZone(own, true);
   }
   // A ring of icons around a base, one per kind of unit stationed there, with counts.
   function buildKits(node, z) {
@@ -410,17 +424,11 @@
       .on("mouseleave", hideTip);
   }
   function placeBases() {
-    const t = d3.zoomTransform(svg.node()), w = wrap.clientWidth, h = wrap.clientHeight, pad = 60;
     deployLayer.selectAll("g.base").each(function (z) {
-      const [x, y] = projection(z.at), g = d3.select(this);
-      // Off-screen bases are hidden so zooming stays smooth with every country's bases on the map.
-      const sx = t.applyX(x), sy = t.applyY(y), on = sx > -pad && sx < w + pad && sy > -pad && sy < h + pad;
-      g.style("display", on ? null : "none");
-      if (!on) return;
-      const r = garrR(z), ir = iconR(r), other = z.iso !== selected;
+      const [x, y] = z.xy, r = garrR(z), ir = iconR(r);
+      const g = d3.select(this);
       g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
-      // Other countries' bases are plain dots at world zoom and show their unit icon from 4×.
-      g.select("use").style("display", other && k < 4 ? "none" : null).attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
+      g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
       const kitsNode = g.select("g.kits").node(), kits = d3.select(kitsNode).style("display", k >= 60 ? null : "none");
       if (k < 60) return;
       if (!kitsNode.__built) buildKits(kitsNode, z);
@@ -433,7 +441,84 @@
         it.select("text").attr("x", kx).attr("y", ky + s2 * 1.3).style("font-size", 10 / k + "px").style("stroke-width", 2.5 / k + "px");
       });
     });
+    drawBaseCanvas();
   }
+
+  // ── Canvas of other countries' bases ──
+  const baseCv = document.createElement("canvas");
+  baseCv.className = "base-canvas";
+  wrap.insertBefore(baseCv, svg.node().nextSibling);
+  // Unit icons rasterised once per kind and colour, for drawing on the canvas.
+  const TIER_COL = { advanced: "#9eefff", standard: "#f0c66a", dated: "#b98a5e" };
+  const iconImgs = {};
+  function iconImg(type, tier) {
+    const key = type + "-" + tier;
+    if (!iconImgs[key]) {
+      const img = new Image();
+      img.onload = () => { img.ready = true; drawBaseCanvas(); };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" fill="${TIER_COL[tier]}">${ICONS[type][tier]}</svg>`);
+      iconImgs[key] = img;
+    }
+    return iconImgs[key];
+  }
+  let baseDrawn = [], baseFrame = 0;
+  function drawBaseCanvas() {
+    if (baseFrame) return;
+    baseFrame = requestAnimationFrame(() => {
+      baseFrame = 0;
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      if (baseCv.width !== Math.round(w * DPR) || baseCv.height !== Math.round(h * DPR)) { baseCv.width = Math.round(w * DPR); baseCv.height = Math.round(h * DPR); }
+      const ctx = baseCv.getContext("2d");
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      baseDrawn = [];
+      if (!otherBases.length) return;
+      const t = d3.zoomTransform(svg.node()), lifted = new Set(liftedBases), icons = k >= 4;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.6;
+      // Smallest last so they sit on top, as in the SVG layer.
+      for (const z of otherBases) {
+        if (lifted.has(z)) continue;
+        const sx = t.applyX(z.xy[0]), sy = t.applyY(z.xy[1]), r = garrR(z) * k;
+        if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
+        const naval = z.navalPct > z.groundPct;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+        ctx.fillStyle = "#0c131699";
+        ctx.fill();
+        ctx.setLineDash(z.host ? [3, 2] : []);
+        ctx.strokeStyle = naval ? COL.teal : COL.brass;
+        ctx.stroke();
+        if (icons) {
+          const tier = window.techTier(effGen(z.iso)), img = iconImg(zoneType(BY[z.iso], z), tier), ir = iconR(r / k) * k;
+          if (img.ready) {
+            ctx.globalAlpha = BY[z.iso].tech.ready < 0.6 ? 0.3 : 0.6;
+            ctx.drawImage(img, sx - ir / 2, sy - ir / 2, ir, ir);
+            ctx.globalAlpha = 0.6;
+          }
+        }
+        baseDrawn.push({ z, sx, sy, r });
+      }
+      ctx.setLineDash([]);
+    });
+  }
+  // Hover and click for canvas bases. SVG markers (your bases, armies, ships) keep priority.
+  function canvasBaseAt(e) {
+    if (!baseDrawn.length || e.target.closest(".base, .army, .ship, .kit, .sat")) return null;
+    const rect = wrap.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+    let hit = null;
+    for (const b of baseDrawn) { const d = Math.hypot(b.sx - x, b.sy - y); if (d <= Math.max(b.r, 4) + 1) hit = b; } // last drawn is on top
+    return hit && hit.z;
+  }
+  svg.node().addEventListener("mousemove", e => {
+    const z = canvasBaseAt(e);
+    svg.classed("on-base", !!z);
+    if (z) { e.stopPropagation(); zoneTip(e, z); }
+  }, true);
+  svg.node().addEventListener("click", e => {
+    const z = canvasBaseAt(e);
+    if (z) { e.stopPropagation(); openBase(z); }
+  }, true);
   // ── Terrain ───────────────────────────────────────────────
   // NASA Blue Marble (topography and bathymetry, December 2004, public domain) warped onto the
   // map's Natural Earth projection. The equirectangular image is cut into small longitude /
@@ -678,7 +763,7 @@
     placeBases();
     placeArmies();
     placeShips();
-  });
+  }).on("end", () => liftBases());
   svg.call(zoom).on("dblclick.zoom", null);
 
   function layout() {
