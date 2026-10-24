@@ -439,7 +439,9 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .sat.priv { fill: #ffffffb0; }
 .sat.mob { fill: var(--brass); }
 .zoomctl button[aria-pressed="true"]#zsats, .zoomctl button[aria-pressed="true"]#zbases { color: var(--brass); }
-/* Other countries' bases: fainter, until hovered */
+/* Other countries' bases: drawn on a canvas over the map; in SVG (deep zoom) fainter until hovered */
+.base-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.mapwrap svg.on-base { cursor: pointer; }
 .base.other { opacity: .6; }
 .base.other:hover { opacity: 1; }
 .base.other .garrison { stroke-width: 1; }
