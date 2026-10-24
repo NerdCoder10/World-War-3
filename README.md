@@ -12,6 +12,15 @@ No build step and no install needed. Open `index.html` in a browser. Everything 
 
 **Satellite terrain.** The map is drawn over NASA's Blue Marble imagery (topography and sea-floor relief, public domain), warped onto the game's Natural Earth projection. The world view uses a 4,096-pixel image. When you zoom in, the visible area is redrawn at screen resolution from detail tiles: a 10,800-pixel world for country views and a 21,600-pixel world (about 1 km per pixel) for state, province and base views. Country colours turn translucent so the land shows through. Zoomed views stream aerial and satellite photos from Esri World Imagery (sub-metre in most populated areas; credit: Esri, Maxar, Earthstar Geographics and the GIS User Community), warped onto the map's projection. At base zoom you can see piers, runways, hangars and ships. The map zooms to 30,000× (about 1 m per screen pixel), and clicking a base flies in to about 6,000×. If Esri can't be reached, Sentinel-2 cloudless 2016 (EOX, CC BY 4.0) is used instead, and offline the bundled NASA terrain stays. The ⛰ button next to the zoom controls switches the terrain off. The images are in `vendor/terrain/`.
 
+**Map styles (navigation-app view).** Zoomed-in views come in three styles, chosen with the 🗺 button by the zoom controls or under *Map imagery* in the Campaign tab:
+- **Hybrid** (the default) lays roads, motorways, railways and place names over the aerial photos, like a navigation app's satellite view. It uses Esri's World Transportation and Boundaries and Places layers (Esri, HERE, Garmin and OpenStreetMap data) and appears from 6× zoom.
+- **Satellite** shows the photos only.
+- **Map** shows the OpenStreetMap street map (© OpenStreetMap contributors), the open map data that many navigation apps are built on.
+
+At street level (past 25×) the country colour wash fades to 30% so the imagery reads true to life.
+
+**Google Maps (optional).** Google's tiles aren't used without a key: downloading them directly breaks Google's terms. If you paste your own Google Maps Platform API key with the Map Tiles API enabled under *Map imagery*, zoomed views use Google's satellite, hybrid or road tiles instead, up to zoom 22. The key is stored only in your browser and sent only to Google. If the key is rejected, the map falls back to Esri and OpenStreetMap and says so.
+
 **Map layers** (top bar): Campaign (playable, locked and conquered), Military power, Secret assets, GDP, Soft power, National value. You can drag to pan, scroll to zoom, and click any country. Microstates and small islands get dot markers.
 
 **Country card ("Dossier")**

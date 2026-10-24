@@ -445,3 +445,14 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .base.other { opacity: .6; }
 .base.other:hover { opacity: 1; }
 .base.other .garrison { stroke-width: 1; }
+
+/* Map imagery settings */
+.seg { display: flex; gap: 4px; margin-bottom: 8px; }
+.seg .btn.on { border-color: var(--brass); color: var(--brass); }
+.gkey { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); color: inherit; border-radius: 3px; padding: 6px 8px; font: 12px var(--font-data); }
+.zoomctl #zstyle[data-style="map"] { color: var(--teal); }
+.zoomctl #zstyle[data-style="hybrid"] { color: var(--brass); }
+.keyrow { display: flex; gap: 6px; margin-top: 6px; }
+.keyrow .btn { flex: none; }
+.keyrow .btn { width: auto; flex: none; padding: 6px 10px; font-size: 13px; }
+.keyrow .gkey { flex: 1 1 auto; }
