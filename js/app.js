@@ -344,10 +344,13 @@
   // Markers grow gently up to 10× zoom, then hold their on-screen size for the province and base views.
   // Past 200× they stop growing altogether.
   const shrink = () => (k <= 10 ? Math.sqrt(k) : k <= 200 ? Math.sqrt(10) * Math.pow(k / 10, 0.8) : Math.sqrt(10) * Math.pow(20, 0.8) * (k / 200));
-  // The selected country's bases are SVG, sized by their share of its forces. Every other
-  // country's bases are drawn on one canvas (far cheaper than ~1,800 SVG groups), fainter and
-  // sized by their absolute strength. Zoomed in past 30×, the other bases in view are moved into
-  // the SVG layer so they get their unit rings.
+  // Every base is drawn on one canvas, which is far cheaper than SVG: each SVG marker is laid out
+  // again on every zoom frame. The selected country's bases are sized by their share of its forces;
+  // other countries' bases are fainter and sized by their absolute strength. Zoomed in past 30×,
+  // the bases in view move into the SVG layer so they get their unit rings.
+  // Map size, cached by layout() so zoom frames don't force a layout by reading it.
+  let mapW = 0, mapH = 0;
+  const mapSize = () => (mapW ? [mapW, mapH] : [wrap.clientWidth, wrap.clientHeight]);
   const basePower = z => window.UNITS.reduce((a, u) => a + (z.kit[u.key] || 0) * u.power, 0);
   let maxBasePower = 1;
   function garrR(z) {
@@ -371,13 +374,14 @@
   }
   // Other countries' bases in view at deep zoom join the SVG layer (with unit rings); the rest stay on the canvas.
   function liftBases() {
-    const t = d3.zoomTransform(svg.node()), w = wrap.clientWidth, h = wrap.clientHeight;
-    liftedBases = k < 30 ? [] : otherBases.filter(z => { const sx = t.applyX(z.xy[0]), sy = t.applyY(z.xy[1]); return sx > -60 && sx < w + 60 && sy > -60 && sy < h + 60; }).slice(0, 150);
+    const t = d3.zoomTransform(svg.node()), [w, h] = mapSize();
+    const inView = z => { const sx = t.applyX(z.xy[0]), sy = t.applyY(z.xy[1]); return sx > -60 && sx < w + 60 && sy > -60 && sy < h + 60; };
+    liftedBases = k < 30 ? [] : myBases.filter(inView).concat(otherBases.filter(inView)).slice(0, 150);
     syncBases();
   }
   function syncBases() {
     // Largest rings first so smaller bases sit on top and stay hoverable; the selected country above the rest.
-    const zones = liftedBases.concat(myBases.slice().sort((x, y) => garrR(y) - garrR(x)));
+    const zones = liftedBases.filter(z => z.iso !== selected).concat(liftedBases.filter(z => z.iso === selected).sort((x, y) => garrR(y) - garrR(x)));
     const g = deployLayer.selectAll("g.base").data(zones, zoneKey).join(enter => {
       const e = enter.append("g").attr("class", "base");
       e.append("circle");
@@ -424,9 +428,15 @@
       .on("mouseleave", hideTip);
   }
   function placeBases() {
+    const t = d3.zoomTransform(svg.node()), [w, h] = mapSize();
     deployLayer.selectAll("g.base").each(function (z) {
       const [x, y] = z.xy, r = garrR(z), ir = iconR(r);
       const g = d3.select(this);
+      // Off-screen bases are hidden and skipped.
+      const sx = t.applyX(x), sy = t.applyY(y), pad = 80 + r * k * 3;
+      const on = sx > -pad && sx < w + pad && sy > -pad && sy < h + pad;
+      if (this.__on !== on) { this.__on = on; this.style.display = on ? "" : "none"; }
+      if (!on) return;
       g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
       g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
       const kitsNode = g.select("g.kits").node(), kits = d3.select(kitsNode).style("display", k >= 60 ? null : "none");
@@ -466,39 +476,49 @@
     if (baseFrame) return;
     baseFrame = requestAnimationFrame(() => {
       baseFrame = 0;
-      const w = wrap.clientWidth, h = wrap.clientHeight;
+      const [w, h] = mapSize();
       if (baseCv.width !== Math.round(w * DPR) || baseCv.height !== Math.round(h * DPR)) { baseCv.width = Math.round(w * DPR); baseCv.height = Math.round(h * DPR); }
       const ctx = baseCv.getContext("2d");
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.clearRect(0, 0, w, h);
       baseDrawn = [];
-      if (!otherBases.length) return;
-      const t = d3.zoomTransform(svg.node()), lifted = new Set(liftedBases), icons = k >= 4;
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.6;
-      // Smallest last so they sit on top, as in the SVG layer.
-      for (const z of otherBases) {
+      if (!otherBases.length && !myBases.length) return;
+      const t = d3.zoomTransform(svg.node()), lifted = new Set(liftedBases);
+      // Other countries' bases first (faint, icons from 4×), then the selected country's, largest first.
+      const mine = myBases.slice().sort((x, y) => garrR(y) - garrR(x));
+      for (const z of otherBases.concat(mine)) {
         if (lifted.has(z)) continue;
+        const own = z.iso === selected, alpha = own ? 1 : 0.6;
         const sx = t.applyX(z.xy[0]), sy = t.applyY(z.xy[1]), r = garrR(z) * k;
         if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
-        const naval = z.navalPct > z.groundPct;
+        const naval = z.navalPct > z.groundPct, picked = own && z.name === pickedZone;
+        // Fast mode: tiny far-off bases are plain dots (no outline or icon).
+        if (!Q.live && !own && r < 2.5) {
+          ctx.globalAlpha = 0.7;
+          ctx.fillStyle = naval ? COL.teal : COL.brass;
+          ctx.fillRect(sx - 1.2, sy - 1.2, 2.4, 2.4);
+          baseDrawn.push({ z, sx, sy, r });
+          continue;
+        }
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(sx, sy, r, 0, 2 * Math.PI);
-        ctx.fillStyle = "#0c131699";
+        ctx.fillStyle = picked ? "#ffffffcc" : "#0c131699";
         ctx.fill();
-        ctx.setLineDash(z.host ? [3, 2] : []);
-        ctx.strokeStyle = naval ? COL.teal : COL.brass;
+        ctx.lineWidth = picked ? 3 : own ? 1.4 : 1;
+        ctx.setLineDash(z.host && !picked ? [3, 2] : []);
+        ctx.strokeStyle = picked ? "#fff" : naval ? COL.teal : COL.brass;
         ctx.stroke();
-        if (icons) {
+        if (own || k >= 4) {
           const tier = window.techTier(effGen(z.iso)), img = iconImg(zoneType(BY[z.iso], z), tier), ir = iconR(r / k) * k;
           if (img.ready) {
-            ctx.globalAlpha = BY[z.iso].tech.ready < 0.6 ? 0.3 : 0.6;
+            ctx.globalAlpha = alpha * (BY[z.iso].tech.ready < 0.6 ? 0.5 : 1);
             ctx.drawImage(img, sx - ir / 2, sy - ir / 2, ir, ir);
-            ctx.globalAlpha = 0.6;
           }
         }
         baseDrawn.push({ z, sx, sy, r });
       }
+      ctx.globalAlpha = 1;
       ctx.setLineDash([]);
     });
   }
@@ -510,9 +530,11 @@
     for (const b of baseDrawn) { const d = Math.hypot(b.sx - x, b.sy - y); if (d <= Math.max(b.r, 4) + 1) hit = b; } // last drawn is on top
     return hit && hit.z;
   }
+  let onBase = false;
   svg.node().addEventListener("mousemove", e => {
     const z = canvasBaseAt(e);
-    svg.classed("on-base", !!z);
+    // Toggling a class on the <svg> restyles the whole map, so only do it when it changes.
+    if (!!z !== onBase) { onBase = !!z; svg.node().style.cursor = onBase ? "pointer" : ""; }
     if (z) { e.stopPropagation(); zoneTip(e, z); }
   }, true);
   svg.node().addEventListener("click", e => {
@@ -556,7 +578,9 @@
   let terrainOn = true;
   try { terrainOn = localStorage.getItem("ww3-terrain") !== "off"; } catch (e) { /* storage unavailable */ }
   const imgCache = {};
-  const loadImg = src => imgCache[src] || (imgCache[src] = new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }));
+  // Images are decoded off the main thread (img.decode) before they're drawn, so drawing them doesn't stall a frame.
+  const decoded = i => (i.decode ? i.decode().then(() => i, () => i) : i);
+  const loadImg = src => imgCache[src] || (imgCache[src] = new Promise((res, rej) => { const i = new Image(); i.onload = () => res(decoded(i)); i.onerror = rej; i.src = src; }));
   // Streamed satellite tiles: EOX Sentinel-2 cloudless 2016 (CC BY 4.0), about 10 m per pixel,
   // in WGS84 tiles of 256 px that span 180° / 2^z. Kept in a small cache (oldest dropped).
   const S2_URL = (z, row, col) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless/default/WGS84/${z}/${row}/${col}.jpg`;
@@ -592,7 +616,7 @@
     const key = `${src}/${src === "google" ? mapStyle : ""}/${z}/${y}/${x}`;
     if (tileCache.has(key)) { const v = tileCache.get(key); tileCache.delete(key); tileCache.set(key, v); return v; }
     const url = TILES[src].url(z, y, x);
-    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(decoded(i)); i.onerror = rej; i.src = url; });
     tileCache.set(key, p);
     if (tileCache.size > 900) tileCache.delete(tileCache.keys().next().value);
     p.catch(() => tileCache.delete(key));
@@ -627,11 +651,11 @@
     const screenPpd = (v.w * DPR) / Math.max(1e-9, v.lon1 - v.lon0), max = Math.min(...layers.map(l => TILES[l].max));
     let z = 2;
     // Oversample ~1.6× (one level finer than strictly needed) so full zoom stays crisp.
-    while (z < max && (256 * 2 ** z) / 360 < screenPpd * 1.6) z++;
+    while (z < max && (256 * 2 ** z) / 360 < screenPpd * Q.over) z++;
     const n = 2 ** z;
     const x0 = Math.max(0, Math.floor(((v.lon0 + 180) / 360) * n)), x1 = Math.min(n - 1, Math.floor(((v.lon1 + 180) / 360) * n));
     const y0 = Math.max(0, Math.floor(mercY(Math.min(85, v.lat1)) * n)), y1 = Math.min(n - 1, Math.floor(mercY(Math.max(-85, v.lat0)) * n));
-    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 160) return;
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > Q.tiles) return;
     const ctx = cv.getContext("2d"), overlay = cv === overlayCv;
     ctx.imageSmoothingQuality = "high";
     let failed = 0;
@@ -647,7 +671,17 @@
     }
   }
   let worldBox = null, detailBox = null, overlayBox = null, detailJob = 0;
-  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  // Graphics quality. Fast (the default) keeps the map at 60 fps: canvases at 1× pixel density,
+  // map tiles one level coarser, terrain warped in larger pieces, markers resized a few times a
+  // second while zooming rather than every frame, and satellites moved at 15 fps.
+  // Detailed is the sharper, heavier rendering.
+  const QUALITY = {
+    fast: { label: "Fast (60 fps)", dpr: 1, over: 1, cellPx: 110, tiles: 48, satMs: 66, live: false },
+    detailed: { label: "Detailed", dpr: Math.min(2, window.devicePixelRatio || 1), over: 1.6, cellPx: 28, tiles: 160, satMs: 0, live: true },
+  };
+  let quality = "fast";
+  try { if (QUALITY[localStorage.getItem("ww3-quality")]) quality = localStorage.getItem("ww3-quality"); } catch (e) { /* storage unavailable */ }
+  let Q = QUALITY[quality], DPR = Q.dpr;
 
   // Projected bounding box (at zoom 1) of a lon/lat rectangle, from a grid of sample points.
   function boxOf(lon0, lon1, lat0, lat1) {
@@ -717,7 +751,7 @@
     const t = d3.zoomTransform(svg.node());
     attribution(true);
     if (!terrainOn || t.k < 2.5) { detailBox = overlayBox = null; detailCv.style.display = overlayCv.style.display = "none"; return; }
-    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const [w, h] = mapSize();
     const x0 = -t.x / t.k, y0 = -t.y / t.k, x1 = (w - t.x) / t.k, y1 = (h - t.y) / t.k;
     let lon0 = 180, lon1 = -180, lat0 = 90, lat1 = -90, any = false;
     for (let i = 0; i <= 14; i++) for (let j = 0; j <= 14; j++) {
@@ -729,7 +763,7 @@
     if (!any) return;
     const pl = (lon1 - lon0) * 0.06 + 0.0005, pt = (lat1 - lat0) * 0.06 + 0.0005;
     lon0 = Math.max(-180, lon0 - pl); lon1 = Math.min(180, lon1 + pl); lat0 = Math.max(-90, lat0 - pt); lat1 = Math.min(90, lat1 + pt);
-    const s = t.k * DPR, step = Math.max(0.00005, Math.min(3, (lon1 - lon0) / Math.max(6, w / 28)));
+    const s = t.k * DPR, step = Math.max(0.00005, Math.min(3, (lon1 - lon0) / Math.max(6, w / Q.cellPx)));
     const hi = t.k >= 25, deg = hi ? 22.5 : 45, dir = hi ? "hi" : "tiles";
     const tiles = [];
     for (let tx = 0; tx < 360 / deg; tx++) for (let ty = 0; ty < 180 / deg; ty++) {
@@ -737,10 +771,20 @@
       if (tl1 > lon0 && tl0 < lon1 && tb1 > lat0 && tb0 < lat1) tiles.push({ tx, ty, tl0, tl1, tb0, tb1 });
     }
     if (tiles.length > 24) return; // too wide a view for detail; the world layer covers it
+    const newCanvas = () => { const cv = document.createElement("canvas"); cv.width = Math.ceil((x1 - x0) * s); cv.height = Math.ceil((y1 - y0) * s); return cv; };
+    // Fast mode with online imagery: skip re-warping the bundled NASA detail (the heaviest step).
+    // The previous view, rescaled, stands in until the photo tiles arrive.
+    if (!Q.live && (googleSession() || esriOK || mapStyle === "map")) {
+      const cv = newCanvas();
+      if (detailBox) {
+        const b = detailBox;
+        cv.getContext("2d").drawImage(b.cv, (b.x0 - x0) * s, (b.y0 - y0) * s, (b.x1 - b.x0) * s, (b.y1 - b.y0) * s);
+      }
+      return showDetail(cv);
+    }
     Promise.all(tiles.map(tl => loadImg(`vendor/terrain/${dir}/${tl.tx}_${tl.ty}.jpg?v=15`).then(img => ({ ...tl, img })))).then(list => {
       if (job !== detailJob) return;
-      const cv = document.createElement("canvas");
-      cv.width = Math.ceil((x1 - x0) * s); cv.height = Math.ceil((y1 - y0) * s);
+      const cv = newCanvas();
       const ctx = cv.getContext("2d");
       ctx.save();
       ctx.setTransform(s, 0, 0, s, -x0 * s, -y0 * s);
@@ -748,6 +792,9 @@
       list.forEach(tl => drawCells(ctx, tl.img, tl.tl0, tl.tb1, tl.img.width / deg,
         Math.max(lon0, tl.tl0), Math.min(lon1, tl.tl1), Math.max(lat0, tl.tb0), Math.min(lat1, tl.tb1), step, s, x0, y0));
       ctx.restore();
+      showDetail(cv);
+    }).catch(() => {});
+    function showDetail(cv) {
       // Swap in the finished canvas so the old view stays up while the new one draws.
       detailCv.width = cv.width; detailCv.height = cv.height;
       detailCv.getContext("2d").drawImage(cv, 0, 0);
@@ -757,13 +804,19 @@
       detailCv.style.display = overlayCv.style.display = "";
       positionTerrain(d3.zoomTransform(svg.node()));
       const view = { x0, y0, x1, y1, lon0, lon1, lat0, lat1, s, step, w, k: t.k };
-      const fallback = () => { esriOK = false; if (t.k >= S2_FROM) drawS2(job, view); };
+      const fallback = () => {
+        const was = esriOK;
+        esriOK = false;
+        // Fast mode skipped the bundled terrain on the assumption photos would load: redraw with it.
+        if (was && !Q.live) return drawViewTerrain();
+        if (t.k >= S2_FROM) drawS2(job, view);
+      };
       if (googleSession()) return drawTiles(job, view, detailCv, ["google"], () => { gSess[mapStyle] = { failed: true }; drawViewTerrain(); });
       if (mapStyle === "map") return drawTiles(job, view, detailCv, ["osm"], () => esriOK && drawTiles(job, view, detailCv, ["esri"], fallback));
       if (esriOK) drawTiles(job, view, detailCv, ["esri"], fallback); else if (t.k >= S2_FROM) drawS2(job, view);
       // Roads, railways and place names, once the view is regional rather than continental.
       if (mapStyle === "hybrid" && t.k >= 6) drawTiles(job, view, overlayCv, ["roads", "labels"]);
-    }).catch(() => {});
+    }
   }
   // Sharper Sentinel-2 tiles drawn over the bundled terrain as they arrive. If they can't load
   // (offline, blocked), the NASA terrain underneath stays.
@@ -829,15 +882,30 @@
     scheduleView();
     // SVG patterns break up at deep zoom, so locked countries switch to a plain fill past 6×.
     if ((k > 6) !== deepZoom || (k > 25) !== streetZoom) { deepZoom = k > 6; streetZoom = k > 25; paint(); }
+    // Canvas bases follow every frame (cheap); SVG markers are resized live in Detailed mode and
+    // every 150 ms (and at the end of the gesture) in Fast mode. In between they scale with the map.
+    drawBaseCanvas();
+    if (Q.live || performance.now() - lastPlace > 150) placeMarkers();
+  }).on("end", () => { placeMarkers(); liftBases(); });
+  let lastPlace = 0;
+  function placeMarkers() {
+    lastPlace = performance.now();
     markerSel.attr("r", 3.2 / shrink());
     placeBases();
     placeArmies();
     placeShips();
-  }).on("end", () => liftBases());
+  }
+  function setQuality(q) {
+    quality = q; Q = QUALITY[q]; DPR = Q.dpr;
+    try { localStorage.setItem("ww3-quality", q); } catch (e) { /* ignore */ }
+    worldBox = null; drawWorldTerrain(); drawViewTerrain(); drawBaseCanvas(); drawSats();
+    if (tab === "campaign") render();
+  }
   svg.call(zoom).on("dblclick.zoom", null);
 
   function layout() {
     const w = wrap.clientWidth, h = wrap.clientHeight;
+    mapW = w; mapH = h;
     svg.attr("viewBox", `0 0 ${w} ${h}`);
     projection.fitExtent([[8, 8], [w - 8, h - 8]], { type: "Sphere" });
     sphere.attr("d", path); grat.attr("d", path); countryPaths.attr("d", path);
@@ -920,7 +988,11 @@
       .on("mouseleave", hideTip);
     if (!sats.length) return;
     const t0 = performance.now();
-    const step = () => {
+    let lastSat = 0;
+    const step = now => {
+      // Fast mode moves satellites at 15 fps.
+      if (Q.satMs && now - lastSat < Q.satMs) { satAnim = requestAnimationFrame(step); return; }
+      lastSat = now || performance.now();
       const t = (performance.now() - t0) / 1000, show = k < 8;
       satLayer.style("display", show ? null : "none");
       if (show) satLayer.selectAll("circle").each(function (d) {
@@ -1106,11 +1178,20 @@
     tip.style.top = Math.min(y, r.height - tip.offsetHeight - 6) + "px";
   }
   function hideTip() { tip.hidden = true; }
+  // Tooltips are skipped while dragging, and placed without measuring anything (reading sizes
+  // would force the whole page to lay out mid-frame): near the right or bottom edge they flip
+  // to the other side of the cursor.
+  let wrapRect = null;
+  window.addEventListener("scroll", () => (wrapRect = null), true);
+  window.addEventListener("resize", () => (wrapRect = null));
   function placeTip(e) {
-    const r = wrap.getBoundingClientRect();
+    if (e.buttons) return hideTip();
+    const r = wrapRect || (wrapRect = wrap.getBoundingClientRect());
+    const x = e.clientX - r.left, y = e.clientY - r.top;
     tip.hidden = false;
-    tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 6) + "px";
-    tip.style.top = Math.min(e.clientY - r.top + 14, r.height - tip.offsetHeight - 6) + "px";
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+    tip.style.transform = `translate(${x > r.width * 0.5 ? "calc(-100% - 14px)" : "14px"}, ${y > r.height * 0.65 ? "calc(-100% - 14px)" : "14px"})`;
   }
   const hostLabel = z => (z.host ? (z.host === "TERR" ? "Overseas territory" : BY[z.host] ? BY[z.host].name : z.host) : "");
   // Counts at one base; anything that rounds to zero is left out.
@@ -1138,6 +1219,7 @@
   function pickZone(z, fly) {
     pickedZone = z.name;
     deployLayer.selectAll("circle.garrison").classed("picked", isPicked);
+    drawBaseCanvas();
     const c = BY[selected], host = hostLabel(z);
     baseCard.innerHTML = `<button class="bc-close" aria-label="Close base card">×</button>
       <div class="bc-kind">${z.host ? "Forces abroad" : "Home base"} · ${esc(c.name)}</div>
@@ -1212,6 +1294,7 @@
     pickedZone = null;
     baseCard.hidden = true;
     deployLayer.selectAll("circle.garrison").classed("picked", false);
+    drawBaseCanvas();
     document.querySelectorAll("#pane-dossier li.picked").forEach(x => x.classList.remove("picked"));
   }
   function flyTo(at, minK) {
@@ -1692,9 +1775,11 @@
       <div class="section"><h3>How to play</h3>
         <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Armies take turns to arrive, by land if the target borders your territory, otherwise by sea, which needs enough sealift. Each <b>End turn</b>, every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
         <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 add up to +10% surge combat power. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
-      <div class="section"><h3>Map imagery <small>zoomed-in views</small></h3>
+      <div class="section"><h3>Map &amp; graphics <small>imagery and speed</small></h3>
         <div class="seg" role="group" aria-label="Map style">${Object.entries(MAP_STYLES).map(([st, lab]) => `<button class="btn ghost${st === mapStyle ? " on" : ""}" data-style="${st}" aria-pressed="${st === mapStyle}">${lab}</button>`).join("")}</div>
         <p class="hint"><b>Satellite</b> shows Esri World Imagery aerial photos. <b>Hybrid</b> adds roads, railways and place names on top, like a navigation app's satellite view. <b>Map</b> shows the OpenStreetMap street map that many navigation apps are built on.</p>
+        <div class="seg" role="group" aria-label="Graphics">${Object.entries(QUALITY).map(([q, o]) => `<button class="btn ghost${q === quality ? " on" : ""}" data-quality="${q}" aria-pressed="${q === quality}">${o.label}</button>`).join("")}</div>
+        <p class="hint"><b>Fast</b> keeps the map at 60 fps with slightly softer imagery and markers that resize a few times a second while zooming. <b>Detailed</b> renders at full pixel density with sharper tiles, but can stutter on slower machines.</p>
         <label class="hint" for="gkey">Google Maps API key (optional). With a key that has the Map Tiles API enabled, zoomed-in views use Google's own satellite, hybrid and road tiles. The key is stored only in this browser and is sent only to Google.</label>
         <div class="keyrow"><input id="gkey" type="password" autocomplete="off" placeholder="${googleKey ? "Key saved" : "Paste API key"}" class="gkey"><button class="btn ghost" id="gkey-save">${googleKey ? "Replace" : "Use key"}</button>${googleKey ? `<button class="btn ghost" id="gkey-clear">Remove</button>` : ""}</div></div>
       ${s.log.length ? `<div class="section"><h3>War log</h3><ul class="log">${s.log.map(l => `<li class="${l.kind}"><span>T${l.t}</span>${esc(l.msg)}</li>`).join("")}</ul></div>` : ""}
@@ -1710,6 +1795,7 @@
     pane.querySelectorAll("a[data-goto]").forEach(a => (a.onclick = e => { e.preventDefault(); select(a.dataset.goto); }));
     if ($("#endturn2")) $("#endturn2").onclick = () => $("#endturn").click();
     pane.querySelectorAll("[data-style]").forEach(b => (b.onclick = () => setMapStyle(b.dataset.style)));
+    pane.querySelectorAll("[data-quality]").forEach(b => (b.onclick = () => { setQuality(b.dataset.quality); toast(`Graphics: ${QUALITY[b.dataset.quality].label}.`); }));
     $("#gkey-save").onclick = () => { const v = $("#gkey").value.trim(); if (!v) return toast("Paste a Google Maps API key first."); setGoogleKey(v); toast("Google Maps key saved in this browser. Zoom in to see Google tiles."); render(); };
     if ($("#gkey-clear")) $("#gkey-clear").onclick = () => { setGoogleKey(""); toast("Google Maps key removed."); render(); };
     $("#reroll").onclick = () => { G.newGame(false); toast("New random nations unlocked."); refresh(); };

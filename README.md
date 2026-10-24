@@ -19,6 +19,22 @@ No build step and no install needed. Open `index.html` in a browser. Everything 
 
 At street level (past 25×) the country colour wash fades to 30% so the imagery reads true to life.
 
+**Graphics: Fast or Detailed.** *Map & graphics* in the Campaign tab has a graphics setting. **Fast**, the default, keeps the map at 60 fps:
+- canvases are drawn at 1× pixel density and map tiles one zoom level coarser;
+- online photos replace the bundled terrain without re-warping it first;
+- far-off bases are plain dots;
+- satellites move at 15 fps;
+- SVG markers are resized a few times a second while you zoom instead of every frame.
+
+**Detailed** renders at full pixel density with sharper tiles, but can stutter on slower machines.
+
+In both modes:
+- every base, the selected country's included, is drawn on one canvas, because SVG markers get laid out again on every zoom frame. Only the bases in view past 30× zoom become SVG, for their unit rings;
+- tooltips are placed without measuring the page and hidden while dragging;
+- images are decoded off the main thread.
+
+In a headless profile of zooming and panning over the US, the average frame time fell from 79 ms to 18 ms.
+
 **Google Maps (optional).** Google's tiles aren't used without a key: downloading them directly breaks Google's terms. If you paste your own Google Maps Platform API key with the Map Tiles API enabled under *Map imagery*, zoomed views use Google's satellite, hybrid or road tiles instead, up to zoom 22. The key is stored only in your browser and sent only to Google. If the key is rejected, the map falls back to Esri and OpenStreetMap and says so.
 
 **Map layers** (top bar): Campaign (playable, locked and conquered), Military power, Secret assets, GDP, Soft power, National value. You can drag to pan, scroll to zoom, and click any country. Microstates and small islands get dot markers.

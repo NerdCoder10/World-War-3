@@ -146,7 +146,7 @@ details.more summary { cursor: pointer; font: 600 13px var(--font-display); lett
 .zoomctl button { width: 30px; height: 30px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; font-weight: 700; }
 .tooltip {
   position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
-  padding: 6px 9px; font-size: 12px; white-space: nowrap; z-index: 5;
+  padding: 6px 9px; font-size: 12px; white-space: nowrap; z-index: 5; left: 0; top: 0; contain: layout style;
 }
 .tooltip b { font-family: var(--font-display); font-size: 15px; letter-spacing: .03em; }
 .tooltip .k { color: var(--muted); font-family: var(--font-data); }
@@ -441,7 +441,7 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .zoomctl button[aria-pressed="true"]#zsats, .zoomctl button[aria-pressed="true"]#zbases { color: var(--brass); }
 /* Other countries' bases: drawn on a canvas over the map; in SVG (deep zoom) fainter until hovered */
 .base-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.mapwrap svg.on-base { cursor: pointer; }
+
 .base.other { opacity: .6; }
 .base.other:hover { opacity: 1; }
 .base.other .garrison { stroke-width: 1; }
@@ -456,3 +456,5 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .keyrow .btn { flex: none; }
 .keyrow .btn { width: auto; flex: none; padding: 6px 10px; font-size: 13px; }
 .keyrow .gkey { flex: 1 1 auto; }
+/* The side panel lays out on its own, so map frames never relayout a long dossier. */
+.pane { contain: content; }
