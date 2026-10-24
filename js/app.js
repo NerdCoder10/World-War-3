@@ -528,16 +528,31 @@
   const attrib = document.createElement("div");
   attrib.className = "attrib";
   wrap.appendChild(attrib);
-  function attribution(src) {
+  // Credits for every source drawn in the current view.
+  const CREDITS = {
+    esri: "Esri World Imagery: Esri, Maxar, Earthstar Geographics and the GIS User Community",
+    roads: "Roads and places: Esri, HERE, Garmin, © OpenStreetMap contributors",
+    osm: `Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors`,
+    google: `<b>Google</b> · Map data and imagery ©${new Date().getFullYear()} Google`,
+    s2: `<a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless 2016</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0`,
+  };
+  let credits = new Set();
+  function credit(src) {
+    const k2 = src === "labels" ? "roads" : src;
+    if (credits.has(k2)) return;
+    credits.add(k2);
+    attribution();
+  }
+  function attribution(reset) {
+    if (reset) credits = new Set();
     attrib.hidden = !terrainOn;
-    attrib.innerHTML = `Imagery: NASA Blue Marble` + (src === "esri" ? ` · Esri World Imagery: Esri, Maxar, Earthstar Geographics and the GIS User Community` :
-      src ? ` · <a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless 2016</a> by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016), CC BY 4.0` : "");
+    attrib.innerHTML = [`Imagery: NASA Blue Marble`].concat([...credits].map(c => CREDITS[c])).join(" · ");
   }
   const terrainBox = document.createElement("div");
   terrainBox.className = "terrain";
   wrap.insertBefore(terrainBox, wrap.firstChild);
-  const worldCv = document.createElement("canvas"), detailCv = document.createElement("canvas");
-  terrainBox.append(worldCv, detailCv);
+  const worldCv = document.createElement("canvas"), detailCv = document.createElement("canvas"), overlayCv = document.createElement("canvas");
+  terrainBox.append(worldCv, detailCv, overlayCv);
   let terrainOn = true;
   try { terrainOn = localStorage.getItem("ww3-terrain") !== "off"; } catch (e) { /* storage unavailable */ }
   const imgCache = {};
@@ -556,50 +571,82 @@
     return p;
   }
   const S2_FROM = 40; // zoom at which Sentinel-2 takes over if Esri imagery is unavailable
-  // Streamed aerial and satellite photos: Esri World Imagery (sub-metre in most populated
-  // areas), Web Mercator tiles of 256 px. Used for every zoomed view; if it can't load,
-  // Sentinel-2 and then the bundled NASA terrain are used instead.
-  const ESRI_URL = (z, y, x) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  // Streamed Web Mercator tile layers (256 px), like a navigation app:
+  //  · Esri World Imagery: aerial and satellite photos, sub-metre in most populated areas.
+  //  · Esri World Transportation + Boundaries and Places: roads, railways and place names,
+  //    laid over the photos in the Hybrid style.
+  //  · OpenStreetMap: the street map behind most navigation apps, for the Map style.
+  //  · Google Maps (Map Tiles API), used instead of all of these when you add your own API key.
+  // If Esri imagery can't load, Sentinel-2 and then the bundled NASA terrain are used instead.
+  const ESRI = name => (z, y, x) => `https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/${z}/${y}/${x}`;
+  const TILES = {
+    esri: { url: ESRI("World_Imagery"), max: 19 },
+    roads: { url: ESRI("Reference/World_Transportation"), max: 19 },
+    labels: { url: ESRI("Reference/World_Boundaries_and_Places"), max: 19 },
+    osm: { url: (z, y, x) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`, max: 19 },
+    google: { url: (z, y, x) => `https://tile.googleapis.com/v1/2dtiles/${z}/${x}/${y}?session=${gSess[mapStyle].session}&key=${encodeURIComponent(googleKey)}`, max: 22 },
+  };
   let esriOK = true;
-  const esriCache = new Map();
-  function loadEsri(z, y, x) {
-    const key = `${z}/${y}/${x}`;
-    if (esriCache.has(key)) { const v = esriCache.get(key); esriCache.delete(key); esriCache.set(key, v); return v; }
-    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = rej; i.src = ESRI_URL(z, y, x); });
-    esriCache.set(key, p);
-    if (esriCache.size > 500) esriCache.delete(esriCache.keys().next().value);
-    p.catch(() => esriCache.delete(key));
+  const tileCache = new Map();
+  function loadTile(src, z, y, x) {
+    const key = `${src}/${src === "google" ? mapStyle : ""}/${z}/${y}/${x}`;
+    if (tileCache.has(key)) { const v = tileCache.get(key); tileCache.delete(key); tileCache.set(key, v); return v; }
+    const url = TILES[src].url(z, y, x);
+    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    tileCache.set(key, p);
+    if (tileCache.size > 900) tileCache.delete(tileCache.keys().next().value);
+    p.catch(() => tileCache.delete(key));
     return p;
+  }
+  // Map style: "satellite" (photos), "hybrid" (photos with roads and names) or "map" (street map).
+  const MAP_STYLES = { satellite: "Satellite", hybrid: "Hybrid", map: "Map" };
+  let mapStyle = "hybrid", googleKey = "";
+  try { mapStyle = MAP_STYLES[localStorage.getItem("ww3-mapstyle")] ? localStorage.getItem("ww3-mapstyle") : "hybrid"; googleKey = localStorage.getItem("ww3-gmaps-key") || ""; } catch (e) { /* storage unavailable */ }
+  // Google Map Tiles API sessions, one per style, created with the player's own key.
+  const gSess = {};
+  function googleSession() {
+    if (!googleKey) return null;
+    const s = gSess[mapStyle];
+    if (s && s.session && s.expiry * 1000 > Date.now() + 60000) return s;
+    if (s && (s.pending || s.failed)) return null;
+    gSess[mapStyle] = { pending: true };
+    const body = { mapType: mapStyle === "map" ? "roadmap" : "satellite", language: "en-US", region: "US" };
+    if (mapStyle === "hybrid") body.layerTypes = ["layerRoadmap"];
+    fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(googleKey)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(r => r.json().then(j => { if (!r.ok || !j.session) throw new Error((j.error && j.error.message) || r.statusText); return j; }))
+      .then(j => { gSess[mapStyle] = { session: j.session, expiry: +j.expiry }; drawViewTerrain(); })
+      .catch(err => { gSess[mapStyle] = { failed: true }; toast(`Google Maps tiles unavailable (${err.message}). Using Esri and OpenStreetMap instead.`); });
+    return null;
   }
   const mercY = lat => { const r = (Math.max(-85.05, Math.min(85.05, lat)) * Math.PI) / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2; };
   const tileLat = (y, n) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
-  function drawEsri(job, v) {
-    const screenPpd = (v.w * DPR) / Math.max(1e-9, v.lon1 - v.lon0);
+  // Draw Web Mercator tiles covering the view onto a canvas. Each tile's layers are drawn in order
+  // once all of them have loaded (roads under names). Overlays use no cell overlap, so their
+  // semi-transparent pixels aren't doubled along cell seams.
+  function drawTiles(job, v, cv, layers, onFail) {
+    const screenPpd = (v.w * DPR) / Math.max(1e-9, v.lon1 - v.lon0), max = Math.min(...layers.map(l => TILES[l].max));
     let z = 2;
     // Oversample ~1.6× (one level finer than strictly needed) so full zoom stays crisp.
-    while (z < 19 && (256 * 2 ** z) / 360 < screenPpd * 1.6) z++;
+    while (z < max && (256 * 2 ** z) / 360 < screenPpd * 1.6) z++;
     const n = 2 ** z;
     const x0 = Math.max(0, Math.floor(((v.lon0 + 180) / 360) * n)), x1 = Math.min(n - 1, Math.floor(((v.lon1 + 180) / 360) * n));
     const y0 = Math.max(0, Math.floor(mercY(Math.min(85, v.lat1)) * n)), y1 = Math.min(n - 1, Math.floor(mercY(Math.max(-85, v.lat0)) * n));
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 160) return;
-    const ctx = detailCv.getContext("2d");
+    const ctx = cv.getContext("2d"), overlay = cv === overlayCv;
     ctx.imageSmoothingQuality = "high";
     let failed = 0;
     for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
       const tl0 = (tx / n) * 360 - 180, tl1 = ((tx + 1) / n) * 360 - 180, tb1 = tileLat(ty, n), tb0 = tileLat(ty + 1, n);
       const src = (lon, lat) => [((lon + 180) / 360) * n * 256 - tx * 256, mercY(lat) * n * 256 - ty * 256];
       const step = Math.min(v.step, tl1 - tl0, tb1 - tb0);
-      loadEsri(z, ty, tx).then(img => {
+      Promise.all(layers.map(l => loadTile(l, z, ty, tx))).then(imgs => {
         if (job !== detailJob) return;
-        drawMapped(ctx, img, src, Math.max(v.lon0, tl0), Math.min(v.lon1, tl1), Math.max(v.lat0, tb0), Math.min(v.lat1, tb1), step, v.s, v.x0, v.y0);
-        attribution("esri");
-      }).catch(() => {
-        // Blocked or offline: fall back to Sentinel-2 for this view and stop asking Esri.
-        if (++failed === 1 && job === detailJob) { esriOK = false; if (v.k >= S2_FROM) drawS2(job, v); }
-      });
+        imgs.forEach(img => drawMapped(ctx, img, src, Math.max(v.lon0, tl0), Math.min(v.lon1, tl1), Math.max(v.lat0, tb0), Math.min(v.lat1, tb1), step, v.s, v.x0, v.y0, overlay ? 0 : 0.08));
+        layers.forEach(l => credit(l));
+      }).catch(() => { if (++failed === 1 && job === detailJob && onFail) onFail(); });
     }
   }
-  let worldBox = null, detailBox = null, detailJob = 0;
+  let worldBox = null, detailBox = null, overlayBox = null, detailJob = 0;
   const DPR = Math.min(2, window.devicePixelRatio || 1);
 
   // Projected bounding box (at zoom 1) of a lon/lat rectangle, from a grid of sample points.
@@ -630,8 +677,8 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
   // Same idea for any image whose pixel position is a function of lon/lat (e.g. Web Mercator tiles).
-  function drawMapped(ctx, img, src, lonA, lonB, latA, latB, step, s, ox, oy) {
-    const pad = step * 0.08;
+  function drawMapped(ctx, img, src, lonA, lonB, latA, latB, step, s, ox, oy, overlap = 0.08) {
+    const pad = step * overlap;
     for (let lon = lonA; lon < lonB - 1e-12; lon += step) {
       for (let lat = latB; lat > latA + 1e-12; lat -= step) {
         const e1 = Math.min(lon + step + pad, lonB), e0 = Math.max(lat - step - pad, latA);
@@ -668,8 +715,8 @@
   function drawViewTerrain() {
     const job = ++detailJob;
     const t = d3.zoomTransform(svg.node());
-    attribution(false);
-    if (!terrainOn || t.k < 2.5) { detailBox = null; detailCv.style.display = "none"; return; }
+    attribution(true);
+    if (!terrainOn || t.k < 2.5) { detailBox = overlayBox = null; detailCv.style.display = overlayCv.style.display = "none"; return; }
     const w = wrap.clientWidth, h = wrap.clientHeight;
     const x0 = -t.x / t.k, y0 = -t.y / t.k, x1 = (w - t.x) / t.k, y1 = (h - t.y) / t.k;
     let lon0 = 180, lon1 = -180, lat0 = 90, lat1 = -90, any = false;
@@ -705,10 +752,17 @@
       detailCv.width = cv.width; detailCv.height = cv.height;
       detailCv.getContext("2d").drawImage(cv, 0, 0);
       detailBox = { x0, y0, x1, y1, cv: detailCv, kr: t.k };
-      detailCv.style.display = "";
+      overlayCv.width = cv.width; overlayCv.height = cv.height;
+      overlayBox = { x0, y0, x1, y1, cv: overlayCv, kr: t.k };
+      detailCv.style.display = overlayCv.style.display = "";
       positionTerrain(d3.zoomTransform(svg.node()));
       const view = { x0, y0, x1, y1, lon0, lon1, lat0, lat1, s, step, w, k: t.k };
-      if (esriOK) drawEsri(job, view); else if (t.k >= S2_FROM) drawS2(job, view);
+      const fallback = () => { esriOK = false; if (t.k >= S2_FROM) drawS2(job, view); };
+      if (googleSession()) return drawTiles(job, view, detailCv, ["google"], () => { gSess[mapStyle] = { failed: true }; drawViewTerrain(); });
+      if (mapStyle === "map") return drawTiles(job, view, detailCv, ["osm"], () => esriOK && drawTiles(job, view, detailCv, ["esri"], fallback));
+      if (esriOK) drawTiles(job, view, detailCv, ["esri"], fallback); else if (t.k >= S2_FROM) drawS2(job, view);
+      // Roads, railways and place names, once the view is regional rather than continental.
+      if (mapStyle === "hybrid" && t.k >= 6) drawTiles(job, view, overlayCv, ["roads", "labels"]);
     }).catch(() => {});
   }
   // Sharper Sentinel-2 tiles drawn over the bundled terrain as they arrive. If they can't load
@@ -729,18 +783,34 @@
       loadS2(z, row, col).then(img => {
         if (job !== detailJob) return;
         drawCells(ctx, img, tl0, tb1, 256 / span, Math.max(v.lon0, tl0), Math.min(v.lon1, tl0 + span), Math.max(v.lat0, tb1 - span), Math.min(v.lat1, tb1), step, v.s, v.x0, v.y0);
-        attribution(true);
+        credit("s2");
       }).catch(() => {});
     }
   }
   // Each canvas is laid out at the zoom it was drawn for (kr) and only scaled by the change since,
   // so a deep-zoom canvas isn't squeezed into a sub-pixel box and blown up again.
   function positionTerrain(t) {
-    [worldBox, detailBox].forEach(bx => {
+    [worldBox, detailBox, overlayBox].forEach(bx => {
       if (!bx) return;
       bx.cv.style.width = (bx.x1 - bx.x0) * bx.kr + "px"; bx.cv.style.height = (bx.y1 - bx.y0) * bx.kr + "px";
       bx.cv.style.transform = `translate(${t.x + t.k * bx.x0}px, ${t.y + t.k * bx.y0}px) scale(${t.k / bx.kr})`;
     });
+  }
+  // Cycle or set the zoomed-in map style; Google sessions are per style.
+  function setMapStyle(st) {
+    mapStyle = st;
+    try { localStorage.setItem("ww3-mapstyle", st); } catch (e) { /* ignore */ }
+    const b = $("#zstyle");
+    b.title = `Map style: ${MAP_STYLES[st]} (click to change)`;
+    b.dataset.style = st;
+    if (!terrainOn) setTerrain(true); else drawViewTerrain();
+    if (tab === "campaign") render();
+  }
+  function setGoogleKey(key) {
+    googleKey = (key || "").trim();
+    try { googleKey ? localStorage.setItem("ww3-gmaps-key", googleKey) : localStorage.removeItem("ww3-gmaps-key"); } catch (e) { /* ignore */ }
+    Object.keys(gSess).forEach(k2 => delete gSess[k2]);
+    drawViewTerrain();
   }
   function setTerrain(on) {
     terrainOn = on;
@@ -758,7 +828,7 @@
     positionTerrain(e.transform);
     scheduleView();
     // SVG patterns break up at deep zoom, so locked countries switch to a plain fill past 6×.
-    if ((k > 6) !== deepZoom) { deepZoom = k > 6; paint(); }
+    if ((k > 6) !== deepZoom || (k > 25) !== streetZoom) { deepZoom = k > 6; streetZoom = k > 25; paint(); }
     markerSel.attr("r", 3.2 / shrink());
     placeBases();
     placeArmies();
@@ -922,6 +992,9 @@
   $("#zout").onclick = () => svg.transition().call(zoom.scaleBy, 1 / 1.8);
   $("#zreset").onclick = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
   $("#zterrain").onclick = () => setTerrain(!terrainOn);
+  $("#zstyle").title = `Map style: ${MAP_STYLES[mapStyle]} (click to change)`;
+  $("#zstyle").dataset.style = mapStyle;
+  $("#zstyle").onclick = () => { const order = Object.keys(MAP_STYLES); const next = order[(order.indexOf(mapStyle) + 1) % order.length]; setMapStyle(next); toast(`Map style: ${MAP_STYLES[next]}.`); };
   $("#zbases").setAttribute("aria-pressed", allBases);
   $("#zbases").onclick = () => {
     allBases = !allBases;
@@ -967,14 +1040,19 @@
     }
     return G.isLocked(iso) ? "url(#hatch)" : COL.teal;
   }
-  let deepZoom = false;
+  let deepZoom = false, streetZoom = false;
   function fillFor(iso) {
     if (!iso) return "#161f21";
     if (mode === "campaign") { const v = campaignColor(iso); return deepZoom && v.startsWith("url") ? COL.locked : v; }
     return MODES[mode].color(BY[iso]);
   }
   // With terrain on, country colours are translucent so the land shows through.
+  // At street level the colour wash fades to 30% so the photos and street map read true to life.
   function fillOpacity(iso) {
+    const o = baseOpacity(iso);
+    return o == null || k <= 25 ? o : o * 0.3;
+  }
+  function baseOpacity(iso) {
     if (!terrainOn) return null;
     if (!iso) return 0.15;
     if (mode !== "campaign") return 0.62;
@@ -1614,6 +1692,11 @@
       <div class="section"><h3>How to play</h3>
         <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Armies take turns to arrive, by land if the target borders your territory, otherwise by sea, which needs enough sealift. Each <b>End turn</b>, every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
         <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 add up to +10% surge combat power. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
+      <div class="section"><h3>Map imagery <small>zoomed-in views</small></h3>
+        <div class="seg" role="group" aria-label="Map style">${Object.entries(MAP_STYLES).map(([st, lab]) => `<button class="btn ghost${st === mapStyle ? " on" : ""}" data-style="${st}" aria-pressed="${st === mapStyle}">${lab}</button>`).join("")}</div>
+        <p class="hint"><b>Satellite</b> shows Esri World Imagery aerial photos. <b>Hybrid</b> adds roads, railways and place names on top, like a navigation app's satellite view. <b>Map</b> shows the OpenStreetMap street map that many navigation apps are built on.</p>
+        <label class="hint" for="gkey">Google Maps API key (optional). With a key that has the Map Tiles API enabled, zoomed-in views use Google's own satellite, hybrid and road tiles. The key is stored only in this browser and is sent only to Google.</label>
+        <div class="keyrow"><input id="gkey" type="password" autocomplete="off" placeholder="${googleKey ? "Key saved" : "Paste API key"}" class="gkey"><button class="btn ghost" id="gkey-save">${googleKey ? "Replace" : "Use key"}</button>${googleKey ? `<button class="btn ghost" id="gkey-clear">Remove</button>` : ""}</div></div>
       ${s.log.length ? `<div class="section"><h3>War log</h3><ul class="log">${s.log.map(l => `<li class="${l.kind}"><span>T${l.t}</span>${esc(l.msg)}</li>`).join("")}</ul></div>` : ""}
       <div class="section method"><details><summary>Methodology & sources</summary>
         <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Warheads: FAS Nuclear Notebook. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>
@@ -1626,6 +1709,9 @@
     wireArmies(pane);
     pane.querySelectorAll("a[data-goto]").forEach(a => (a.onclick = e => { e.preventDefault(); select(a.dataset.goto); }));
     if ($("#endturn2")) $("#endturn2").onclick = () => $("#endturn").click();
+    pane.querySelectorAll("[data-style]").forEach(b => (b.onclick = () => setMapStyle(b.dataset.style)));
+    $("#gkey-save").onclick = () => { const v = $("#gkey").value.trim(); if (!v) return toast("Paste a Google Maps API key first."); setGoogleKey(v); toast("Google Maps key saved in this browser. Zoom in to see Google tiles."); render(); };
+    if ($("#gkey-clear")) $("#gkey-clear").onclick = () => { setGoogleKey(""); toast("Google Maps key removed."); render(); };
     $("#reroll").onclick = () => { G.newGame(false); toast("New random nations unlocked."); refresh(); };
     let armed = false;
     $("#newgame").onclick = e => {
