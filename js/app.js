@@ -715,7 +715,7 @@
     cmdbar.hidden = false;
     wrap.classList.toggle("targeting", targeting);
     cmdbar.innerHTML = targeting
-      ? `<b>Click a country on the map to send them there.</b> <span class="hint">They travel from ${esc(sel.base)} at their real speed (1 game hour = 1 real minute). Esc to cancel.</span> <button class="btn ghost" data-cmd="cancel">Cancel</button>`
+      ? `<b>Click a country on the map to send them there.</b> <span class="hint">They travel from ${esc(sel.base)} at their real speed (1 game hour = 30 real seconds). Esc to cancel.</span> <button class="btn ghost" data-cmd="cancel">Cancel</button>`
       : `<div><b>${num(sel.list.reduce((a, e) => a + e.n, 0))} unit${sel.list.length === 1 && sel.list[0].n === 1 ? "" : "s"} selected</b> at ${esc(sel.base)} · combat value ${power.toFixed(0)}
           <div class="hint">${parts.slice(0, 6).map(([m, n]) => `${num(n)} × ${esc(m)}`).join(" · ")}${parts.length > 6 ? ` · +${parts.length - 6} more` : ""}${clipped(sel) ? ` · access levels let only part of this go` : ""}</div></div>
         <button class="btn" data-cmd="send">Send to…</button><button class="btn ghost" data-cmd="all">Select all here</button><button class="btn ghost" data-cmd="clear">Clear</button>`;
@@ -1883,10 +1883,10 @@
         <p class="hint" id="send-preview"></p>
         <button class="btn ${mine ? "diplo" : "attack"}" id="send-go">${mine ? "Send forces" : "Launch invasion"} <small id="send-eta"></small></button>
       </div>
-      <p class="hint">Only the share your access levels allow can be sent. Units travel in real time at their real speed (1 game hour = 1 real minute): jets in hours, ships and armour over days. Ground units crossing the sea need sealift from ships and carriers in the same army, or an airlift by the nation's own transport aircraft (vehicles need heavy lifters like the C-17 or Il-76, which few countries have). Battles fight one round each midnight.</p></div>`;
+      <p class="hint">Only the share your access levels allow can be sent. Units travel in real time at their real speed (1 game hour = 30 real seconds): jets in hours, ships and armour over days. Ground units crossing the sea need sealift from ships and carriers in the same army, or an airlift by the nation's own transport aircraft (vehicles need heavy lifters like the C-17 or Il-76, which few countries have). Battles fight one round each midnight.</p></div>`;
   }
-  // Game hours as real time (1 game hour = 1 real minute).
-  const realMin = h => (h < 1 ? "under a minute" : h < 90 ? `${Math.round(h)} min` : `${(h / 60).toFixed(1)} h`);
+  // Game hours as real time (1 game hour = 30 real seconds).
+  const realMin = h => (h < 2 ? `${Math.max(1, Math.round(h * 30))} s` : h < 180 ? `${Math.round(h / 2)} min` : `${(h / 120).toFixed(1)} h`);
   function sendPreview(c) {
     const out = $("#send-preview"); if (!out) return;
     const p = G.preview(sendSrc, c.iso3, sendAmt);
@@ -2301,7 +2301,7 @@
         <button class="btn ghost" id="reroll" ${s.player ? "disabled" : ""}>Reroll random picks</button>
         <button class="btn ghost" id="newgame">New campaign</button></div>
       <div class="section"><h3>How to play</h3>
-        <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Time runs in real time: 1 game hour passes every real minute, so a day (one turn) lasts 24 minutes. Pause it with ⏸, or press <b>Next day</b> to skip to midnight. Units travel at their real speeds: tanks road-march ~300 km a day, warships make ~16 knots, jets fly ~650 km/h. Ground units go by road if the target borders your territory, otherwise by sea (which needs enough sealift) or by airlift with the nation's own transport aircraft. Each midnight every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
+        <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Time runs in real time: 1 game hour passes every 30 real seconds, so a day (one turn) lasts 12 minutes. Pause it with ⏸, or press <b>Next day</b> to skip to midnight. Units travel at their real speeds: tanks road-march ~300 km a day, warships make ~16 knots, jets fly ~650 km/h. Ground units go by road if the target borders your territory, otherwise by sea (which needs enough sealift) or by airlift with the nation's own transport aircraft. Each midnight every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
         <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 replace losses of that kind up to 10% faster. Nothing you buy makes units fight better: their ability, training and patriotism are fixed by the real military. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
       <div class="section"><h3>Map &amp; graphics <small>imagery and speed</small></h3>
         <div class="seg" role="group" aria-label="Map style">${Object.entries(MAP_STYLES).map(([st, lab]) => `<button class="btn ghost${st === mapStyle ? " on" : ""}" data-style="${st}" aria-pressed="${st === mapStyle}">${lab}</button>`).join("")}</div>
@@ -2357,8 +2357,8 @@
     $("#pause").textContent = s.paused ? "▶" : "⏸";
     $("#pause").disabled = !s.player || s.over;
   }
-  $("#pause").onclick = () => { G.setPaused(!G.state.paused); clockChip(); toast(G.state.paused ? "Clock paused." : "Clock running: 1 game hour per real minute."); };
-  // The game clock: every second of real time is a minute of game time. Moving forces creep
+  $("#pause").onclick = () => { G.setPaused(!G.state.paused); clockChip(); toast(G.state.paused ? "Clock paused." : "Clock running: 1 game hour every 30 real seconds."); };
+  // The game clock: every real second is two minutes of game time. Moving forces creep
   // along their routes; arrivals and the midnight battle round update the map and dossier.
   let lastTick = performance.now();
   setInterval(() => {
