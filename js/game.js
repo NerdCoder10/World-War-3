@@ -168,6 +168,9 @@
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
   // logistics when fighting away from home (near = overland, far = across the sea).
   const ms = iso => BY[iso].milStats;
+  // Fixed fortification of a country's bases (js/app.js nationFort, 1–10): every point above 3
+  // adds 4% to its defence, so a 10/10 tunnel network defends about 28% harder.
+  const fortMult = iso => (window.nationFort ? Math.max(0.96, Math.min(1.3, 1 + 0.04 * (window.nationFort(iso) - 3))) : 1);
   const reach = (iso, sea) => (sea ? ms(iso).far : ms(iso).near);
   // Is a country fighting right now? (Private satellites join the national effort only then.)
   function atWar(iso) {
@@ -190,7 +193,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * space(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -388,21 +391,28 @@
 
   // Redeploy units between two bases of the same nation (within the country: no travel turn).
   // Stored as per-base offsets in G.state.baseMoves and applied by computeDeployment (js/app.js).
-  function moveUnits(iso, from, to, units) {
-    const err = ready(); if (err) return err;
-    const s = G.state;
-    if (!owns(iso)) return "You can only move units of nations in your empire.";
-    if (from === to) return "Those units are already at that base.";
+  // Distance and travel time of a base-to-base move (no state change). { err } if it can't happen.
+  function moveQuote(iso, from, to, units) {
+    const err = ready(); if (err) return { err };
+    if (!owns(iso)) return { err: "You can only move units of nations in your empire." };
+    if (from === to) return { err: "Those units are already at that base." };
     const kit = window.baseKit && window.baseKit(iso, from);
-    if (!kit || !window.baseKit(iso, to)) return "Unknown base.";
+    if (!kit || !window.baseKit(iso, to)) return { err: "Unknown base." };
     const u = clean(units, kit);
-    if (!total(u)) return "Pick at least one unit to move.";
+    if (!total(u)) return { err: "Pick at least one unit to move." };
+    const pa = window.basePoint(iso, from), pb = window.basePoint(iso, to), km = d3.geoDistance(pa, pb) * 6371;
+    const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key]));
+    return { u, km, hours, pa, pb };
+  }
+  function moveUnits(iso, from, to, units) {
+    const q = moveQuote(iso, from, to, units);
+    if (q.err) return q.err;
+    const s = G.state, u = q.u;
     // They leave now and join the other base when they get there.
     const mv = ((s.baseMoves = s.baseMoves || {})[iso] = s.baseMoves[iso] || {});
     const a = (mv[from] = mv[from] || {});
     UNITS.forEach(x => { if (u[x.key]) a[x.key] = (a[x.key] || 0) - u[x.key]; });
-    const pa = window.basePoint(iso, from), pb = window.basePoint(iso, to), km = d3.geoDistance(pa, pb) * 6371;
-    const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key]));
+    const { pa, pb, km, hours } = q;
     const m = { id: s.nextMove = (s.nextMove || 1), iso, from, to, units: u, sentH: s.clock || 0, ...etaOf(hours), a: pa, b: pb };
     s.nextMove++;
     (s.moves = s.moves || []).push(m);
@@ -600,7 +610,7 @@
   // Your side when one of your nations is attacked: its own accessible forces, order, trait and stationed armies.
   function homeDefence(iso) {
     const u = homeShare(iso);
-    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + 10;
   }
 
@@ -1003,7 +1013,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    baseSource, moveUnits, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    baseSource, moveUnits, moveQuote, fortMult, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
