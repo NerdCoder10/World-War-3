@@ -471,3 +471,8 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .cmdbar .btn { width: auto; flex: none; padding: 6px 10px; font-size: 13px; }
 .selbox { position: absolute; z-index: 6; border: 1px dashed var(--brass); background: #d6a84e22; pointer-events: none; }
 .mapwrap.targeting svg { cursor: crosshair !important; }
+.cmdbar .btn.confirm { background: var(--teal); color: #06201c; border-color: var(--teal); font-weight: 700; }
+.cmdbar .btn.confirm:disabled { opacity: .45; }
+.cmdbar .pick { color: var(--brass); }
+.fortline { font-size: 13px; }
+.cmdbar[hidden], .selbox[hidden] { display: none; }

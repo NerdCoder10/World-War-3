@@ -176,6 +176,37 @@
     for (const z of zones.slice().sort((a, b) => (b.kit[key] || 0) - (a.kit[key] || 0))) { if (extra <= 1e-6) break; const cut = Math.min(z.kit[key] || 0, extra); z.kit[key] -= cut; extra -= cut; }
   }
   // What one base of a country holds now ({kind: count}, troops in thousands).
+  // ── Fortification (fixed) ── How hardened a base is, 1–10, from what it really is: a national
+  // baseline (North Korea's tunnel-riddled hills, Switzerland's mountain forts, Israel's and South
+  // Korea's front lines, Ukraine's wartime lines) adjusted for the kind of site (underground command
+  // posts and missile fields high, air bases with hardened shelters and naval bases above average,
+  // training areas, depots and peacekeeping camps low). It can't be upgraded.
+  const FORT_NATION = { PRK: 8, CHE: 8, ISR: 7, TWN: 7, KOR: 6, UKR: 6, FIN: 6, IRN: 6, ALB: 5, ARM: 5, RUS: 5, CHN: 5, IND: 5, PAK: 5, TUR: 5, SWE: 5, NOR: 5, VNM: 5, CUB: 5, SRB: 4, AZE: 4, SYR: 4, USA: 4, GBR: 4, FRA: 4, JPN: 4, EGY: 4, SAU: 4, GRC: 4, POL: 4, IRQ: 3, DEU: 3 };
+  const FORT_LABELS = ["", "Open garrison", "Open garrison", "Fenced and guarded", "Fenced and guarded", "Hardened: berms and bunkers", "Hardened: berms and bunkers", "Heavily fortified", "Heavily fortified", "Underground fortress", "Underground fortress"];
+  function fortOf(iso, z) {
+    if (z.fort) return z.fort;
+    const t = z.name + " " + (z.note || "");
+    let f = FORT_NATION[iso] || 3;
+    if (/bunker|underground|tunnel|mountain|hardened|NORAD|Cheyenne|Yamantau|Kosvinsky|Raven Rock|cave|Hwasong|Sohae/i.test(t)) f += 3;
+    if (/missile|silo|ICBM|SSBN|nuclear|strategic forces/i.test(t)) f += 2;
+    if (/DMZ|frontier|border|front line|frontline|Donbas|Kashmir|Line of Control|LoC|Golan|Panmunjom|demarcation/i.test(t)) f += 2;
+    if (/HQ|headquarters|command|General Staff|Pentagon|ministry/i.test(t)) f += 1;
+    if (/air base|\bAB\b|airfield|Air Force|fighter|wing/i.test(t)) f += 1;
+    if (/naval|port|fleet|submarine|harbour|harbor/i.test(t)) f += 1;
+    if (/training|school|academy|range|depot|reserve|National Guard|ceremonial|police|coast guard|UN mission|peacekeep|recruit/i.test(t)) f -= 1;
+    if (z.host && z.host !== "TERR") f -= 1;
+    return (z.fort = Math.max(1, Math.min(10, Math.round(f))));
+  }
+  window.fortOf = fortOf;
+  window.fortLabel = f => FORT_LABELS[f] || "";
+  // A nation's fortification, troop-weighted over its home bases (fixed per country).
+  const nationFortCache = {};
+  window.nationFort = iso => {
+    if (iso in nationFortCache) return nationFortCache[iso];
+    const zs = deploymentFor(iso).filter(z => !z.host);
+    const w = zs.reduce((a, z) => a + (z.groundPct || 0) + 0.2 * (z.airPct || 0) + 0.2 * (z.navalPct || 0), 0) || 1;
+    return (nationFortCache[iso] = zs.reduce((a, z) => a + fortOf(iso, z) * ((z.groundPct || 0) + 0.2 * (z.airPct || 0) + 0.2 * (z.navalPct || 0)), 0) / w || 3);
+  };
   window.basePoint = (iso, name) => { const z = deploymentFor(iso).find(x => x.name === name); return z ? z.at : (window.CENTROIDS || {})[iso]; };
   window.baseKit = (iso, name) => { const z = computeDeployment(iso).find(x => x.name === name); return z ? z.kit : null; };
   function deploymentFor(iso) {
@@ -587,27 +618,48 @@
     });
     // Very large bases: one icon stands for a few units so a base never exceeds ENT_CAP icons.
     const per = Math.max(1, Math.ceil(total / ENT_CAP));
-    const list = [];
+    const list = [], infra = [], fort = fortOf(z.iso, z);
     let shelfX = 0, shelfY = 0, shelfH = 0;
     const maxW = Math.max(600, Math.sqrt(groups.reduce((a, g) => a + (g.n / per) * ENT_SP[g.key] ** 2, 0)) * 1.4);
+    // The cantonment: an HQ and barracks blocks (about one per 250 soldiers), set out in rows.
+    const soldiers = (z.kit.troops || 0) * 1000;
+    if (soldiers >= 20) {
+      const nb = Math.max(1, Math.min(160, Math.ceil(soldiers / 250))), cols = Math.max(2, Math.ceil(Math.sqrt(nb * 0.7))), rows = Math.ceil(nb / cols);
+      infra.push({ type: "hq", x: 0, y: 0, w: 60, h: 40 });
+      for (let i = 0; i < nb; i++) infra.push({ type: "barracks", x: (i % cols) * 72, y: 60 + Math.floor(i / cols) * 28, w: 56, h: 14 });
+      shelfX = cols * 72 + 40; shelfH = 60 + rows * 28;
+    }
     groups.filter(g => !NAVAL.has(g.key)).forEach(g => {
       // Vehicles park side by side in rows (half their length apart sideways), like a real motor pool.
       const sp = ENT_SP[g.key], spx = ["tanks", "afv", "arty"].includes(g.key) ? sp * 0.5 : sp;
       const count = Math.ceil(g.n / per), cols = Math.max(1, Math.ceil(Math.sqrt(count * 1.6 * sp / spx))), rows = Math.ceil(count / cols);
       const bw = cols * spx, bh = rows * sp;
+      // Room above each block for its maintenance sheds or hangars.
+      const air = ["fighters", "aircraft", "helis"].includes(g.key), vehicles = ["tanks", "afv", "arty"].includes(g.key);
+      const top = air && g.key !== "helis" ? (fort >= 5 ? 34 : 64) : vehicles ? 24 : 0;
       if (shelfX > 0 && shelfX + bw > maxW) { shelfX = 0; shelfY += shelfH + 40; shelfH = 0; }
+      const by = shelfY + top;
+      if (g.key !== "troops") infra.push({ type: air ? "apron" : "pool", x: shelfX - 6, y: by - 6, w: bw + 12, h: bh + 12 });
+      if (vehicles) for (let x = 0; x < bw; x += 90) infra.push({ type: "shed", x: shelfX + x, y: shelfY, w: Math.min(80, bw - x), h: 18 });
+      if (air && g.key !== "helis") {
+        if (fort >= 5) { const n = Math.min(40, Math.ceil(g.n / 2)); for (let j = 0; j < n && j * 34 < bw + 34; j++) infra.push({ type: "has", x: shelfX + j * 34, y: shelfY, w: 28, h: 26 }); }
+        else for (let x = 0; x < bw; x += 80) infra.push({ type: "hangar", x: shelfX + x, y: shelfY, w: Math.min(72, bw - x), h: 56 });
+      }
       let i = 0;
       g.models.forEach(([model, cnt]) => {
         for (let left = cnt; left > 0; left -= per, i++) {
           list.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, left), iso: z.iso, base: z.name,
-            ox: shelfX + (i % cols) * spx + spx / 2, oy: shelfY + Math.floor(i / cols) * sp + sp / 2, sp });
+            ox: shelfX + (i % cols) * spx + spx / 2, oy: by + Math.floor(i / cols) * sp + sp / 2, sp });
         }
       });
-      shelfX += bw + 40; shelfH = Math.max(shelfH, bh);
+      shelfX += bw + 40; shelfH = Math.max(shelfH, bh + top);
     });
-    // Centre the blocks on the base.
-    const W = Math.max(...list.map(e => e.ox + e.sp / 2), 0), H = Math.max(...list.map(e => e.oy + e.sp / 2), 0);
+    // Centre the blocks on the base, inside a perimeter (fence, then berms, towers and bunker
+    // entrances as the fortification rises).
+    const W = Math.max(...list.map(e => e.ox + e.sp / 2), ...infra.map(b => b.x + b.w), 0), H = Math.max(...list.map(e => e.oy + e.sp / 2), ...infra.map(b => b.y + b.h), 0);
     list.forEach(e => { e.ox -= W / 2; e.oy -= H / 2; });
+    infra.forEach(b => { b.x -= W / 2; b.y -= H / 2; });
+    if (W > 0) infra.unshift({ type: "perimeter", x: -W / 2 - 70, y: -H / 2 - 70, w: W + 140, h: H + 140, fort });
     // Ships moor side by side in rows along the waterfront, at true scale, around the piers where
     // the base's named carriers are (js/fleet.js), or the base itself if it has none.
     const named = shipsAtBase(z.iso, z.name);
@@ -621,6 +673,10 @@
     const rowsOf = fleet.filter(e => !e.geo), cols = 10;
     rowsOf.forEach((e, i) => { e.ox = (i % cols) * 42 - (cols - 1) * 21 + (named.length ? 0 : 0); e.oy = Math.floor(i / cols) * 240 + (named.length ? 420 : 0); });
     list.push(...fleet);
+    // Piers for the moored rows.
+    const piers = fleet.filter(e => !e.geo);
+    if (piers.length) { const rowsN = Math.ceil(piers.length / 10); for (let r2 = 0; r2 < rowsN; r2++) infra.push({ type: "pier", naval: anchor, x: -230, y: r2 * 240 + (named.length ? 420 : 0) + 125, w: 460, h: 14 }); }
+    list.infra = infra;
     list.forEach(e => { e.shape = window.unitShape(e.key, e.model); e.pal = window.unitPalette(e.iso, e.key); });
     list.per = per;
     if (entCache.size > 60) entCache.delete(entCache.keys().next().value);
@@ -649,7 +705,6 @@
   }
   let entSel = new Map(), targeting = false; // entSel: id → unit
   const selEntities = () => [...entSel.values()];
-  // Draw units for the bases in view (up to 8 nearest the centre). Called from drawBaseCanvas.
   // Where a unit is on screen and how long it's drawn: named ships at their real spot and size,
   // other warships moored in rows at true scale, everything else parked around the base.
   const groundLen = (e, g) => Math.min(e.sp * g * 0.95, Math.max(8, window.shapeLength(e.shape) * g * 2.2));
@@ -671,10 +726,11 @@
       clearTimeout(layerTimer); layerTimer = setTimeout(drawBaseCanvas, 180);
       return old;
     }
-    const ground = ents.filter(e => !e.geo && !e.naval);
-    if (!ground.length) return null;
+    const ground = ents.filter(e => !e.geo && !e.naval), infra = (ents.infra || []).filter(b => !b.naval);
+    if (!ground.length && !infra.length) return null;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     ground.forEach(e => { const L = groundLen(e, g) * 0.75 + 4; x0 = Math.min(x0, e.ox * g - L); y0 = Math.min(y0, e.oy * g - L); x1 = Math.max(x1, e.ox * g + L); y1 = Math.max(y1, e.oy * g + L); });
+    infra.forEach(b => { const m = 14; x0 = Math.min(x0, b.x * g - m); y0 = Math.min(y0, b.y * g - m); x1 = Math.max(x1, (b.x + b.w) * g + m); y1 = Math.max(y1, (b.y + b.h) * g + m); });
     const W = x1 - x0, H = y1 - y0;
     if (W * DPR > 8192 || H * DPR > 8192) return null; // too big for one image: draw units one by one
     const cv = (old && old.canvas) || document.createElement("canvas");
@@ -682,6 +738,7 @@
     const c2 = cv.getContext("2d");
     c2.setTransform(DPR, 0, 0, DPR, 0, 0);
     c2.clearRect(0, 0, W, H);
+    drawInfra(c2, infra, g, -x0, -y0, window.unitPalette(z.iso, "troops") === "desert");
     ground.forEach(e => {
       const sp = window.unitSprite(e.shape, e.pal, groundLen(e, g), entSel.has(e.id), DPR);
       c2.drawImage(sp.canvas, e.ox * g - x0 - sp.dim / 2, e.oy * g - y0 - sp.dim / 2, sp.dim, sp.dim);
@@ -690,6 +747,34 @@
     layerCache.set(key, layer);
     if (layerCache.size > 24) layerCache.delete(layerCache.keys().next().value);
     return layer;
+  }
+  // Base buildings and ground works, top-down at true size (metres × g), under the units.
+  function drawInfra(c2, infra, g, ox, oy, desert) {
+    const R = (b, col) => { c2.fillStyle = col; c2.fillRect(ox + b.x * g, oy + b.y * g, b.w * g, b.h * g); };
+    const shadow = b => { c2.fillStyle = "rgba(0,0,0,0.3)"; c2.fillRect(ox + b.x * g + 2, oy + b.y * g + 2, b.w * g, b.h * g); };
+    for (const b of infra) {
+      const X = ox + b.x * g, Y = oy + b.y * g, Wd = b.w * g, Ht = b.h * g;
+      switch (b.type) {
+        case "perimeter": {
+          // Berm (fort ≥5), fence, guard towers (≥7) and bunker entrances (≥9); a gate at the bottom.
+          if (b.fort >= 5) { c2.strokeStyle = "rgba(122,104,70,0.85)"; c2.lineWidth = Math.max(3, 12 * g); c2.strokeRect(X - 8 * g, Y - 8 * g, Wd + 16 * g, Ht + 16 * g); }
+          c2.strokeStyle = "rgba(235,235,225,0.85)"; c2.lineWidth = 1.4; c2.setLineDash([5, 3]);
+          c2.beginPath(); c2.moveTo(X + Wd / 2 - 20 * g, Y + Ht); c2.lineTo(X, Y + Ht); c2.lineTo(X, Y); c2.lineTo(X + Wd, Y); c2.lineTo(X + Wd, Y + Ht); c2.lineTo(X + Wd / 2 + 20 * g, Y + Ht); c2.stroke();
+          c2.setLineDash([]);
+          c2.fillStyle = "#d8d4c8"; c2.fillRect(X + Wd / 2 + 22 * g, Y + Ht - 6 * g, 10 * g + 2, 6 * g + 2); // guardhouse
+          if (b.fort >= 7) { const step = 260 * g; c2.fillStyle = "#cfcabd"; for (let x = 0; x <= Wd; x += step) { c2.fillRect(X + x - 3, Y - 3, 6, 6); c2.fillRect(X + x - 3, Y + Ht - 3, 6, 6); } for (let y = 0; y <= Ht; y += step) { c2.fillRect(X - 3, Y + y - 3, 6, 6); c2.fillRect(X + Wd - 3, Y + y - 3, 6, 6); } }
+          if (b.fort >= 9) { c2.fillStyle = "#1b1d1c"; [[0.2, 0], [0.8, 0], [0, 0.5], [1, 0.5]].forEach(([fx, fy]) => { c2.beginPath(); c2.arc(X + fx * Wd, Y + fy * Ht, Math.max(3, 9 * g), 0, Math.PI * 2); c2.fill(); }); }
+          break;
+        }
+        case "pool": c2.fillStyle = "rgba(68,70,68,0.6)"; c2.fillRect(X, Y, Wd, Ht); break;
+        case "apron": c2.fillStyle = "rgba(176,176,170,0.62)"; c2.fillRect(X, Y, Wd, Ht); break;
+        case "shed": shadow(b); R(b, "#7f8384"); c2.fillStyle = "#9da1a2"; c2.fillRect(X, Y + Ht / 2 - 0.5, Wd, 1); break;
+        case "hangar": shadow(b); R(b, "#a3a9ad"); c2.fillStyle = "#858b8f"; for (let x = 4 * g; x < Wd; x += 8 * g) c2.fillRect(X + x, Y, 1, Ht); break;
+        case "has": shadow(b); c2.fillStyle = "#aca694"; c2.beginPath(); c2.ellipse(X + Wd / 2, Y + Ht / 2, Wd / 2, Ht / 2, 0, 0, Math.PI * 2); c2.fill(); c2.fillStyle = "#3a3936"; c2.fillRect(X + Wd * 0.3, Y + Ht - 2, Wd * 0.4, 2); break;
+        case "hq": shadow(b); R(b, desert ? "#d6c7a4" : "#b9b2a6"); c2.fillStyle = "rgba(60,70,50,0.8)"; c2.fillRect(X + Wd * 0.25, Y + Ht * 0.25, Wd * 0.5, Ht * 0.5); break;
+        case "barracks": shadow(b); R(b, desert ? "#cdb88c" : "#8e9193"); c2.fillStyle = desert ? "#b39f72" : "#a9acae"; c2.fillRect(X, Y + Ht / 2 - 0.5, Wd, 1); break;
+      }
+    }
   }
   // Draw units for the bases in view (up to 8 nearest the centre). Called from drawBaseCanvas.
   function drawEntities(ctx, t, w, h) {
@@ -709,6 +794,10 @@
         const sc = b.g / layer.g;
         ctx.drawImage(layer.canvas, b.sx + layer.x0 * sc, b.sy + layer.y0 * sc, layer.W * sc, layer.H * sc);
       }
+      (ents.infra || []).filter(p2 => p2.naval).forEach(p2 => {
+        const gN = Math.max(b.gTrue, 0.12), a = projection(p2.naval), X = t.applyX(a[0]) + p2.x * gN, Y = t.applyY(a[1]) + p2.y * gN;
+        ctx.fillStyle = "rgba(190,186,176,0.85)"; ctx.fillRect(X, Y, p2.w * gN, Math.max(2, p2.h * gN));
+      });
       for (const e of ents) {
         if (layer && !e.geo && !e.naval) continue;
         const { sx, sy, L } = entPos(b, e, t);
@@ -784,32 +873,69 @@
   function setSelection(units) {
     entSel = new Map(units.map(e => [e.id, e]));
     selVersion++;
+    pending = null;
     if (!entSel.size) targeting = false;
     updateCmdbar();
     drawBaseCanvas();
   }
+  // Moving units: (1) click a unit, several (shift-click, shift-drag) or "Select all units here";
+  // (2) click the destination: another of your bases, or any country; (3) confirm. Nothing moves
+  // until you press Confirm, so a stray click is easily undone.
+  let pending = null; // { target: {base} | {country}, x, y, quote }
   function updateCmdbar() {
     const sel = selection();
-    if (!sel) { cmdbar.hidden = true; wrap.classList.remove("targeting"); return; }
+    if (!sel) { pending = null; cmdbar.hidden = true; wrap.classList.remove("targeting"); return; }
     const power = G.rawPower(sel.units, sel.iso, sel.models);
     const byModel = {};
     sel.list.forEach(e => (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] = (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] || 0) + (e.key === "troops" ? e.n * 10 : e.n)));
     const parts = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
+    const count = num(sel.list.reduce((a, e) => a + (e.key === "troops" ? e.n * 10 : e.n), 0));
     cmdbar.hidden = false;
-    wrap.classList.toggle("targeting", targeting);
-    cmdbar.innerHTML = targeting
-      ? `<b>Click a country on the map to send them there.</b> <span class="hint">They travel from ${esc(sel.base)} at their real speed (1 game hour = 30 real seconds). Esc to cancel.</span> <button class="btn ghost" data-cmd="cancel">Cancel</button>`
-      : `<div><b>${num(sel.list.reduce((a, e) => a + e.n, 0))} unit${sel.list.length === 1 && sel.list[0].n === 1 ? "" : "s"} selected</b> at ${esc(sel.base)} · combat value ${power.toFixed(0)}
-          <div class="hint">${parts.slice(0, 6).map(([m, n]) => `${num(n)} × ${esc(m)}`).join(" · ")}${parts.length > 6 ? ` · +${parts.length - 6} more` : ""}${clipped(sel) ? ` · access levels let only part of this go` : ""}</div></div>
-        <button class="btn" data-cmd="send">Send to…</button><button class="btn ghost" data-cmd="all">Select all here</button><button class="btn ghost" data-cmd="clear">Clear</button>`;
+    wrap.classList.toggle("targeting", !pending);
+    const what = `<div class="hint">${parts.slice(0, 6).map(([m, n]) => `${num(n)} × ${esc(m)}`).join(" · ")}${parts.length > 6 ? ` · +${parts.length - 6} more` : ""}${clipped(sel) ? ` · access levels let only part of this go` : ""}</div>`;
+    if (pending) {
+      const q = pending.quote, tg = pending.target;
+      const dest = tg.base ? tg.base.name : BY[tg.country].name + (G.owns(tg.country) ? "" : " (invasion)");
+      const how = q.err ? `<b class="bad">${esc(q.err)}</b>` : `${Math.round(q.km).toLocaleString("en-US")} km${q.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[q.mode]}` : ""} · arrives in ${G.fmtDur(q.hours)} (${G.clockLabel((G.state.clock || 0) + q.hours)})`;
+      cmdbar.innerHTML = `<div><b>Move ${count} from ${esc(sel.base)} to ${esc(dest)}?</b><div class="hint">${how}</div>${what}</div>
+        <button class="btn confirm" data-cmd="confirm" ${q.err ? "disabled" : ""}>Confirm</button><button class="btn ghost" data-cmd="cancel">Cancel</button>`;
+    } else {
+      cmdbar.innerHTML = `<div><b>${count} selected</b> at ${esc(sel.base)} · combat value ${power.toFixed(0)} · <span class="pick">now click a destination: one of your bases or any country</span>${what}</div>
+        <button class="btn ghost" data-cmd="all">Select all here</button><button class="btn ghost" data-cmd="clear">Clear</button>`;
+    }
     cmdbar.querySelectorAll("[data-cmd]").forEach(b => (b.onclick = ev => {
       ev.stopPropagation();
       const cmd = b.dataset.cmd;
-      if (cmd === "send") { targeting = true; updateCmdbar(); }
-      else if (cmd === "cancel") { targeting = false; updateCmdbar(); }
+      if (cmd === "confirm") executePending();
+      else if (cmd === "cancel") { pending = null; updateCmdbar(); drawBaseCanvas(); }
       else if (cmd === "clear") setSelection([]);
       else if (cmd === "all") selectAllAt(sel.iso, sel.base);
     }));
+  }
+  // Propose a destination for the selected units and show the confirm bar.
+  function propose(target, x, y) {
+    const sel = selection();
+    if (!sel || !target) return;
+    let quote;
+    if (target.base) quote = G.moveQuote(sel.iso, sel.base, target.base.name, sel.units);
+    else {
+      const p = G.preview("b:" + sel.iso + "|" + sel.base, target.country, sel.units, sel.models);
+      quote = p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
+    }
+    pending = { target, x, y, quote };
+    updateCmdbar();
+    drawBaseCanvas();
+  }
+  function executePending() {
+    const sel = selection(), pd = pending;
+    if (!sel || !pd || pd.quote.err) return;
+    pending = null;
+    if (pd.target.country) return sendSelection(pd.target.country);
+    const err = G.moveUnits(sel.iso, sel.base, pd.target.base.name, sel.units);
+    if (err) return toast(err);
+    toast(G.state.log[0].msg + (G.state.paused ? " The clock is paused: press ▶ to let them move." : ""));
+    setSelection([]);
+    drawDeploy(); refresh();
   }
   // True if the nation's access levels hold back some of the selected units.
   function clipped(sel) {
@@ -848,6 +974,9 @@
     drawDeploy(); refresh();
   }
   function countryAt(e) {
+    // The country shape under the pointer (what you see), then the exact geography.
+    const el = document.elementFromPoint(e.clientX, e.clientY), d = el && el.__data__;
+    if (d && d.iso && el.classList && el.classList.contains("country")) return d.iso;
     const rect = wrap.getBoundingClientRect(), t = d3.zoomTransform(svg.node());
     const p = projection.invert([t.invertX(e.clientX - rect.left), t.invertY(e.clientY - rect.top)]);
     if (!p) return null;
@@ -874,13 +1003,15 @@
   }, true);
   svg.node().addEventListener("click", e => {
     if (suppressClick) { e.stopPropagation(); suppressClick = false; return; }
-    if (targeting) {
-      e.stopPropagation();
-      const to = countryAt(e);
-      if (to) sendSelection(to); else toast("Click on a country to send the units there.");
-      return;
+    const u = entityAt(e), sel = selection();
+    // With units selected, a click anywhere except on your own units picks their destination.
+    if (sel && !(u && G.owns(u.iso))) {
+      e.stopPropagation(); hideTip();
+      const r = wrapRect || (wrapRect = wrap.getBoundingClientRect()), x = e.clientX - r.left, y = e.clientY - r.top;
+      const tg = dropTarget(x, y, sel);
+      if (!tg) return toast("Click one of your bases, or any country, as the destination.");
+      return propose(tg, x, y);
     }
-    const u = entityAt(e);
     if (u) {
       e.stopPropagation();
       if (!G.owns(u.iso)) return commandNotice(u.iso);
@@ -928,8 +1059,8 @@
     setSelection(keep.concat(inBox.filter(d => d.e.base === base).map(d => d.e)));
   });
   document.addEventListener("keydown", e => {
-    if (e.key !== "Escape" || (!entSel.size && !targeting)) return;
-    if (targeting) { targeting = false; updateCmdbar(); } else setSelection([]);
+    if (e.key !== "Escape" || !entSel.size) return;
+    if (pending) { pending = null; updateCmdbar(); drawBaseCanvas(); } else setSelection([]);
   });
   // Drag units to move them: drop on another of your bases in the same country to redeploy them
   // there, or on another country to send them as an army.
@@ -951,11 +1082,17 @@
   function dropTarget(x, y, sel) {
     const t = d3.zoomTransform(svg.node());
     const bases = (sel.iso === selected ? myBases : otherBases.filter(z => z.iso === sel.iso)).filter(z => z.name !== sel.base);
-    let best = null, bd = 40;
-    bases.forEach(z => { const d = Math.hypot(t.applyX(z.xy[0]) - x, t.applyY(z.xy[1]) - y); if (d < bd) { bd = d; best = z; } });
+    // A base counts only if you clicked (or dropped) on its marker.
+    let best = null, bd = Infinity;
+    bases.forEach(z => { const d = Math.hypot(t.applyX(z.xy[0]) - x, t.applyY(z.xy[1]) - y), r = Math.max(8, garrR(z) * k) + 4; if (d <= r && d < bd) { bd = d; best = z; } });
     if (best) return { base: best };
     const r = wrapRect || (wrapRect = wrap.getBoundingClientRect());
-    const to = countryAt({ clientX: x + r.left, clientY: y + r.top });
+    let to = countryAt({ clientX: x + r.left, clientY: y + r.top });
+    // A click on any base marker (say a naval base just offshore) means the country it's in.
+    if (!to) {
+      const hit = baseDrawn.filter(d => Math.hypot(d.sx - x, d.sy - y) <= Math.max(d.r, 4) + 2).pop();
+      if (hit) to = hit.z.host && BY[hit.z.host] ? hit.z.host : hit.z.iso;
+    }
     if (to && to !== sel.iso) return { country: to };
     if (to === sel.iso && bases.length) {
       // Dropped inside its own country, away from a base: the nearest base to the drop point.
@@ -997,33 +1134,40 @@
     const sel = selection();
     drawBaseCanvas();
     if (!sel || !d.target) return toast("Drop the units on one of your bases, or on another country to send them there.");
-    if (d.target.country) return sendSelection(d.target.country);
-    const err = G.moveUnits(sel.iso, sel.base, d.target.base.name, sel.units);
-    if (err) return toast(err);
-    toast(G.state.log[0].msg + (G.state.paused ? " The clock is paused: press ▶ to let them move." : ""));
-    setSelection([]);
-    drawDeploy(); refresh();
+    propose(d.target, d.x, d.y); // dropping asks for confirmation too
   });
   // The drag arrow, drawn on the base canvas.
   function drawDrag(ctx) {
-    if (!drag || !drag.on) return;
+    const live = drag && drag.on;
+    if (!live && !pending) return;
+    const t = d3.zoomTransform(svg.node()), sel = selection();
+    if (!sel) return;
     const pts = shownUnits().filter(d => entSel.has(d.e.id));
-    const cx = pts.length ? pts.reduce((a, d) => a + d.sx, 0) / pts.length : drag.x0, cy = pts.length ? pts.reduce((a, d) => a + d.sy, 0) / pts.length : drag.y0;
-    const tg = drag.target, label = !tg ? "Drop on a base or a country" : tg.base ? `Redeploy to ${tg.base.name}` : `Send to ${BY[tg.country].name}${G.owns(tg.country) ? "" : " (invade)"}`;
+    // The arrow starts at the selected units (or their base marker) and ends at the destination.
+    const src = (sel.iso === selected ? myBases : otherBases).find(z => z.iso === sel.iso && z.name === sel.base);
+    const cx = pts.length ? pts.reduce((a, d) => a + d.sx, 0) / pts.length : src ? t.applyX(src.xy[0]) : drag.x0;
+    const cy = pts.length ? pts.reduce((a, d) => a + d.sy, 0) / pts.length : src ? t.applyY(src.xy[1]) : drag.y0;
+    const tg = live ? drag.target : pending.target;
+    const end = live ? [drag.x, drag.y] : tg.base ? [t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1])] : [pending.x, pending.y];
+    const [ex, ey] = end;
+    const label = !tg ? "Drop on a base or a country" : `${live ? "" : "Confirm: "}${tg.base ? `redeploy to ${tg.base.name}` : `send to ${BY[tg.country].name}${G.owns(tg.country) ? "" : " (invade)"}`}`;
     ctx.save();
-    ctx.strokeStyle = tg ? (tg.country && !G.owns(tg.country) ? COL.danger : COL.brass) : "#ffffff99";
-    ctx.lineWidth = 3; ctx.setLineDash([8, 6]);
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(drag.x, drag.y); ctx.stroke();
+    // Dark casing under a bright dashed line, so the route shows on any imagery.
+    ctx.strokeStyle = "rgba(12,19,22,0.85)"; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.strokeStyle = tg ? (tg.country && !G.owns(tg.country) ? COL.danger : COL.brass) : "#ffffffcc";
+    ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
     ctx.setLineDash([]);
-    const ang = Math.atan2(drag.y - cy, drag.x - cx);
-    ctx.beginPath(); ctx.moveTo(drag.x, drag.y);
-    ctx.lineTo(drag.x - 14 * Math.cos(ang - 0.4), drag.y - 14 * Math.sin(ang - 0.4));
-    ctx.lineTo(drag.x - 14 * Math.cos(ang + 0.4), drag.y - 14 * Math.sin(ang + 0.4));
+    const ang = Math.atan2(ey - cy, ex - cx);
+    ctx.beginPath(); ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 14 * Math.cos(ang - 0.4), ey - 14 * Math.sin(ang - 0.4));
+    ctx.lineTo(ex - 14 * Math.cos(ang + 0.4), ey - 14 * Math.sin(ang + 0.4));
     ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
     ctx.font = "600 13px sans-serif"; ctx.textAlign = "left";
-    ctx.lineWidth = 4; ctx.strokeStyle = "#0c1316"; ctx.strokeText(label, drag.x + 14, drag.y - 10);
-    ctx.fillStyle = "#fff"; ctx.fillText(label, drag.x + 14, drag.y - 10);
-    if (tg && tg.base) { const t = d3.zoomTransform(svg.node()); ctx.beginPath(); ctx.arc(t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1]), 18, 0, 2 * Math.PI); ctx.lineWidth = 3; ctx.strokeStyle = COL.brass; ctx.stroke(); }
+    ctx.lineWidth = 4; ctx.strokeStyle = "#0c1316"; ctx.strokeText(label, ex + 14, ey - 10);
+    ctx.fillStyle = "#fff"; ctx.fillText(label, ex + 14, ey - 10);
+    if (tg && tg.base) { ctx.beginPath(); ctx.arc(t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1]), 18, 0, 2 * Math.PI); ctx.lineWidth = 3; ctx.strokeStyle = COL.brass; ctx.stroke(); }
     ctx.restore();
   }
   // ── Terrain ───────────────────────────────────────────────
@@ -1785,7 +1929,7 @@
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
     const iso = z.iso || selected, c = BY[iso], host = hostLabel(z);
-    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details${G.owns(iso) ? " · drag to move its units" : ""}</div>`;
+    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">🛡️ Fortification ${fortOf(iso, z)}/10 · ${esc(window.fortLabel(fortOf(iso, z)))}</div><div class="k">Click for details${G.owns(iso) ? " · select its units to move them" : ""}</div>`;
     placeTip(e);
   }
   // Weapon models behind a set of unit counts, one line per kind, with its icon.
@@ -1808,8 +1952,9 @@
       <h4>${esc(z.name)}</h4>${host ? `<span class="tag">${esc(host)}</span>` : ""}
       <dl>${zoneStats(c, z).map(t => { const [n, ...rest] = t.split(" "); return `<div><dd>${n}</dd><dt>${rest.join(" ")}</dt></div>`; }).join("")}</dl>
       <p>${esc(z.note)}</p>
+      <p class="fortline">🛡️ Fortification <b>${fortOf(c.iso3, z)}/10</b> · ${esc(window.fortLabel(fortOf(c.iso3, z)))} <small>(fixed)</small></p>
       <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
-      ${G.owns(c.iso3) ? `<p class="hint">Zoom in to see every unit here. <b>Drag</b> a unit, or this base's marker, onto another base or a country to move them. Click, shift-click or shift-drag to pick units (double-click picks a whole model).</p><button class="bc-sel">Select all units here</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
+      ${G.owns(c.iso3) ? `<p class="hint">Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.
@@ -2234,7 +2379,8 @@
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p>
-        <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability.</p></div>`;
+        <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
+        <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
         <div><h2>${esc(c.name)}</h2><div class="sub">${esc(c.region)} · ${c.iso3}${allies.length ? " · " + esc(allies.join(", ")) : ""}</div>${statusPill(c)}</div></div>
