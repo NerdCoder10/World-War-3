@@ -76,7 +76,10 @@ window.START_COINS = 300;
 // Tiered access. Every weapon category (troops included) and every technology track runs from
 // level 0 (none) to level 100. Level 1 gives access to 10% of the nation's capacity, rising
 // linearly to 100% at level 90. Levels 91–100 are surge levels: access stays at 100% and each
-// adds +1% (up to +10%). Access is a ceiling on what you can call on, not what every attack uses.
+// adds +1% (up to +10%): faster replacement of that kind of unit, or more of a technology's
+// effect. Nothing you buy makes a unit itself fight better: combat ability and patriotism come
+// from the real military and stay fixed. Access is a ceiling on what you can call on, not what
+// every attack uses.
 window.LEVEL_MAX = 100;
 window.LEVEL_FULL = 90;
 window.tierShare = L => (L <= 0 ? 0 : L >= window.LEVEL_FULL ? 1 : 0.1 + (0.9 * (L - 1)) / (window.LEVEL_FULL - 1));
@@ -90,8 +93,8 @@ window.TROOP_UNIT = 50;
 // Technology tracks. `full` is the effect at 100% (level 90); level 1 gives 10% of it.
 // A track's full price is 12 × (40 + 5% of the nation's GDP in $bn) coins.
 window.TECH = [
-  { key: "weapons", label: "Weapons systems", full: 0.50, per: "+50% combat power for this nation's units" },
-  { key: "logistics", label: "Logistics & sealift", full: 1.00, per: "+100% sealift capacity and regrowth for this nation" },
+  { key: "production", label: "Arms production", full: 1.00, per: "+100% faster replacement of lost troops and equipment for this nation" },
+  { key: "logistics", label: "Logistics & sealift", full: 1.00, per: "+100% sealift capacity for this nation" },
   { key: "industry", label: "Industry", full: 0.02, per: "+2% of its GDP ($bn, at least 10) in coins per turn" },
   { key: "governance", label: "Governance", full: 0.75, per: "+5 points recovery per turn, −75% revolt risk" },
 ];

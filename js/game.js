@@ -46,7 +46,7 @@
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
     return {
       seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false,
-      coins: window.START_COINS, access: {}, tech: {}, tiers: 1, redeemed: [], purchased: [], ...EXTRA(),
+      coins: window.START_COINS, access: {}, tech: {}, tiers: 2, redeemed: [], purchased: [], ...EXTRA(),
     };
   }
 
@@ -60,13 +60,19 @@
   // Saves from before tiered access: an unlocked category (and troops) becomes level 90 (100%),
   // and each of the old 5 technology levels becomes 18 of the new 100.
   function migrate(s) {
+    // Tiers 2: the old Weapons systems track (a combat bonus) became Arms production.
+    if (s.tiers === 1) {
+      Object.values(s.tech || {}).forEach(t => { if (t.weapons) { t.production = Math.max(t.production || 0, t.weapons); delete t.weapons; } });
+      s.tiers = 2;
+    }
     if (s.tiers) return s;
     s.access = {};
     Object.keys(s.owner).filter(iso => s.player && s.owner[iso] === s.player).forEach(iso => (s.access[iso] = { troops: window.LEVEL_FULL }));
     Object.entries(s.arsenal || {}).forEach(([iso, keys]) => keys.forEach(k => ((s.access[iso] = s.access[iso] || {})[k] = window.LEVEL_FULL)));
     Object.values(s.tech || {}).forEach(t => Object.keys(t).forEach(k => (t[k] = Math.min(window.LEVEL_FULL, t[k] * 18))));
     delete s.arsenal;
-    s.tiers = 1;
+    Object.values(s.tech || {}).forEach(t => { if (t.weapons) { t.production = t.weapons; delete t.weapons; } });
+    s.tiers = 2;
     return s;
   }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(G.state)); } catch (e) { /* ignore */ } }
@@ -80,7 +86,7 @@
   const accessLvl = (iso, k) => (((G.state.access || {})[iso] || {})[k] ?? (k === "troops" ? 1 : 0));
   const accessShare = (iso, k) => window.tierShare(accessLvl(iso, k));
   const usable = (iso, k) => accessShare(iso, k) > 0;
-  // Surge levels (91–100) add up to +10% combat power, for nations you hold.
+  // Surge levels (91–100) replace that kind of unit up to 10% faster, for nations you hold.
   const surge = (iso, k) => (owns(iso) ? window.tierSurge(accessLvl(iso, k)) : 0);
   const shareMap = iso => Object.fromEntries(UNITS.map(u => [u.key, accessShare(iso, u.key)]));
 
@@ -88,7 +94,7 @@
   const TFULL = Object.fromEntries(window.TECH.map(t => [t.key, t.full]));
   const techLvl = (iso, k) => ((G.state.tech || {})[iso] || {})[k] || 0;
   const techShare = (iso, k) => window.tierShare(techLvl(iso, k)) + window.tierSurge(techLvl(iso, k));
-  const usableStrength = c => window.truePowerWith(c, shareMap(c.iso3)) * techMult(c.iso3);
+  const usableStrength = c => window.truePowerWith(c, shareMap(c.iso3));
 
   // National traits: a nation's own effect, and empire-wide bonuses summed over every nation you control (capped).
   const fx = (iso, k) => BY[iso].trait.fx[k] || 0;
@@ -144,8 +150,7 @@
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
   // Each kind of unit counts by its real models (js/models.js) and the country's readiness.
   // `models` ({kind: {model: count}}) gives an army's actual mix; otherwise the national fleet mix is used.
-  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * (1 + surge(iso, u.key)) * window.unitQuality(BY[iso], u.key, models && models[u.key]), 0);
-  function techMult(iso) { return 1 + TFULL.weapons * techShare(iso, "weapons"); }
+  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[iso], u.key, models && models[u.key]), 0);
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
   // logistics when fighting away from home (near = overland, far = across the sea).
   const ms = iso => BY[iso].milStats;
@@ -157,7 +162,7 @@
     return !!(s.wars[iso] || (s.aiWars || {})[iso] || s.enemies.some(e => e.nat === iso || e.to === iso));
   }
   const space = iso => window.spaceMult(BY[iso], atWar(iso));
-  const armyPower = a => rawPower(a.units, a.nat, a.models) * techMult(a.nat) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * space(a.nat);
+  const armyPower = a => rawPower(a.units, a.nat, a.models) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * space(a.nat);
   const total = units => UNITS.reduce((s, u) => s + (units[u.key] || 0), 0);
   function scaleUnits(units, f) {
     UNITS.forEach(u => {
@@ -267,7 +272,7 @@
     if (src.at === to) return { err: `Those units are already in ${BY[to].name}.` };
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat);
-    const power = rawPower(u, src.nat, models) * techMult(src.nat) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
+    const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
     return { src, units: u, route: r, power, empty: total(u) === 0 };
   }
 
@@ -311,6 +316,25 @@
     const t = BY[to];
     const goal = owns(to) ? (inRevolt(to) ? "to put down the revolt in" : "to") : "to invade";
     log(`🚚 Army ${a.id} (${unitList(p.units)}) left ${src.base ? src.base + ", " : ""}${BY[src.at].name} ${goal} ${t.name}. Arrives turn ${eta} by ${p.route.sea ? "sea" : p.route.land ? "land" : "air"}.`, "info");
+    save();
+    return null;
+  }
+
+  // Redeploy units between two bases of the same nation (within the country: no travel turn).
+  // Stored as per-base offsets in G.state.baseMoves and applied by computeDeployment (js/app.js).
+  function moveUnits(iso, from, to, units) {
+    const err = ready(); if (err) return err;
+    const s = G.state;
+    if (!owns(iso)) return "You can only move units of nations in your empire.";
+    if (from === to) return "Those units are already at that base.";
+    const kit = window.baseKit && window.baseKit(iso, from);
+    if (!kit || !window.baseKit(iso, to)) return "Unknown base.";
+    const u = clean(units, kit);
+    if (!total(u)) return "Pick at least one unit to move.";
+    const mv = ((s.baseMoves = s.baseMoves || {})[iso] = s.baseMoves[iso] || {});
+    const a = (mv[from] = mv[from] || {}), b = (mv[to] = mv[to] || {});
+    UNITS.forEach(x => { if (u[x.key]) { a[x.key] = (a[x.key] || 0) - u[x.key]; b[x.key] = (b[x.key] || 0) + u[x.key]; } });
+    log(`🚛 Redeployed ${unitList(u)} from ${from} to ${to} (${BY[iso].name}).`, "info");
     save();
     return null;
   }
@@ -471,7 +495,7 @@
     const f = forces(c.iso3), b = baseForces(c);
     UNITS.forEach(u => {
       const cap = Math.max(0, b[u.key] - ((deployed && deployed[u.key]) || 0));
-      if (f[u.key] < cap) f[u.key] = Math.min(cap, f[u.key] + b[u.key] * rate);
+      if (f[u.key] < cap) f[u.key] = Math.min(cap, f[u.key] + b[u.key] * rate * (1 + surge(c.iso3, u.key)));
     });
   }
 
@@ -492,7 +516,7 @@
   // Your side when one of your nations is attacked: its own accessible forces, order, trait and stationed armies.
   function homeDefence(iso) {
     const u = homeShare(iso);
-    return rawPower(u, iso) * techMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + 10;
   }
 
@@ -708,7 +732,7 @@
       const iso = c.iso3, cap = owns(iso) && iso !== s.player ? 0.85 : 1;
       if (!inRevolt(iso)) s.garrison[iso] = Math.min(cap, s.garrison[iso] + (cap === 1 ? 0.08 : 0.05) + fx(iso, "rec") + 0.05 * techShare(iso, "governance"));
       if (!s.forces[iso] || inRevolt(iso) || s.wars[iso] || (s.aiWars || {})[iso]) return;
-      if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TFULL.logistics * techShare(iso, "logistics")), deployedFrom(iso));
+      if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TFULL.production * techShare(iso, "production")), deployedFrom(iso));
       else regrow(c, 0.05 + fx(iso, "rec"), enemyDeployed(iso));
     });
     // Occupied territories may rise up when weakly held; your armies stationed there calm them.
@@ -858,7 +882,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    baseSource, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    baseSource, moveUnits, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });

@@ -132,8 +132,10 @@
     const live = G.state.forces[iso];
     const totals = live ? { ...live } : G.baseForces(c);
     const out = (G.owns(iso) && (G.state.baseOut || {})[iso]) || {};
-    const outOf = (z, key) => (out[z.name] || {})[key] || 0;
-    const sent = key => zones.reduce((a, z) => a + outOf(z, key), 0);
+    // Redeployments between bases (G.moveUnits) are kept as + / − offsets per base.
+    const moved = (G.owns(iso) && (G.state.baseMoves || {})[iso]) || {};
+    const outOf = (z, key) => ((out[z.name] || {})[key] || 0) - ((moved[z.name] || {})[key] || 0);
+    const sent = key => zones.reduce((a, z) => a + ((out[z.name] || {})[key] || 0), 0);
     zones.forEach(z => (z.kit = {}));
     KIT.forEach(([key]) => {
       const n = Math.round((totals[key] || 0) + sent(key));
@@ -342,7 +344,8 @@
     defs.append("symbol").attr("id", `ic-${type}-${tier}`).attr("viewBox", "0 0 24 24").html(body)));
 
   // Effective technology of a nation's forces: its design generation plus your weapons research.
-  const effGen = iso => BY[iso].tech.gen + 0.75 * G.techShare(iso, "weapons");
+  // A nation's technology generation is fixed: it reflects its real equipment, not anything bought.
+  const effGen = iso => BY[iso].tech.gen;
   const iconClass = iso => `unit-icon tier-${window.techTier(effGen(iso))}${BY[iso].tech.ready < 0.6 ? " worn" : ""}`;
   const iconHref = (type, iso) => `#ic-${type}-${window.techTier(effGen(iso))}`;
   // Most important kind of force at a base: fleet, air wing, armour or infantry.
@@ -500,7 +503,6 @@
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.clearRect(0, 0, w, h);
       baseDrawn = [];
-      if (!otherBases.length && !myBases.length) return;
       const t = d3.zoomTransform(svg.node()), lifted = new Set(liftedBases);
       // Other countries' bases first (faint, icons from 4×), then the selected country's, largest first.
       const mine = myBases.slice().sort((x, y) => garrR(y) - garrR(x));
@@ -538,7 +540,9 @@
       }
       ctx.globalAlpha = 1;
       ctx.setLineDash([]);
+      drawFleet(ctx, t, w, h);
       drawEntities(ctx, t, w, h);
+      drawDrag(ctx);
     });
   }
   // ── Individual units at base zoom ──
@@ -653,18 +657,23 @@
     for (const d of entDrawn) if (Math.hypot(d.sx - x, d.sy - y) <= Math.max(d.r, 4)) hit = d;
     return hit && hit.e;
   }
+  // How to command a unit, or why you can't.
+  function unitHint(e) {
+    if (G.owns(e.iso)) return `<div class="k">${entSel.has(e.id) ? "Selected · drag to move" : "Drag to move · click to select · shift-click to add · double-click: all of this model"}</div>`;
+    return `<div class="k">${G.state.player ? `Conquer or buy ${esc(BY[e.iso].name)} to command these units.` : `Start a campaign as ${esc(BY[e.iso].name)} (or buy it) to command these units.`}</div>`;
+  }
   const specLine = (k2, v) => (v ? `<div class="k">${k2}: ${esc(v)}</div>` : "");
   function entTip(ev, e) {
-    const c = BY[e.iso], own = G.owns(e.iso);
+    const c = BY[e.iso];
     if (e.key === "troops") {
-      tip.innerHTML = `<b>Infantry platoon</b> <span class="k">${num(e.n * 100)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${own ? `<div class="k">${entSel.has(e.id) ? "Selected" : "Click to select · shift-click to add · double-click selects all of this model"}</div>` : ""}`;
+      tip.innerHTML = `<b>Infantry platoon</b> <span class="k">${num(e.n * 100)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${unitHint(e)}`;
       return placeTip(ev);
     }
     const m = window.modelSpec(e.key, e.model), sp = m.specs;
     tip.innerHTML = `<b>${esc(e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
       <div class="k">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · readiness ${Math.round(c.tech.ready * 100)}%</div>
       <div class="tipnote">${specLine("Weapons", sp.arm)}${specLine("Speed", sp.speed)}${specLine("Range", sp.range)}${specLine("Protection", sp.protect)}${specLine("Crew", sp.crew)}</div>
-      ${own ? `<div class="k">${entSel.has(e.id) ? "Selected" : "Click to select · shift-click to add · double-click selects all of this model"}</div>` : ""}`;
+      ${unitHint(e)}`;
     placeTip(ev);
   }
 
@@ -756,13 +765,15 @@
   let onBase = false;
   svg.node().addEventListener("mousemove", e => {
     if (selBox.__start) return;
-    const u = !targeting && entityAt(e), z = !u && !targeting && canvasBaseAt(e);
+    const u = !targeting && entityAt(e), sh = !u && !targeting && shipAt(e), z = !u && !sh && !targeting && canvasBaseAt(e);
     // Toggling a class on the <svg> restyles the whole map, so only change the cursor when it changes.
-    if (!!(u || z) !== onBase) { onBase = !!(u || z); svg.node().style.cursor = onBase ? "pointer" : ""; }
+    if (!!(u || sh || z) !== onBase) { onBase = !!(u || sh || z); svg.node().style.cursor = onBase ? "pointer" : ""; }
     if (u) { e.stopPropagation(); entTip(e, u); }
+    else if (sh) { e.stopPropagation(); shipTip(e, sh); }
     else if (z) { e.stopPropagation(); zoneTip(e, z); }
   }, true);
   svg.node().addEventListener("click", e => {
+    if (suppressClick) { e.stopPropagation(); suppressClick = false; return; }
     if (targeting) {
       e.stopPropagation();
       const to = countryAt(e);
@@ -779,6 +790,8 @@
       entTip(e, u);
       return;
     }
+    const sh = shipAt(e);
+    if (sh) { e.stopPropagation(); hideTip(); return pickShip(sh, true); }
     const z = canvasBaseAt(e);
     if (z) { e.stopPropagation(); openBase(z); }
   }, true);
@@ -818,6 +831,91 @@
     if (e.key !== "Escape" || (!entSel.size && !targeting)) return;
     if (targeting) { targeting = false; updateCmdbar(); } else setSelection([]);
   });
+  // Drag units to move them: drop on another of your bases in the same country to redeploy them
+  // there, or on another country to send them as an army.
+  function ownUnitAt(e) {
+    if (k < ENT_K || targeting) return null;
+    const pt = e.touches ? e.touches[0] : e, u = entityAt(pt);
+    return u && G.owns(u.iso) ? u : null;
+  }
+  let drag = null, suppressClick = false;
+  // Where a drop at screen point (x, y) would go: {base} of the same nation, or {country}.
+  function dropTarget(x, y, sel) {
+    const t = d3.zoomTransform(svg.node());
+    const bases = (sel.iso === selected ? myBases : otherBases.filter(z => z.iso === sel.iso)).filter(z => z.name !== sel.base);
+    let best = null, bd = 40;
+    bases.forEach(z => { const d = Math.hypot(t.applyX(z.xy[0]) - x, t.applyY(z.xy[1]) - y); if (d < bd) { bd = d; best = z; } });
+    if (best) return { base: best };
+    const r = wrapRect || (wrapRect = wrap.getBoundingClientRect());
+    const to = countryAt({ clientX: x + r.left, clientY: y + r.top });
+    if (to && to !== sel.iso) return { country: to };
+    if (to === sel.iso && bases.length) {
+      // Dropped inside its own country, away from a base: the nearest base to the drop point.
+      let nb = null, nd = Infinity;
+      bases.forEach(z => { const d = Math.hypot(t.applyX(z.xy[0]) - x, t.applyY(z.xy[1]) - y); if (d < nd) { nd = d; nb = z; } });
+      return { base: nb };
+    }
+    return null;
+  }
+  wrap.addEventListener("pointerdown", e => {
+    if (e.shiftKey || e.button) return;
+    const u = ownUnitAt(e);
+    if (!u) return;
+    const r = wrapRect || (wrapRect = wrap.getBoundingClientRect());
+    e.preventDefault(); // no text selection while dragging units
+    drag = { u, x0: e.clientX - r.left, y0: e.clientY - r.top, x: e.clientX - r.left, y: e.clientY - r.top, on: false };
+  }, true);
+  window.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const r = wrapRect || (wrapRect = wrap.getBoundingClientRect());
+    drag.x = e.clientX - r.left; drag.y = e.clientY - r.top;
+    if (!drag.on && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) > 5) {
+      drag.on = true;
+      hideTip();
+      if (!entSel.has(drag.u.id)) setSelection([drag.u]);
+    }
+    if (drag.on) { const sel = selection(); drag.target = sel && dropTarget(drag.x, drag.y, sel); drawBaseCanvas(); }
+  });
+  window.addEventListener("pointerup", () => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (!d.on) return;
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 50);
+    const sel = selection();
+    drawBaseCanvas();
+    if (!sel || !d.target) return toast("Drop the units on one of your bases, or on another country to send them there.");
+    if (d.target.country) return sendSelection(d.target.country);
+    const err = G.moveUnits(sel.iso, sel.base, d.target.base.name, sel.units);
+    if (err) return toast(err);
+    toast(G.state.log[0].msg);
+    setSelection([]);
+    drawDeploy(); refresh();
+  });
+  // The drag arrow, drawn on the base canvas.
+  function drawDrag(ctx) {
+    if (!drag || !drag.on) return;
+    const pts = entDrawn.filter(d => entSel.has(d.e.id));
+    if (!pts.length) return;
+    const cx = pts.reduce((a, d) => a + d.sx, 0) / pts.length, cy = pts.reduce((a, d) => a + d.sy, 0) / pts.length;
+    const tg = drag.target, label = !tg ? "Drop on a base or a country" : tg.base ? `Redeploy to ${tg.base.name}` : `Send to ${BY[tg.country].name}${G.owns(tg.country) ? "" : " (invade)"}`;
+    ctx.save();
+    ctx.strokeStyle = tg ? (tg.country && !G.owns(tg.country) ? COL.danger : COL.brass) : "#ffffff99";
+    ctx.lineWidth = 3; ctx.setLineDash([8, 6]);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(drag.x, drag.y); ctx.stroke();
+    ctx.setLineDash([]);
+    const ang = Math.atan2(drag.y - cy, drag.x - cx);
+    ctx.beginPath(); ctx.moveTo(drag.x, drag.y);
+    ctx.lineTo(drag.x - 14 * Math.cos(ang - 0.4), drag.y - 14 * Math.sin(ang - 0.4));
+    ctx.lineTo(drag.x - 14 * Math.cos(ang + 0.4), drag.y - 14 * Math.sin(ang + 0.4));
+    ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+    ctx.font = "600 13px sans-serif"; ctx.textAlign = "left";
+    ctx.lineWidth = 4; ctx.strokeStyle = "#0c1316"; ctx.strokeText(label, drag.x + 14, drag.y - 10);
+    ctx.fillStyle = "#fff"; ctx.fillText(label, drag.x + 14, drag.y - 10);
+    if (tg && tg.base) { const t = d3.zoomTransform(svg.node()); ctx.beginPath(); ctx.arc(t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1]), 18, 0, 2 * Math.PI); ctx.lineWidth = 3; ctx.strokeStyle = COL.brass; ctx.stroke(); }
+    ctx.restore();
+  }
   // ── Terrain ───────────────────────────────────────────────
   // NASA Blue Marble (topography and bathymetry, December 2004, public domain) warped onto the
   // map's Natural Earth projection. The equirectangular image is cut into small longitude /
@@ -889,11 +987,31 @@
   };
   let esriOK = true;
   const tileCache = new Map();
+  const probe = document.createElement("canvas");
+  probe.width = probe.height = 8;
+  function isPlaceholder(img) {
+    try {
+      const c2 = probe.getContext("2d", { willReadFrequently: true });
+      c2.drawImage(img, 0, 0, 8, 8);
+      const d = c2.getImageData(0, 0, 8, 8).data;
+      let grey = 0;
+      for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - d[i + 1]) < 8 && Math.abs(d[i + 1] - d[i + 2]) < 8 && d[i] > 185) grey++;
+      return grey >= 56;
+    } catch (e) { return false; }
+  }
   function loadTile(src, z, y, x) {
     const key = `${src}/${src === "google" ? mapStyle : ""}/${z}/${y}/${x}`;
     if (tileCache.has(key)) { const v = tileCache.get(key); tileCache.delete(key); tileCache.set(key, v); return v; }
     const url = TILES[src].url(z, y, x);
-    const p = new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(decoded(i)); i.onerror = rej; i.src = url; });
+    const p = new Promise((res, rej) => {
+      const i = new Image();
+      i.crossOrigin = "anonymous";
+      // Esri serves a grey "Map data not yet available" tile where it has no imagery at that zoom;
+      // treat it as missing so a coarser tile is shown instead.
+      i.onload = () => (src === "esri" && isPlaceholder(i) ? rej(Object.assign(new Error("no data"), { nodata: true })) : res(decoded(i)));
+      i.onerror = rej;
+      i.src = url;
+    });
     tileCache.set(key, p);
     if (tileCache.size > 900) tileCache.delete(tileCache.keys().next().value);
     p.catch(() => tileCache.delete(key));
@@ -941,33 +1059,55 @@
     return out.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
   }
   function drawTiles(job, v, cv, layers, onFail) {
-    const z = tileLevel(v, layers), tiles = tilesAt(v, z);
-    if (tiles.length > Q.tiles) return;
+    // If the sharpest level would need too many tiles, use a coarser one rather than none.
+    let z = tileLevel(v, layers), tiles = tilesAt(v, z);
+    while (tiles.length > Q.tiles && z > 2) tiles = tilesAt(v, --z);
     const ctx = cv.getContext("2d"), overlay = cv === overlayCv;
     ctx.imageSmoothingQuality = "high";
     let failed = 0;
     const done = new Set();
-    const drawTile = (zz, tx, ty, imgs) => {
-      const n = 2 ** zz, tl0 = (tx / n) * 360 - 180, tl1 = ((tx + 1) / n) * 360 - 180, tb1 = tileLat(ty, n), tb0 = tileLat(ty + 1, n);
+    const bounds = (zz, tx, ty) => { const n = 2 ** zz; return [(tx / n) * 360 - 180, ((tx + 1) / n) * 360 - 180, tileLat(ty + 1, n), tileLat(ty, n)]; };
+    // Draw a tile, optionally only the part inside `clip` ([lon0, lon1, lat0, lat1]).
+    const drawTile = (zz, tx, ty, imgs, clip) => {
+      const n = 2 ** zz, [tl0, tl1, tb0, tb1] = bounds(zz, tx, ty), c = clip || [tl0, tl1, tb0, tb1];
       const src = (lon, lat) => [((lon + 180) / 360) * n * 256 - tx * 256, mercY(lat) * n * 256 - ty * 256];
-      const step = Math.min(v.step, tl1 - tl0, tb1 - tb0);
-      imgs.forEach(img => drawMapped(ctx, img, src, Math.max(v.lon0, tl0), Math.min(v.lon1, tl1), Math.max(v.lat0, tb0), Math.min(v.lat1, tb1), step, v.s, v.x0, v.y0, overlay ? 0 : 0.08));
+      const lonA = Math.max(v.lon0, tl0, c[0]), lonB = Math.min(v.lon1, tl1, c[1]), latA = Math.max(v.lat0, tb0, c[2]), latB = Math.min(v.lat1, tb1, c[3]);
+      if (lonB <= lonA || latB <= latA) return;
+      const step = Math.min(v.step, lonB - lonA, latB - latA);
+      imgs.forEach(img => drawMapped(ctx, img, src, lonA, lonB, latA, latB, step, v.s, v.x0, v.y0, overlay ? 0 : 0.08));
     };
-    // A quick, blurrier pass two levels up (often already cached) fills the view straight away;
-    // its tiles are skipped wherever a sharp tile has already landed.
-    if (!overlay && z >= 4) {
-      tilesAt(v, z - 2).forEach(([tx, ty]) => Promise.all(layers.map(l => loadTile(l, z - 2, ty, tx))).then(imgs => {
-        if (job !== detailJob) return;
-        for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 4; dx++) if (done.has((tx * 4 + dx) + "," + (ty * 4 + dy))) return;
-        drawTile(z - 2, tx, ty, imgs);
+    // Quick, blurrier passes fill the view straight away: five levels up (a tile or two, fast to
+    // fetch) and two levels up (often already cached). Their tiles are skipped wherever a sharper
+    // one has already landed.
+    if (!overlay) [5, 2].forEach(d => {
+      if (z - d < 2) return;
+      tilesAt(v, z - d).forEach(([tx, ty]) => Promise.all(layers.map(l => loadTile(l, z - d, ty, tx))).then(imgs => {
+        if (job !== detailJob || done.has(`${z - d}:${tx},${ty}`)) return;
+        for (const k2 of done) { const [lv, xy] = k2.split(":"), [cx, cy] = xy.split(",").map(Number), m = 2 ** (+lv - (z - d)); if (m >= 1 && Math.floor(cx / m) === tx && Math.floor(cy / m) === ty && +lv > z - d) return; }
+        drawTile(z - d, tx, ty, imgs);
+        done.add(`${z - d}:${tx},${ty}`);
       }).catch(() => {}));
-    }
+    });
+    // Where a sharp tile has no imagery (open sea, remote areas at full zoom), show the nearest
+    // coarser tile that does, clipped to that tile's square.
+    const fallbackFor = (tx, ty, d) => {
+      if (d > 5 || z - d < 2) return;
+      const m = 2 ** d, px = Math.floor(tx / m), py = Math.floor(ty / m);
+      Promise.all(layers.map(l => loadTile(l, z - d, py, px))).then(imgs => {
+        if (job !== detailJob) return;
+        drawTile(z - d, px, py, imgs, bounds(z, tx, ty));
+        layers.forEach(l => credit(l));
+      }).catch(err => { if (err && err.nodata) fallbackFor(tx, ty, d + 1); });
+    };
     tiles.forEach(([tx, ty]) => Promise.all(layers.map(l => loadTile(l, z, ty, tx))).then(imgs => {
       if (job !== detailJob) return;
-      done.add(tx + "," + ty);
+      done.add(`${z}:${tx},${ty}`);
       drawTile(z, tx, ty, imgs);
       layers.forEach(l => credit(l));
-    }).catch(() => { if (++failed === 1 && job === detailJob && onFail) onFail(); }));
+    }).catch(err => {
+      if (err && err.nodata) return fallbackFor(tx, ty, 1);
+      if (++failed === 1 && job === detailJob && onFail) onFail();
+    }));
   }
   // Start downloading the tiles a view will need (used when the camera starts flying somewhere).
   function prefetchView(t) {
@@ -978,8 +1118,9 @@
     if (!base) return;
     const sets = [base].concat(mapStyle === "hybrid" && !googleSession() && t.k >= 6 ? [["roads", "labels"]] : []);
     sets.forEach(layers => {
-      const z = tileLevel(v, layers), tiles = tilesAt(v, z);
-      if (tiles.length <= Q.tiles) tiles.forEach(([tx, ty]) => layers.forEach(l => loadTile(l, z, ty, tx).catch(() => {})));
+      let z = tileLevel(v, layers), tiles = tilesAt(v, z);
+      while (tiles.length > Q.tiles && z > 2) tiles = tilesAt(v, --z);
+      tiles.forEach(([tx, ty]) => layers.forEach(l => loadTile(l, z, ty, tx).catch(() => {})));
     });
   }
   let worldBox = null, detailBox = null, overlayBox = null, detailJob = 0;
@@ -988,7 +1129,7 @@
   // second while zooming rather than every frame, and satellites moved at 15 fps.
   // Detailed is the sharper, heavier rendering.
   const QUALITY = {
-    fast: { label: "Fast (60 fps)", dpr: 1, over: 1, cellPx: 110, tiles: 48, satMs: 66, live: false },
+    fast: { label: "Fast (60 fps)", dpr: 1, over: 1, cellPx: 110, tiles: 64, satMs: 66, live: false },
     detailed: { label: "Detailed", dpr: Math.min(2, window.devicePixelRatio || 1), over: 1.6, cellPx: 28, tiles: 160, satMs: 0, live: true },
   };
   let quality = "fast";
@@ -1056,7 +1197,7 @@
   // Sharper terrain for whatever is on screen, redrawn at screen resolution whenever zooming
   // or panning stops (a single stretched image turns black at deep zoom). Mid zoom uses 45°
   // tiles of a 10,800-px world; province and base zoom use 22.5° tiles of a 21,600-px world.
-  let viewTimer = null;
+  let viewTimer = null, lastViewDraw = 0;
   const scheduleView = () => { clearTimeout(viewTimer); viewTimer = setTimeout(drawViewTerrain, 90); };
   // The visible area for a zoom transform: projected box at zoom 1, and its lon/lat bounds (padded).
   function viewGeo(t) {
@@ -1196,12 +1337,15 @@
 
   // Shift-drag is reserved for box-selecting units at base zoom.
   const zoom = d3.zoom().scaleExtent([1, 30000])
-    .filter(e => (!e.ctrlKey || e.type === "wheel") && !e.button && !(e.shiftKey && e.type !== "wheel" && k >= ENT_K))
+    .filter(e => (!e.ctrlKey || e.type === "wheel") && !e.button && !(e.shiftKey && e.type !== "wheel" && k >= ENT_K) &&
+      !((e.type === "mousedown" || e.type === "touchstart" || e.type === "pointerdown") && ownUnitAt(e)))
     .on("zoom", e => {
     k = e.transform.k;
     root.attr("transform", e.transform);
     positionTerrain(e.transform);
     scheduleView();
+    // During a long, fast zoom, refresh the imagery every 400 ms too, not only when it stops.
+    if (performance.now() - lastViewDraw > 400) { lastViewDraw = performance.now(); drawViewTerrain(); }
     // SVG patterns break up at deep zoom, so locked countries switch to a plain fill past 6×.
     if ((k > 6) !== deepZoom || (k > 25) !== streetZoom) { deepZoom = k > 6; streetZoom = k > 25; paint(); }
     // Canvas bases follow every frame (cheap); SVG markers are resized live in Detailed mode and
@@ -1567,32 +1711,55 @@
   // ── Named capital ships (js/fleet.js) ─────────────────────
   // The selected country's carriers, assault ships and flagships at their 2025 positions.
   const shipsOf = iso => (window.FLEET || []).filter(sh => sh.nat === iso);
-  function drawShips() {
-    const ships = selected ? shipsOf(selected) : [];
-    const g = fleetLayer.selectAll("g.ship").data(ships, sh => sh.hull).join(en => {
-      const e = en.append("g").attr("class", "ship");
-      e.append("circle");
-      e.append("use");
-      e.append("text");
-      return e;
-    });
-    g.classed("inactive", sh => !sh.active);
-    g.select("use").attr("href", sh => iconHref(sh.kind === "command" ? "ship" : "carrier", sh.nat)).attr("class", sh => iconClass(sh.nat));
-    g.select("text").text(sh => sh.name);
-    g.on("click", (e, sh) => { e.stopPropagation(); hideTip(); pickShip(sh, true); })
-      .on("mousemove", (e, sh) => { tip.innerHTML = `<b>${esc(sh.name)}</b> <span class="k">${esc(sh.hull)}</span><div class="k">${esc(sh.cls)}-class · ${esc(sh.status)}</div><div class="k">${esc(sh.where)}</div>`; placeTip(e); })
-      .on("mouseleave", hideTip);
-    placeShips();
+  // Every navy's capital ships are drawn on the base canvas, above the bases (the SVG layer sits
+  // under the canvas, so ships drawn there were hidden by naval bases at the same ports).
+  function drawShips() { drawBaseCanvas(); }
+  function placeShips() { /* drawn with the base canvas */ }
+  let shipDrawn = [], fleetFont = "";
+  function drawFleet(ctx, t, w, h) {
+    shipDrawn = [];
+    const r = Math.min(11, 4 + 1.4 * Math.log2(1 + k));
+    fleetFont = fleetFont || `600 11px ${getComputedStyle(document.body).getPropertyValue("--font-data").trim() || "monospace"}`;
+    ctx.font = fleetFont;
+    ctx.textAlign = "center";
+    // Ships at the same port (within a marker's width on screen) are stacked in a column, names to the right.
+    const pos = (window.FLEET || []).map(sh => { const p = projection(sh.at); return { sh, sx: t.applyX(p[0]), sy: t.applyY(p[1]) }; })
+      .filter(o => o.sx > -60 && o.sx < w + 60 && o.sy > -60 && o.sy < h + 60);
+    const groups = [];
+    pos.forEach(o => { const g = groups.find(gr => Math.hypot(gr[0].sx - o.sx, gr[0].sy - o.sy) < r * 2); g ? g.push(o) : groups.push([o]); });
+    for (const g of groups) g.forEach((o, i) => { o.stack = g.length > 1; o.sx = g[0].sx; o.sy = g[0].sy + (i - (g.length - 1) / 2) * (2 * r + 3); });
+    for (const { sh, sx, sy, stack } of pos) {
+      const mine = sh.nat === selected;
+      ctx.globalAlpha = mine || !selected ? 1 : 0.8;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, 2 * Math.PI);
+      ctx.fillStyle = "#0c1316e6";
+      ctx.fill();
+      ctx.lineWidth = mine ? 2 : 1.4;
+      ctx.setLineDash(sh.active ? [] : [3, 2]);
+      ctx.strokeStyle = sh.active ? COL.teal : "#e8913a";
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const img = iconImg(sh.kind === "command" ? "ship" : "carrier", window.techTier(effGen(sh.nat)));
+      if (img.ready) ctx.drawImage(img, sx - r * 0.8, sy - r * 0.8, r * 1.6, r * 1.6);
+      if (k >= 6 || mine) {
+        const lx = stack ? sx + r + 5 : sx, ly = stack ? sy + 4 : sy + r + 12;
+        ctx.textAlign = stack ? "left" : "center";
+        ctx.lineWidth = 3; ctx.strokeStyle = "#0c1316"; ctx.strokeText(sh.name, lx, ly);
+        ctx.fillStyle = sh.active ? "#e6f4f1" : "#f3c48f"; ctx.fillText(sh.name, lx, ly);
+      }
+      shipDrawn.push({ sh, sx, sy, r });
+    }
+    ctx.globalAlpha = 1;
   }
-  function placeShips() {
-    const r = Math.min(9 / shrink(), 15 / k);
-    fleetLayer.selectAll("g.ship").each(function (sh) {
-      const [x, y] = projection(sh.at), g = d3.select(this), ir = r * 1.6;
-      g.select("circle").attr("cx", x).attr("cy", y).attr("r", r);
-      g.select("use").attr("x", x - ir / 2).attr("y", y - ir / 2).attr("width", ir).attr("height", ir);
-      g.select("text").attr("x", x).attr("y", y + r * 2.1).style("font-size", Math.min(9 / shrink(), 12 / k) + "px").style("stroke-width", Math.min(2.5 / shrink(), 3 / k) + "px").style("display", k >= 8 ? null : "none");
-    });
+  function shipAt(e) {
+    if (!shipDrawn.length) return null;
+    const rect = wrapRect || (wrapRect = wrap.getBoundingClientRect()), x = e.clientX - rect.left, y = e.clientY - rect.top;
+    let hit = null;
+    for (const d of shipDrawn) if (Math.hypot(d.sx - x, d.sy - y) <= d.r + 2) hit = d;
+    return hit && hit.sh;
   }
+  const shipTip = (e, sh) => { tip.innerHTML = `<b>${esc(sh.name)}</b> <span class="k">${esc(sh.hull)}</span><div class="k">${esc(BY[sh.nat].name)} · ${esc(sh.cls)}-class · ${esc(sh.status)}</div><div class="k">${esc(sh.where)}</div><div class="k">Click for capabilities</div>`; placeTip(e); };
   function shipStats(sh) {
     return [["Displacement", `${num(sh.disp)} t`], ["Length", `${sh.len} m`], ["Speed", `${sh.kn} kn`], ["Aircraft", sh.air], ["Crew", num(sh.crew)], [sh.active ? "Commissioned" : "Expected", sh.year]];
   }
@@ -1809,7 +1976,7 @@
   const pctTxt = x => `${Math.round(x * 100)}%`;
   function accessInfo(lvl) {
     const sh = window.tierShare(lvl), su = window.tierSurge(lvl);
-    return lvl <= 0 ? "Locked: none of it can fight." : `${pctTxt(sh)} of the force accessible${su ? ` · +${pctTxt(su)} surge combat power` : ""}`;
+    return lvl <= 0 ? "Locked: none of it can fight." : `${pctTxt(sh)} of the force accessible${su ? ` · +${pctTxt(su)} faster replacement` : ""}`;
   }
 
   function techHtml(c, mine) {
@@ -1908,7 +2075,8 @@
         <p class="hint">×N is each model's combat value against a typical unit of its kind (a 4th-gen tank ×1.8, a 1950s T-55 ×0.45; an F-35 ×2.2, a MiG-21 ×0.45). Readiness (${Math.round(c.tech.ready * 100)}%) then scales all of it. Zoom into a base to inspect every unit's specs.</p></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
-        <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p></div>`;
+        <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p>
+        <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
         <div><h2>${esc(c.name)}</h2><div class="sub">${esc(c.region)} · ${c.iso3}${allies.length ? " · " + esc(allies.join(", ")) : ""}</div>${statusPill(c)}</div></div>
@@ -2100,7 +2268,7 @@
         <button class="btn ghost" id="newgame">New campaign</button></div>
       <div class="section"><h3>How to play</h3>
         <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Armies take turns to arrive, by land if the target borders your territory, otherwise by sea, which needs enough sealift. Each <b>End turn</b>, every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
-        <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 add up to +10% surge combat power. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
+        <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 replace losses of that kind up to 10% faster. Nothing you buy makes units fight better: their ability, training and patriotism are fixed by the real military. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
       <div class="section"><h3>Map &amp; graphics <small>imagery and speed</small></h3>
         <div class="seg" role="group" aria-label="Map style">${Object.entries(MAP_STYLES).map(([st, lab]) => `<button class="btn ghost${st === mapStyle ? " on" : ""}" data-style="${st}" aria-pressed="${st === mapStyle}">${lab}</button>`).join("")}</div>
         <p class="hint"><b>Satellite</b> shows Esri World Imagery aerial photos. <b>Hybrid</b> adds roads, railways and place names on top, like a navigation app's satellite view. <b>Map</b> shows the OpenStreetMap street map that many navigation apps are built on.</p>
