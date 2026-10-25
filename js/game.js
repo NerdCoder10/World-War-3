@@ -218,7 +218,7 @@
   };
   // Sealift: ships, carriers and transport aircraft carry ground units overseas.
   const liftMult = nat => 1 + bonus("proj") + TFULL.logistics * techShare(nat, "logistics");
-  // ── Travel in real time ── 1 game hour passes per real minute, so a game day is 24 minutes.
+  // ── Travel in real time ── 1 game hour passes every 30 real seconds, so a game day is 12 minutes.
   // Each unit moves at its real effective speed (km/h averaged over a day's movement, with halts,
   // refuelling and rest): a tank column road-marches ~300 km a day, a frigate makes ~16 knots,
   // a jet ferries at ~650 km/h. An army moves as fast as its slowest part. Roads wind (×1.25 the
@@ -412,7 +412,7 @@
   }
 
   const MODE_LABEL = { land: "road", sea: "sea", air: "air", airlift: "airlift" };
-  // Game-time durations and clock labels. 1 game hour = 1 real minute.
+  // Game-time durations and clock labels. 1 game hour = 30 real seconds.
   function fmtDur(h) {
     if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
     const d = Math.floor(h / 24), hh = Math.floor(h % 24), mm = Math.round((h % 1) * 60);
@@ -809,12 +809,13 @@
     });
     return n;
   }
-  // Advance the clock by `ms` real milliseconds (1 real minute = 1 game hour). At midnight the
+  // Advance the clock by `ms` real milliseconds (30 real seconds = 1 game hour). At midnight the
   // day's fighting resolves (endTurn). Returns { arrived, newDay }.
+  const REAL_MS_PER_HOUR = 30000; // a game day lasts 12 real minutes
   function tick(ms) {
     const s = G.state;
     if (!s.player || s.over || s.paused) return { arrived: 0, newDay: false };
-    s.clock = (s.clock || 0) + ms / 60000;
+    s.clock = (s.clock || 0) + ms / REAL_MS_PER_HOUR;
     let arrivedN = arrivals(), newDay = false;
     while (!s.over && s.clock >= s.turn * 24) { endTurn(); newDay = true; }
     if (arrivedN || newDay) save();
