@@ -32,7 +32,7 @@ Vehicles are painted woodland olive, or desert tan for Middle Eastern and North 
 
 Vehicles park side by side in motor-pool rows. Warships moor in rows at true scale by the piers. Each navy's named carriers (`js/fleet.js`) are their home base's carriers and sit at their real piers, to scale and labelled: Norfolk shows USS George H.W. Bush and Harry S. Truman at their berths. Hover any unit for its model, specs and combat value. Further out, a base's units stay grouped into one marker. Each base's parked units are pre-drawn into one image, so panning over thousands of them stays smooth.
 
-**Moving units: select, pick a destination, confirm.** At bases of nations you control:
+**Moving units: select, pick a destination, confirm.** Once you lead a campaign you can command **every country's** units, not just your own. Moving another country's units between its own bases redeploys them. Sending them to another country orders that country to attack, using the same engine as AI wars: against one of your nations it's an attack on you, against anyone else it's a war between them. Russia's 1st Guards Tank Army can be ordered into Ukraine, for example, and its base empties. Your own nations' units are capped by your access levels; other countries' units go as they are. For any base:
 1. **Select** the units:
    - click one unit; shift-click to add or remove one;
    - shift-drag to draw a selection box;
@@ -41,7 +41,7 @@ Vehicles park side by side in motor-pool rows. Warships moor in rows at true sca
 2. **Click the destination.** Another of your bases (click its marker) redeploys them inside the country. Any other country sends them as an army. Clicking a base marker anywhere, even one just offshore, means its country.
 3. A bar shows the move: how many units, the route, distance and arrival time, with the reason if it can't happen. A dashed arrow on the map shows where they'll go. Nothing moves until you press **Confirm**, so a stray click is undone with **Cancel** or Esc.
 
-Dragging units, or a whole base marker, also works, with a mouse or by touch, and stops at the same confirm step. Clicking another country's units explains how to command them, with a *Play as* button when that nation is playable.
+Dragging units, or a whole base marker, also works, with a mouse or by touch, and stops at the same confirm step. Before you start a campaign, clicking units explains that commanding needs one, with a *Play as* button when that nation is playable.
 
 **Fixed base fortification.** Every base has a fortification rating from 1 to 10 that can't be upgraded. It follows what the site really is:
 - **National baseline:** North Korea's tunnelled hills 8, Switzerland's mountain forts 8, Israel and Taiwan 7, South Korea, Ukraine, Finland and Iran 6, most others 3–5.

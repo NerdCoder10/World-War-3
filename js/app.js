@@ -131,9 +131,9 @@
     const zones = deploymentFor(iso), c = BY[iso];
     const live = G.state.forces[iso];
     const totals = live ? { ...live } : G.baseForces(c);
-    const out = (G.owns(iso) && (G.state.baseOut || {})[iso]) || {};
+    const out = (G.state.baseOut || {})[iso] || {};
     // Redeployments between bases (G.moveUnits) are kept as + / − offsets per base.
-    const moved = (G.owns(iso) && (G.state.baseMoves || {})[iso]) || {};
+    const moved = (G.state.baseMoves || {})[iso] || {};
     const outOf = (z, key) => ((out[z.name] || {})[key] || 0) - ((moved[z.name] || {})[key] || 0);
     const sent = key => zones.reduce((a, z) => a + ((out[z.name] || {})[key] || 0), 0);
     zones.forEach(z => (z.kit = {}));
@@ -832,7 +832,7 @@
   }
   // How to command a unit, or why you can't.
   function unitHint(e) {
-    if (G.owns(e.iso)) return `<div class="k">${entSel.has(e.id) ? "Selected · drag to move" : "Drag to move · click to select · shift-click to add · double-click: all of this model"}</div>`;
+    if (G.canCommand(e.iso)) return `<div class="k">${G.owns(e.iso) ? "" : `Commanding ${esc(BY[e.iso].name)}'s forces · `}${entSel.has(e.id) ? "Selected · drag to move" : "Drag to move · click to select · shift-click to add · double-click: all of this model"}</div>`;
     return `<div class="k">${G.state.player ? `Conquer or buy ${esc(BY[e.iso].name)} to command these units.` : `Start a campaign as ${esc(BY[e.iso].name)} (or buy it) to command these units.`}</div>`;
   }
   const specLine = (k2, v) => (v ? `<div class="k">${k2}: ${esc(v)}</div>` : "");
@@ -895,9 +895,10 @@
     const what = `<div class="hint">${parts.slice(0, 6).map(([m, n]) => `${num(n)} × ${esc(m)}`).join(" · ")}${parts.length > 6 ? ` · +${parts.length - 6} more` : ""}${clipped(sel) ? ` · access levels let only part of this go` : ""}</div>`;
     if (pending) {
       const q = pending.quote, tg = pending.target;
-      const dest = tg.base ? tg.base.name : BY[tg.country].name + (G.owns(tg.country) ? "" : " (invasion)");
+      const dest = tg.base ? tg.base.name : BY[tg.country].name + (G.state.owner[tg.country] === G.state.owner[sel.iso] ? "" : G.owns(tg.country) ? " (attacking you)" : " (invasion)");
       const how = q.err ? `<b class="bad">${esc(q.err)}</b>` : `${Math.round(q.km).toLocaleString("en-US")} km${q.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[q.mode]}` : ""} · arrives in ${G.fmtDur(q.hours)} (${G.clockLabel((G.state.clock || 0) + q.hours)})`;
-      cmdbar.innerHTML = `<div><b>Move ${count} from ${esc(sel.base)} to ${esc(dest)}?</b><div class="hint">${how}</div>${what}</div>
+      const whose = G.owns(sel.iso) ? "" : ` of ${esc(BY[sel.iso].name)}'s units`;
+      cmdbar.innerHTML = `<div><b>${tg.country && !G.owns(sel.iso) ? `Order ${esc(BY[sel.iso].name)} to send` : "Move"} ${count}${whose} from ${esc(sel.base)} to ${esc(dest)}?</b><div class="hint">${how}</div>${what}</div>
         <button class="btn confirm" data-cmd="confirm" ${q.err ? "disabled" : ""}>Confirm</button><button class="btn ghost" data-cmd="cancel">Cancel</button>`;
     } else {
       cmdbar.innerHTML = `<div><b>${count} selected</b> at ${esc(sel.base)} · combat value ${power.toFixed(0)} · <span class="pick">now click a destination: one of your bases or any country</span>${what}</div>
@@ -947,9 +948,7 @@
     const c = BY[iso], s = G.state;
     const playable = !s.player && !G.isLocked(iso);
     cmdbar.hidden = false;
-    cmdbar.innerHTML = `<div><b>You don't command ${esc(c.name)}'s units.</b><div class="hint">${s.player
-      ? `You lead ${esc(BY[s.player].name)}. Conquer, court or buy ${esc(c.name)} to command its forces, or move your own units here.`
-      : playable ? `Start a campaign as ${esc(c.name)} to move its units.` : `${esc(c.name)} is locked. Buy it (${G.fmtCoins(c.price)} coins) or start a campaign as one of the ${s.unlocked.length} playable nations.`}</div></div>
+    cmdbar.innerHTML = `<div><b>Start a campaign to command units.</b><div class="hint">${s.over ? "This campaign is over: start a new one from the Campaign tab." : `Once you lead a nation you can move any country's units, ${esc(c.name)}'s included. ${playable ? `Play as ${esc(c.name)}, or pick` : `Pick`} one of the ${s.unlocked.length} playable nations.`}</div></div>
       ${playable ? `<button class="btn" data-cmd="play">Play as ${esc(c.name)}</button>` : ""}<button class="btn ghost" data-cmd="close">OK</button>`;
     cmdbar.querySelectorAll("[data-cmd]").forEach(b => (b.onclick = ev => {
       ev.stopPropagation();
@@ -959,7 +958,7 @@
   }
   function selectAllAt(iso, base, key, model) {
     const z = (iso === selected ? myBases : otherBases).find(x => x.iso === iso && x.name === base);
-    if (!z || !G.owns(iso)) return;
+    if (!z || !G.canCommand(iso)) return;
     setSelection(entitiesOf(z).filter(e => (!key || e.key === key) && (!model || e.model === model)));
   }
   // Send the selected units to the country clicked.
@@ -1005,7 +1004,7 @@
     if (suppressClick) { e.stopPropagation(); suppressClick = false; return; }
     const u = entityAt(e), sel = selection();
     // With units selected, a click anywhere except on your own units picks their destination.
-    if (sel && !(u && G.owns(u.iso))) {
+    if (sel && !(u && G.canCommand(u.iso) && u.iso === sel.iso)) {
       e.stopPropagation(); hideTip();
       const r = wrapRect || (wrapRect = wrap.getBoundingClientRect()), x = e.clientX - r.left, y = e.clientY - r.top;
       const tg = dropTarget(x, y, sel);
@@ -1014,7 +1013,7 @@
     }
     if (u) {
       e.stopPropagation();
-      if (!G.owns(u.iso)) return commandNotice(u.iso);
+      if (!G.canCommand(u.iso)) return commandNotice(u.iso);
       const cur = selection();
       if (e.shiftKey && cur && cur.base === u.base && cur.iso === u.iso) setSelection(entSel.has(u.id) ? selEntities().filter(x => x.id !== u.id) : selEntities().concat([u]));
       else setSelection([u]);
@@ -1029,7 +1028,7 @@
   // Double-click a unit: select every unit of that model at its base.
   svg.node().addEventListener("dblclick", e => {
     const u = entityAt(e);
-    if (u && G.owns(u.iso)) { e.stopPropagation(); selectAllAt(u.iso, u.base, u.key, u.model); }
+    if (u && G.canCommand(u.iso)) { e.stopPropagation(); selectAllAt(u.iso, u.base, u.key, u.model); }
   }, true);
   // Shift-drag at base zoom draws a selection box (the map doesn't pan while shift is held).
   wrap.addEventListener("pointerdown", e => {
@@ -1048,7 +1047,7 @@
     if (!selBox.__start) return;
     const r = wrap.getBoundingClientRect(), [x0, y0] = selBox.__start, x1 = e.clientX - r.left, y1 = e.clientY - r.top;
     selBox.__start = null; selBox.hidden = true;
-    const inBox = shownUnits().filter(d => G.owns(d.e.iso) && d.sx >= Math.min(x0, x1) && d.sx <= Math.max(x0, x1) && d.sy >= Math.min(y0, y1) && d.sy <= Math.max(y0, y1));
+    const inBox = shownUnits().filter(d => G.canCommand(d.e.iso) && d.sx >= Math.min(x0, x1) && d.sx <= Math.max(x0, x1) && d.sy >= Math.min(y0, y1) && d.sy <= Math.max(y0, y1));
     if (!inBox.length) return;
     // One base at a time: the base with the most units in the box.
     const count = {};
@@ -1067,7 +1066,7 @@
   function ownUnitAt(e) {
     if (k < ENT_K || targeting) return null;
     const pt = e.touches ? e.touches[0] : e, u = entityAt(pt);
-    return u && G.owns(u.iso) ? u : null;
+    return u && G.canCommand(u.iso) ? u : null;
   }
   // A unit, or (at any zoom) a whole base marker, of a nation you command, under the pointer.
   function ownGrabAt(e) {
@@ -1075,7 +1074,7 @@
     const pt = e.touches ? e.touches[0] : e, u = ownUnitAt(e);
     if (u) return { u };
     const z = pt && pt.target && canvasBaseAt(pt);
-    return z && G.owns(z.iso) ? { z } : null;
+    return z && G.canCommand(z.iso) ? { z } : null;
   }
   let drag = null, suppressClick = false;
   // Where a drop at screen point (x, y) would go: {base} of the same nation, or {country}.
@@ -1748,7 +1747,7 @@
     const modeTxt = a => (a.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[a.mode]}` : "");
     moving.forEach(a => marks.push({ at: d3.geoInterpolate(a.fromPt || P[a.from], P[a.to])(progress(a)), kind: "move", type: armyType(a.units), nat: a.nat, go: a.to, live: a,
       tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}${modeTxt(a)}, arrives in ${G.etaLeft(a)}</div><div class="k">${esc(G.unitList(a.units))}</div>` }));
-    foes.forEach(e => marks.push({ at: d3.geoInterpolate(P[e.from], P[e.to])(progress(e)), kind: e.vsPlayer ? "attack" : "aiwar", type: armyType(e.units), nat: e.nat, go: e.to, live: e,
+    foes.forEach(e => marks.push({ at: d3.geoInterpolate(e.fromPt || P[e.from], P[e.to])(progress(e)), kind: e.vsPlayer ? "attack" : "aiwar", type: armyType(e.units), nat: e.nat, go: e.to, live: e,
       tip: `<b>${name(e.nat)} ${e.vsPlayer ? "attack force" : "invasion force"}</b><div class="k">→ ${name(e.to)}, arrives in ${G.etaLeft(e)}</div>` }));
     const seen = new Set();
     s.armies.filter(G.arrived).forEach(a => {
@@ -1929,7 +1928,7 @@
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
     const iso = z.iso || selected, c = BY[iso], host = hostLabel(z);
-    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">🛡️ Fortification ${fortOf(iso, z)}/10 · ${esc(window.fortLabel(fortOf(iso, z)))}</div><div class="k">Click for details${G.owns(iso) ? " · select its units to move them" : ""}</div>`;
+    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">🛡️ Fortification ${fortOf(iso, z)}/10 · ${esc(window.fortLabel(fortOf(iso, z)))}</div><div class="k">Click for details${G.canCommand(iso) ? " · select its units to move them" : ""}</div>`;
     placeTip(e);
   }
   // Weapon models behind a set of unit counts, one line per kind, with its icon.
@@ -1954,7 +1953,7 @@
       <p>${esc(z.note)}</p>
       <p class="fortline">🛡️ Fortification <b>${fortOf(c.iso3, z)}/10</b> · ${esc(window.fortLabel(fortOf(c.iso3, z)))} <small>(fixed)</small></p>
       <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
-      ${G.owns(c.iso3) ? `<p class="hint">Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
+      ${G.canCommand(c.iso3) ? `<p class="hint">${G.owns(c.iso3) ? "" : `You can command ${esc(c.name)}'s forces too: moves inside ${esc(c.name)} redeploy them, sending them abroad makes ${esc(c.name)} attack. `}Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.

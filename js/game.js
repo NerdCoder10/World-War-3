@@ -312,15 +312,19 @@
     return out;
   }
   // A single base of one of your nations ("b:ISO|base name"): what it holds, capped by the nation's access levels.
+  // Any country's base can be ordered once you lead a nation; your own nations' units are capped by
+  // your access levels, other countries' units go as they are.
   function baseSource(key) {
     const [iso, name] = key.slice(2).split("|");
-    if (!owns(iso) || !window.baseKit) return null;
+    if (!canCommand(iso) || !window.baseKit) return null;
     const kit = window.baseKit(iso, name);
     if (!kit) return null;
-    const acc = accessible(iso), avail = {};
-    UNITS.forEach(u => { const v = Math.min(kit[u.key] || 0, acc[u.key] || 0); if (v > 0) avail[u.key] = v; });
+    const acc = owns(iso) ? accessible(iso) : null, avail = {};
+    UNITS.forEach(u => { const v = Math.min(kit[u.key] || 0, acc ? acc[u.key] || 0 : Infinity); if (v > 0) avail[u.key] = v; });
     return { key, label: `${name} (${BY[iso].name})`, at: iso, nat: iso, base: name, avail, pt: window.basePoint && window.basePoint(iso, name) };
   }
+  // You can command any country's units while you lead a campaign.
+  const canCommand = () => !!G.state.player && !G.state.over;
   const findSource = (key, to) => (key.startsWith("b:") ? baseSource(key) : sources(to).find(s => s.key === key));
 
   function clean(units, avail) {
@@ -365,6 +369,23 @@
       return `These ground units can't get there: overland is blocked, your ships give ${Math.floor(p.route.cap)} of the ${Math.ceil(p.route.need)} sealift needed, and ${a2.H || a2.T ? `${BY[p.src.nat].name}'s ${a2.H} heavy and ${a2.T} tactical transports available ${a2.H < 1 && (p.units.tanks || p.units.afv || p.units.arty) ? "can't lift vehicles (that needs heavy lifters like the C-17 or Il-76)" : "would need too many sorties"}` : `${BY[p.src.nat].name} has no transport aircraft for an airlift`}. Add ships or carriers, or send fewer ground units.`;
     }
     const src = p.src, { etaH, eta } = etaOf(p.route.hours);
+    // Another country's units: you've ordered that country to attack, so it becomes its own
+    // (AI) force: against your nations it's an attack on you, otherwise a war between them.
+    if (src.base && !owns(src.nat)) {
+      if (s.owner[to] === s.owner[src.nat]) return `${BY[to].name} is already ${BY[src.nat].name}'s. Pick one of its bases to redeploy there instead.`;
+      const f = forces(src.nat);
+      UNITS.forEach(u => (f[u.key] = Math.max(0, (f[u.key] || 0) - (p.units[u.key] || 0))));
+      const out = (((s.baseOut = s.baseOut || {})[src.at] = s.baseOut[src.at] || {})[src.base] = s.baseOut[src.at][src.base] || {});
+      UNITS.forEach(u => { if (p.units[u.key]) out[u.key] = (out[u.key] || 0) + p.units[u.key]; });
+      const vsPlayer = owns(to);
+      const e = { id: s.nextEnemy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, vsPlayer, detected: true, ordered: true, fromPt: src.pt };
+      if (models) e.models = JSON.parse(JSON.stringify(models));
+      s.enemies.push(e);
+      if (vsPlayer) s.hostile[src.nat] = s.turn;
+      log(`🎖️ On your orders, ${BY[src.nat].name} sent ${unitList(p.units)} from ${src.base} ${vsPlayer ? "against your nation" : "to invade"} ${BY[to].name} by ${MODE_LABEL[p.route.mode]}: arrives in ${fmtDur(p.route.hours)} (${clockLabel(etaH)}).`, vsPlayer ? "bad" : "world");
+      save();
+      return null;
+    }
     if (src.army) {
       UNITS.forEach(u => (src.army.units[u.key] = (src.army.units[u.key] || 0) - (p.units[u.key] || 0)));
       if (total(src.army.units) < 0.05) s.armies = s.armies.filter(a => a !== src.army);
@@ -394,7 +415,7 @@
   // Distance and travel time of a base-to-base move (no state change). { err } if it can't happen.
   function moveQuote(iso, from, to, units) {
     const err = ready(); if (err) return { err };
-    if (!owns(iso)) return { err: "You can only move units of nations in your empire." };
+    if (!canCommand(iso)) return { err: "Start a campaign to command units." };
     if (from === to) return { err: "Those units are already at that base." };
     const kit = window.baseKit && window.baseKit(iso, from);
     if (!kit || !window.baseKit(iso, to)) return { err: "Unknown base." };
@@ -600,7 +621,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => rawPower(e.units, e.nat) * ms(e.nat).skill * reach(e.nat, e.sea) * space(e.nat);
+  const enemyPower = e => rawPower(e.units, e.nat, e.models) * ms(e.nat).skill * reach(e.nat, e.sea) * space(e.nat);
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
     const d = {};
@@ -809,11 +830,10 @@
       } else if (e.vsPlayer) { n++; log(`⚔️ ${BY[e.nat].name}'s forces reached ${BY[e.to].name}.`, "bad"); }
     });
     (s.moves || []).filter(m => arrived(m)).forEach(m => {
-      if (owns(m.iso)) {
+      if (s.owner[m.iso] === m.iso || owns(m.iso)) {
         const mv = ((s.baseMoves = s.baseMoves || {})[m.iso] = s.baseMoves[m.iso] || {}), b = (mv[m.to] = mv[m.to] || {});
         UNITS.forEach(x => { if (m.units[x.key]) b[x.key] = (b[x.key] || 0) + m.units[x.key]; });
-        log(`📍 ${unitList(m.units)} reached ${m.to}.`, "info");
-        n++;
+        if (owns(m.iso)) { log(`📍 ${unitList(m.units)} reached ${m.to}.`, "info"); n++; }
       }
       s.moves = s.moves.filter(x => x !== m);
     });
@@ -857,7 +877,7 @@
     // (If an AI army is also fighting there, yours and theirs both fight the defender.)
     Object.keys(s.wars).forEach(iso => { if (!s.armies.some(x => x.to === iso)) delete s.wars[iso]; });
     // Bases whose units are all back home or lost fill up evenly again.
-    Object.keys(s.baseOut || {}).forEach(iso => { if (!owns(iso) || !s.armies.some(x => x.nat === iso)) delete s.baseOut[iso]; });
+    Object.keys(s.baseOut || {}).forEach(iso => { if (!s.armies.some(x => x.nat === iso) && !s.enemies.some(x => x.nat === iso)) delete s.baseOut[iso]; });
     // Recovery: home 8%/turn up to 100%, occupied 5%/turn up to 85%.
     C.forEach(c => {
       const iso = c.iso3, cap = owns(iso) && iso !== s.player ? 0.85 : 1;
@@ -1013,7 +1033,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    baseSource, moveUnits, moveQuote, fortMult, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
