@@ -19,34 +19,20 @@ No build step and no install needed. Open `index.html` in a browser. Everything 
 
 At street level (past 25×) the country colour wash fades to 30% so the imagery reads true to life.
 
-**Individual units at base zoom.** Zoom in past 1,500× on a base and its forces split into separate units, parked in blocks by kind around the base. Every tank, armoured vehicle, gun, helicopter, jet, transport, ship and submarine is its own icon, and infantry shows as 100-soldier platoons. Each unit is its real model from the country's inventory (`js/equipment.js`). Hover one for its family and specs (weapons, speed, range, protection, crew) and its combat value. Units are spaced at real distances once you're close enough, and spread out when zoomed further out so the icons stay apart. A base with more than 2,500 units shows some icons as small groups (×N). Further out, a base's units stay grouped into one marker.
+**Individual units at base zoom.** Zoom in past 1,500× on a base and its forces split into separate units at real counts. Every tank, armoured vehicle, gun, helicopter, jet, transport, ship and submarine is its own unit, and infantry shows as 10-soldier squads. Fort Cavazos alone shows about 3,300 squads and 3,400 vehicles and aircraft. Only bases with more than 12,000 units group a few per icon (×N).
 
-**Real-time clock and travel.** The game clock runs in real time: 1 game hour passes every 30 real seconds, so a game day, which is one turn, lasts 12 minutes. The top bar shows the day and time. ⏸ pauses the clock, which also stops while the tab is in the background, and **Next day** skips to midnight. Each midnight every battle fights a round, income arrives and the AI acts.
+Units are drawn top-down, as they look in satellite photos (`js/sprites.js`), with a soft sun shadow and a thin outline:
+- **Tanks** come Western-style (angular turret with a rear bustle) or Soviet-style (round turret).
+- **Other ground vehicles** are tracked IFVs, 8×8 wheeled vehicles, MRAP trucks, self-propelled guns, rocket launchers, towed guns and mortars.
+- **Aircraft** are stealth, delta and twin-tail fighters, transports with four engines, AEW planes with radar domes, bombers and the B-2 flying wing, drones, and helicopters with rotor discs (Chinooks with two).
+- **Ships** are destroyers, frigates, corvettes, amphibious ships and submarines.
+- **Carriers** have angled flight decks.
 
-Every force travels at its real effective speed, averaged over a day's movement with halts, refuelling and rest. An army moves as fast as its slowest part. Roads run 1.25× the straight-line distance and sea lanes 1.3×.
+Vehicles are painted woodland olive, or desert tan for Middle Eastern and North African armies. Ships are haze grey and aircraft air-superiority grey. Each shape is drawn to the model's real length, and ground vehicles are exaggerated a little so they read clearly.
 
-| Unit | Speed | 1,000 km takes |
-|---|---|---|
-| Infantry (trucks) | 30 km/h | ~42 h |
-| Armoured vehicles | 20 km/h | ~63 h |
-| Artillery | 15 km/h | ~83 h |
-| Tanks (~300 km/day road march) | 12 km/h | ~4 days |
-| Submarines | ~12 knots | ~2.5 days |
-| Warships | ~16 knots | ~1.8 days |
-| Carriers | ~20 knots | ~1.5 days |
-| Helicopters | 180 km/h | ~6 h |
-| Transports and bombers | 550 km/h | ~2 h |
-| Fighters | 650 km/h | ~1.6 h |
+Vehicles park side by side in motor-pool rows. Warships moor in rows at true scale by the piers. Each navy's named carriers (`js/fleet.js`) are their home base's carriers and sit at their real piers, to scale and labelled: Norfolk shows USS George H.W. Bush and Harry S. Truman at their berths. Hover any unit for its model, specs and combat value. Further out, a base's units stay grouped into one marker. Each base's parked units are pre-drawn into one image, so panning over thousands of them stays smooth.
 
-Ground units overseas go by **sealift**: the army's own ships, with about 2 days to load and unload. Or they go by **airlift**:
-- Airlift uses the nation's real transport fleet. About 15% of its heavy lifters and 25% of its tactical transports are available, times readiness.
-- Only heavy lifters (C-17, C-5, An-124, Il-76, A400M, Y-20, KC-390, Kawasaki C-2) can carry vehicles: 1 tank or 2 lighter vehicles per sortie. Tactical transports such as the C-130 or An-26 carry about 80 troops.
-- The time is round trips × flight time, plus loading.
-- The US, with hundreds of C-17s and C-130s, can fly a brigade across the world in days. Most countries can airlift a few troops at best, and their armour can't fly.
-
-The game picks the fastest way that works, and the send panel shows the route, distance and arrival time. Moving units between two of your bases also takes travel time: they leave at once, show on the map as a dashed line with a moving icon and the time left, and join the other base when they arrive. Enemy and AI armies follow the same rules.
-
-**Selecting, dragging and sending units.** At bases of nations you control, **drag** a unit (or a selection) to move it. Drop it on another of your bases in the same country to redeploy there at once, or on another country to send it as an army. A dashed arrow shows where the units will go. You can also select units:
+**Selecting, dragging and sending units.** At bases of nations you control, **drag** a unit (or a selection), or at any zoom a whole **base marker**, to move it. This works with a mouse or by touch. Drop it on another of your bases in the same country to redeploy there at once, or on another country to send it as an army. A dashed arrow shows where the units will go. Clicking another country's units explains how to command them, with a *Play as* button when that nation is playable. You can also select units:
 - Click a unit to select it, shift-click to add or remove one, and double-click to select every unit of that model.
 - Shift-drag to box-select (the map doesn't pan while shift is held).
 - Use *Select all units here* on the base card to take the whole base.

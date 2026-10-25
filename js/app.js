@@ -139,6 +139,18 @@
     zones.forEach(z => (z.kit = {}));
     KIT.forEach(([key]) => {
       const n = Math.round((totals[key] || 0) + sent(key));
+      // Carriers go first to the bases where the named ships are actually homeported (js/fleet.js).
+      if (key === "carriers") {
+        const fixed = zones.map(z => shipsAtBase(iso, z.name).length), fs = fixed.reduce((a, b) => a + b, 0);
+        if (fs) {
+          let left = n;
+          const got = fixed.map(f => { const v = Math.min(f, left); left -= v; return v; });
+          if (left > 0) { const ws = zones.map(z => kitWeight(z, key) * (z.navalPct > 0 ? 1 : 0)), tws = ws.reduce((a, b) => a + b, 0) || 1; let r = left; ws.forEach((x, i) => { const v = i === ws.length - 1 ? r : Math.min(r, Math.round((left * x) / tws)); got[i] += v; r -= v; }); }
+          zones.forEach((z, i) => (z.kit[key] = Math.max(0, got[i] - outOf(z, key))));
+          fitTo(zones, key, Math.round(totals[key] || 0));
+          return;
+        }
+      }
       let w = zones.map(z => kitWeight(z, key)), tw = w.reduce((a, b) => a + b, 0);
       // Nowhere fits this kind (e.g. helicopters in a navy-only force): spread it by overall base size.
       if (!tw) { w = zones.map(z => z.groundPct + z.airPct + z.navalPct + 1e-6); tw = w.reduce((a, b) => a + b, 0); }
@@ -549,14 +561,16 @@
   }
   // ── Individual units at base zoom ──
   // Zoomed in past ENT_K× on a base, its forces split into separate units: every tank, gun,
-  // vehicle, aircraft and ship is its own icon (infantry by 100-soldier platoons), each with its
-  // real model and specs (js/models.js). They're parked in blocks by kind around the base, at
-  // real spacing once you're close enough (spread out further when zoomed out so icons stay
-  // apart). At your own bases you can select units and send exactly those.
-  const ENT_K = 1500, PLATOON = 0.1; // platoon = 100 soldiers (troops are in thousands)
+  // vehicle, aircraft and ship is its own unit (infantry by 10-soldier squads), each with its
+  // real model and specs (js/models.js), drawn top-down as it looks from above (js/sprites.js).
+  // They're parked in rows by kind around the base, at real spacing once you're close enough
+  // (spread out further when zoomed out so they stay apart). Named carriers sit at their real
+  // piers (js/fleet.js). At your own bases you can select units and drag or send exactly those.
+  const ENT_K = 1500, PLATOON = 0.01; // squad = 10 soldiers (troops are in thousands)
   const ENT_ORDER = ["troops", "tanks", "afv", "arty", "helis", "fighters", "aircraft", "ships", "subs", "carriers"];
-  const ENT_SP = { troops: 22, tanks: 28, afv: 24, arty: 30, helis: 35, fighters: 45, aircraft: 70, ships: 220, subs: 160, carriers: 520 }; // metres
-  const ENT_CAP = 2500;
+  const ENT_SP = { troops: 14, tanks: 24, afv: 20, arty: 26, helis: 34, fighters: 40, aircraft: 70, ships: 40, subs: 30, carriers: 90 }; // metres (ships: beam-to-beam at a pier)
+  const NAVAL = new Set(["ships", "subs", "carriers"]);
+  const ENT_CAP = 12000;
   const entCache = new Map();
   // Units at one base: [{id, key, model, n, iso, base, ox, oy}] with ox/oy in metres from the base.
   function entitiesOf(z) {
@@ -567,7 +581,7 @@
     ENT_ORDER.forEach(key => {
       const n = key === "troops" ? Math.round((z.kit.troops || 0) / PLATOON) : Math.round(z.kit[key] || 0);
       if (n < 1) return;
-      const models = key === "troops" ? [["Infantry platoon", n]] : window.splitModels(c, key, n);
+      const models = key === "troops" ? [["Infantry squad", n]] : window.splitModels(c, key, n);
       groups.push({ key, models, n });
       total += n;
     });
@@ -576,15 +590,17 @@
     const list = [];
     let shelfX = 0, shelfY = 0, shelfH = 0;
     const maxW = Math.max(600, Math.sqrt(groups.reduce((a, g) => a + (g.n / per) * ENT_SP[g.key] ** 2, 0)) * 1.4);
-    groups.forEach(g => {
-      const sp = ENT_SP[g.key], count = Math.ceil(g.n / per), cols = Math.max(1, Math.ceil(Math.sqrt(count * 1.6))), rows = Math.ceil(count / cols);
-      const bw = cols * sp, bh = rows * sp;
+    groups.filter(g => !NAVAL.has(g.key)).forEach(g => {
+      // Vehicles park side by side in rows (half their length apart sideways), like a real motor pool.
+      const sp = ENT_SP[g.key], spx = ["tanks", "afv", "arty"].includes(g.key) ? sp * 0.5 : sp;
+      const count = Math.ceil(g.n / per), cols = Math.max(1, Math.ceil(Math.sqrt(count * 1.6 * sp / spx))), rows = Math.ceil(count / cols);
+      const bw = cols * spx, bh = rows * sp;
       if (shelfX > 0 && shelfX + bw > maxW) { shelfX = 0; shelfY += shelfH + 40; shelfH = 0; }
       let i = 0;
       g.models.forEach(([model, cnt]) => {
         for (let left = cnt; left > 0; left -= per, i++) {
           list.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, left), iso: z.iso, base: z.name,
-            ox: shelfX + (i % cols) * sp + sp / 2, oy: shelfY + Math.floor(i / cols) * sp + sp / 2, sp });
+            ox: shelfX + (i % cols) * spx + spx / 2, oy: shelfY + Math.floor(i / cols) * sp + sp / 2, sp });
         }
       });
       shelfX += bw + 40; shelfH = Math.max(shelfH, bh);
@@ -592,72 +608,138 @@
     // Centre the blocks on the base.
     const W = Math.max(...list.map(e => e.ox + e.sp / 2), 0), H = Math.max(...list.map(e => e.oy + e.sp / 2), 0);
     list.forEach(e => { e.ox -= W / 2; e.oy -= H / 2; });
+    // Ships moor side by side in rows along the waterfront, at true scale, around the piers where
+    // the base's named carriers are (js/fleet.js), or the base itself if it has none.
+    const named = shipsAtBase(z.iso, z.name);
+    const anchor = named.length ? [d3.mean(named, sh => sh.at[0]), d3.mean(named, sh => sh.at[1])] : z.at;
+    const fleet = [];
+    groups.filter(g => NAVAL.has(g.key)).forEach(g => g.models.forEach(([model, cnt]) => {
+      for (let i = 0; i < Math.ceil(cnt / per); i++) fleet.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, cnt - i * per), iso: z.iso, base: z.name, sp: ENT_SP[g.key], naval: anchor });
+    }));
+    // The named carriers sit at their own real positions and carry their names.
+    fleet.filter(e => e.key === "carriers").forEach((e, i) => { const sh = named[i]; if (sh) { e.geo = sh.at; e.ship = sh; e.model = sh.cls + "-class carrier"; e.label = sh.name; } });
+    const rowsOf = fleet.filter(e => !e.geo), cols = 10;
+    rowsOf.forEach((e, i) => { e.ox = (i % cols) * 42 - (cols - 1) * 21 + (named.length ? 0 : 0); e.oy = Math.floor(i / cols) * 240 + (named.length ? 420 : 0); });
+    list.push(...fleet);
+    list.forEach(e => { e.shape = window.unitShape(e.key, e.model); e.pal = window.unitPalette(e.iso, e.key); });
     list.per = per;
     if (entCache.size > 60) entCache.delete(entCache.keys().next().value);
     entCache.set(sig, list);
     return list;
   }
+  // Active named carriers, each assigned to its nation's nearest base (where it's homeported).
+  let carrierHome = null;
+  function shipsAtBase(iso, name) {
+    if (!carrierHome) {
+      carrierHome = {};
+      (window.FLEET || []).filter(sh => sh.kind === "carrier" && sh.active).forEach(sh => {
+        const zs = deploymentFor(sh.nat);
+        let best = null, bd = Infinity;
+        zs.forEach(z => { const d = d3.geoDistance(z.at, sh.at); if (d < bd) { bd = d; best = z; } });
+        if (best) (carrierHome[sh.nat + "|" + best.name] = carrierHome[sh.nat + "|" + best.name] || []).push(sh);
+      });
+    }
+    return carrierHome[iso + "|" + name] || [];
+  }
+  window.shipsAtBase = (iso, name) => shipsAtBase(iso, name);
   // Screen pixels per metre at a base (true scale, or spread out so icons stay at least ~10 px apart).
   function pxPerMetre(z) {
     if (!z.ppm) { const a = projection(z.at), b = projection([z.at[0], z.at[1] + 0.01]); z.ppm = Math.hypot(b[0] - a[0], b[1] - a[1]) / 1113.2; }
     return Math.max(z.ppm * k, 0.5);
   }
-  let entSel = new Map(), entDrawn = [], targeting = false; // entSel: id → unit
+  let entSel = new Map(), targeting = false; // entSel: id → unit
   const selEntities = () => [...entSel.values()];
   // Draw units for the bases in view (up to 8 nearest the centre). Called from drawBaseCanvas.
+  // Where a unit is on screen and how long it's drawn: named ships at their real spot and size,
+  // other warships moored in rows at true scale, everything else parked around the base.
+  const groundLen = (e, g) => Math.min(e.sp * g * 0.95, Math.max(8, window.shapeLength(e.shape) * g * 2.2));
+  function entPos(b, e, t) {
+    if (e.geo) { const p = projection(e.geo); return { sx: t.applyX(p[0]), sy: t.applyY(p[1]), L: Math.max(16, window.shapeLength(e.shape) * b.gTrue) }; }
+    if (e.naval) { const gN = Math.max(b.gTrue, 0.12), p = projection(e.naval); return { sx: t.applyX(p[0]) + e.ox * gN, sy: t.applyY(p[1]) + e.oy * gN, L: Math.max(10, window.shapeLength(e.shape) * gN) }; }
+    return { sx: b.sx + e.ox * b.g, sy: b.sy + e.oy * b.g, L: groundLen(e, b.g) };
+  }
+  // Each base's parked units are pre-drawn into one image (rebuilt when the zoom settles or the
+  // selection changes), so panning over thousands of units is a single blit per base.
+  let drawnBases = [], selVersion = 0, lastZoomAt = 0, layerTimer = null;
+  const layerCache = new Map();
+  function baseLayer(z, ents, g, own) {
+    const key = z.iso + "|" + z.name, old = layerCache.get(key);
+    const same = old && old.ents === ents && old.ver === selVersion && old.own === own;
+    if (same && Math.abs(old.g / g - 1) < 0.01) return old;
+    // Mid-zoom: stretch the last image and rebuild once the zoom pauses.
+    if (same && performance.now() - lastZoomAt < 160) {
+      clearTimeout(layerTimer); layerTimer = setTimeout(drawBaseCanvas, 180);
+      return old;
+    }
+    const ground = ents.filter(e => !e.geo && !e.naval);
+    if (!ground.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    ground.forEach(e => { const L = groundLen(e, g) * 0.75 + 4; x0 = Math.min(x0, e.ox * g - L); y0 = Math.min(y0, e.oy * g - L); x1 = Math.max(x1, e.ox * g + L); y1 = Math.max(y1, e.oy * g + L); });
+    const W = x1 - x0, H = y1 - y0;
+    if (W * DPR > 8192 || H * DPR > 8192) return null; // too big for one image: draw units one by one
+    const cv = (old && old.canvas) || document.createElement("canvas");
+    cv.width = Math.ceil(W * DPR); cv.height = Math.ceil(H * DPR);
+    const c2 = cv.getContext("2d");
+    c2.setTransform(DPR, 0, 0, DPR, 0, 0);
+    c2.clearRect(0, 0, W, H);
+    ground.forEach(e => {
+      const sp = window.unitSprite(e.shape, e.pal, groundLen(e, g), entSel.has(e.id), DPR);
+      c2.drawImage(sp.canvas, e.ox * g - x0 - sp.dim / 2, e.oy * g - y0 - sp.dim / 2, sp.dim, sp.dim);
+    });
+    const layer = { canvas: cv, g, ver: selVersion, own, ents, x0, y0, W, H };
+    layerCache.set(key, layer);
+    if (layerCache.size > 24) layerCache.delete(layerCache.keys().next().value);
+    return layer;
+  }
+  // Draw units for the bases in view (up to 8 nearest the centre). Called from drawBaseCanvas.
   function drawEntities(ctx, t, w, h) {
-    entDrawn = [];
-    if (k < ENT_K) return new Set();
-    const cx = w / 2, cy = h / 2, shown = new Set();
+    drawnBases = [];
+    if (k < ENT_K) return;
+    const cx = w / 2, cy = h / 2;
     const near = otherBases.concat(myBases).map(z => ({ z, sx: t.applyX(z.xy[0]), sy: t.applyY(z.xy[1]) }))
       .filter(b => b.sx > -w && b.sx < 2 * w && b.sy > -h && b.sy < 2 * h)
       .sort((a, b) => Math.hypot(a.sx - cx, a.sy - cy) - Math.hypot(b.sx - cx, b.sy - cy)).slice(0, 8);
-    let drawn = 0;
     for (const b of near) {
-      const ents = entitiesOf(b.z), g = pxPerMetre(b.z), tier = window.techTier(effGen(b.z.iso)), own = G.owns(b.z.iso);
-      shown.add(b.z);
+      const ents = entitiesOf(b.z), own = G.owns(b.z.iso);
+      Object.assign(b, { ents, g: pxPerMetre(b.z), gTrue: b.z.ppm * k });
+      drawnBases.push(b);
+      ctx.globalAlpha = own ? 1 : 0.9;
+      const layer = baseLayer(b.z, ents, b.g, own);
+      if (layer) {
+        const sc = b.g / layer.g;
+        ctx.drawImage(layer.canvas, b.sx + layer.x0 * sc, b.sy + layer.y0 * sc, layer.W * sc, layer.H * sc);
+      }
       for (const e of ents) {
-        const sx = b.sx + e.ox * g, sy = b.sy + e.oy * g, s = Math.max(5, Math.min(34, e.sp * g * 0.8));
-        if (sx < -s || sx > w + s || sy < -s || sy > h + s) continue;
-        if (++drawn > 9000) break;
-        const sel = entSel.has(e.id), sp = entSprite(KIT_ICON[e.key], tier, s, sel);
-        ctx.globalAlpha = own ? 1 : 0.85;
-        if (sp) ctx.drawImage(sp.canvas, sx - sp.half, sy - sp.half, sp.dim, sp.dim);
-        entDrawn.push({ e, sx, sy, r: s * 0.55 });
+        if (layer && !e.geo && !e.naval) continue;
+        const { sx, sy, L } = entPos(b, e, t);
+        if (sx < -L || sx > w + L || sy < -L || sy > h + L) continue;
+        const sp = window.unitSprite(e.shape, e.pal, L, entSel.has(e.id), DPR);
+        ctx.drawImage(sp.canvas, sx - sp.dim / 2, sy - sp.dim / 2, sp.dim, sp.dim);
+        if (e.label && L > 30) {
+          ctx.font = "600 12px sans-serif"; ctx.textAlign = "center";
+          ctx.lineWidth = 3; ctx.strokeStyle = "#0c1316"; ctx.strokeText(e.label, sx, sy + L / 2 + 14);
+          ctx.fillStyle = "#e6f4f1"; ctx.fillText(e.label, sx, sy + L / 2 + 14);
+        }
       }
     }
     ctx.globalAlpha = 1;
-    return shown;
   }
-  // One pre-rendered sprite per kind, tier, size and selection state: a single drawImage per unit.
-  const spriteCache = new Map();
-  function entSprite(type, tier, size, sel) {
-    const px = Math.max(5, Math.round(size)), key = `${type}|${tier}|${px}|${sel ? 1 : 0}|${DPR}`;
-    let cv = spriteCache.get(key);
-    if (cv) return cv;
-    const img = iconImg(type, sel ? "dated" : tier);
-    if (!img.ready) return null;
-    const r = px * 0.55 + 2, dim = Math.ceil(r * 2);
-    cv = document.createElement("canvas");
-    cv.width = cv.height = Math.ceil(dim * DPR);
-    const c2 = cv.getContext("2d");
-    c2.scale(DPR, DPR);
-    c2.beginPath(); c2.arc(dim / 2, dim / 2, px * 0.55, 0, 2 * Math.PI);
-    c2.fillStyle = sel ? "#ffffffee" : "#0c1316cc"; c2.fill();
-    if (sel) { c2.lineWidth = 2; c2.strokeStyle = COL.brass; c2.stroke(); }
-    if (px >= 7) c2.drawImage(img, dim / 2 - px * 0.42, dim / 2 - px * 0.42, px * 0.84, px * 0.84);
-    // Drawn at CSS-pixel size on the DPR-scaled base canvas.
-    const out = { canvas: cv, half: dim / 2, dim };
-    spriteCache.set(key, out);
-    if (spriteCache.size > 400) spriteCache.delete(spriteCache.keys().next().value);
+  // Units currently on screen with their positions (for hovering, clicking and box-selecting).
+  function shownUnits() {
+    const t = d3.zoomTransform(svg.node()), out = [];
+    drawnBases.forEach(b => b.ents.forEach(e => { const p = entPos(b, e, t); out.push({ e, sx: p.sx, sy: p.sy, r: Math.max(4, p.L * 0.5) }); }));
     return out;
   }
   function entityAt(e) {
-    if (!entDrawn.length) return null;
+    if (!drawnBases.length) return null;
     const rect = wrapRect || (wrapRect = wrap.getBoundingClientRect()), x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const t = d3.zoomTransform(svg.node());
     let hit = null;
-    for (const d of entDrawn) if (Math.hypot(d.sx - x, d.sy - y) <= Math.max(d.r, 4)) hit = d;
-    return hit && hit.e;
+    for (const b of drawnBases) for (const en of b.ents) {
+      const p = entPos(b, en, t), r = Math.max(4, p.L * 0.5);
+      if (Math.abs(p.sx - x) <= r && Math.abs(p.sy - y) <= r && Math.hypot(p.sx - x, p.sy - y) <= r) hit = en;
+    }
+    return hit;
   }
   // How to command a unit, or why you can't.
   function unitHint(e) {
@@ -668,11 +750,11 @@
   function entTip(ev, e) {
     const c = BY[e.iso];
     if (e.key === "troops") {
-      tip.innerHTML = `<b>Infantry platoon</b> <span class="k">${num(e.n * 100)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${unitHint(e)}`;
+      tip.innerHTML = `<b>Infantry squad</b> <span class="k">${num(e.n * 10)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${unitHint(e)}`;
       return placeTip(ev);
     }
     const m = window.modelSpec(e.key, e.model), sp = m.specs;
-    tip.innerHTML = `<b>${esc(e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
+    tip.innerHTML = `<b>${esc(e.label ? `${e.label} (${e.ship.hull})` : e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
       <div class="k">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · readiness ${Math.round(c.tech.ready * 100)}%</div>
       <div class="tipnote">${specLine("Weapons", sp.arm)}${specLine("Speed", sp.speed)}${specLine("Range", sp.range)}${specLine("Protection", sp.protect)}${specLine("Crew", sp.crew)}</div>
       ${unitHint(e)}`;
@@ -701,6 +783,7 @@
   }
   function setSelection(units) {
     entSel = new Map(units.map(e => [e.id, e]));
+    selVersion++;
     if (!entSel.size) targeting = false;
     updateCmdbar();
     drawBaseCanvas();
@@ -710,7 +793,7 @@
     if (!sel) { cmdbar.hidden = true; wrap.classList.remove("targeting"); return; }
     const power = G.rawPower(sel.units, sel.iso, sel.models);
     const byModel = {};
-    sel.list.forEach(e => (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] = (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] || 0) + (e.key === "troops" ? e.n * 100 : e.n)));
+    sel.list.forEach(e => (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] = (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] || 0) + (e.key === "troops" ? e.n * 10 : e.n)));
     const parts = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
     cmdbar.hidden = false;
     wrap.classList.toggle("targeting", targeting);
@@ -732,6 +815,21 @@
   function clipped(sel) {
     const src = G.baseSource("b:" + sel.iso + "|" + sel.base);
     return !src || Object.keys(sel.units).some(k2 => (src.avail[k2] || 0) + 1e-6 < sel.units[k2]);
+  }
+  // Why you can't command a country's units, with the quickest way to get control of them.
+  function commandNotice(iso) {
+    const c = BY[iso], s = G.state;
+    const playable = !s.player && !G.isLocked(iso);
+    cmdbar.hidden = false;
+    cmdbar.innerHTML = `<div><b>You don't command ${esc(c.name)}'s units.</b><div class="hint">${s.player
+      ? `You lead ${esc(BY[s.player].name)}. Conquer, court or buy ${esc(c.name)} to command its forces, or move your own units here.`
+      : playable ? `Start a campaign as ${esc(c.name)} to move its units.` : `${esc(c.name)} is locked. Buy it (${G.fmtCoins(c.price)} coins) or start a campaign as one of the ${s.unlocked.length} playable nations.`}</div></div>
+      ${playable ? `<button class="btn" data-cmd="play">Play as ${esc(c.name)}</button>` : ""}<button class="btn ghost" data-cmd="close">OK</button>`;
+    cmdbar.querySelectorAll("[data-cmd]").forEach(b => (b.onclick = ev => {
+      ev.stopPropagation();
+      if (b.dataset.cmd === "play") { const err = G.choose(iso); if (err) toast(err); else { toast(`You now command ${c.name}. Drag its units to move them.`); drawDeploy(); refresh(); } }
+      cmdbar.hidden = true;
+    }));
   }
   function selectAllAt(iso, base, key, model) {
     const z = (iso === selected ? myBases : otherBases).find(x => x.iso === iso && x.name === base);
@@ -785,7 +883,7 @@
     const u = entityAt(e);
     if (u) {
       e.stopPropagation();
-      if (!G.owns(u.iso)) return toast(`${BY[u.iso].name}'s units can be inspected but not commanded.`);
+      if (!G.owns(u.iso)) return commandNotice(u.iso);
       const cur = selection();
       if (e.shiftKey && cur && cur.base === u.base && cur.iso === u.iso) setSelection(entSel.has(u.id) ? selEntities().filter(x => x.id !== u.id) : selEntities().concat([u]));
       else setSelection([u]);
@@ -819,7 +917,7 @@
     if (!selBox.__start) return;
     const r = wrap.getBoundingClientRect(), [x0, y0] = selBox.__start, x1 = e.clientX - r.left, y1 = e.clientY - r.top;
     selBox.__start = null; selBox.hidden = true;
-    const inBox = entDrawn.filter(d => G.owns(d.e.iso) && d.sx >= Math.min(x0, x1) && d.sx <= Math.max(x0, x1) && d.sy >= Math.min(y0, y1) && d.sy <= Math.max(y0, y1));
+    const inBox = shownUnits().filter(d => G.owns(d.e.iso) && d.sx >= Math.min(x0, x1) && d.sx <= Math.max(x0, x1) && d.sy >= Math.min(y0, y1) && d.sy <= Math.max(y0, y1));
     if (!inBox.length) return;
     // One base at a time: the base with the most units in the box.
     const count = {};
@@ -839,6 +937,14 @@
     if (k < ENT_K || targeting) return null;
     const pt = e.touches ? e.touches[0] : e, u = entityAt(pt);
     return u && G.owns(u.iso) ? u : null;
+  }
+  // A unit, or (at any zoom) a whole base marker, of a nation you command, under the pointer.
+  function ownGrabAt(e) {
+    if (targeting) return null;
+    const pt = e.touches ? e.touches[0] : e, u = ownUnitAt(e);
+    if (u) return { u };
+    const z = pt && pt.target && canvasBaseAt(pt);
+    return z && G.owns(z.iso) ? { z } : null;
   }
   let drag = null, suppressClick = false;
   // Where a drop at screen point (x, y) would go: {base} of the same nation, or {country}.
@@ -861,11 +967,11 @@
   }
   wrap.addEventListener("pointerdown", e => {
     if (e.shiftKey || e.button) return;
-    const u = ownUnitAt(e);
-    if (!u) return;
+    const grab = ownGrabAt(e);
+    if (!grab) return;
     const r = wrapRect || (wrapRect = wrap.getBoundingClientRect());
     e.preventDefault(); // no text selection while dragging units
-    drag = { u, x0: e.clientX - r.left, y0: e.clientY - r.top, x: e.clientX - r.left, y: e.clientY - r.top, on: false };
+    drag = { u: grab.u, z: grab.z, x0: e.clientX - r.left, y0: e.clientY - r.top, x: e.clientX - r.left, y: e.clientY - r.top, on: false };
   }, true);
   window.addEventListener("pointermove", e => {
     if (!drag) return;
@@ -874,10 +980,13 @@
     if (!drag.on && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) > 5) {
       drag.on = true;
       hideTip();
-      if (!entSel.has(drag.u.id)) setSelection([drag.u]);
+      // Grabbing a base marker takes every unit at that base; grabbing a unit takes it (or the selection it's in).
+      if (drag.z) setSelection(entitiesOf(drag.z));
+      else if (!entSel.has(drag.u.id)) setSelection([drag.u]);
     }
     if (drag.on) { const sel = selection(); drag.target = sel && dropTarget(drag.x, drag.y, sel); drawBaseCanvas(); }
   });
+  window.addEventListener("pointercancel", () => { if (drag) { drag = null; drawBaseCanvas(); } });
   window.addEventListener("pointerup", () => {
     if (!drag) return;
     const d = drag;
@@ -898,9 +1007,8 @@
   // The drag arrow, drawn on the base canvas.
   function drawDrag(ctx) {
     if (!drag || !drag.on) return;
-    const pts = entDrawn.filter(d => entSel.has(d.e.id));
-    if (!pts.length) return;
-    const cx = pts.reduce((a, d) => a + d.sx, 0) / pts.length, cy = pts.reduce((a, d) => a + d.sy, 0) / pts.length;
+    const pts = shownUnits().filter(d => entSel.has(d.e.id));
+    const cx = pts.length ? pts.reduce((a, d) => a + d.sx, 0) / pts.length : drag.x0, cy = pts.length ? pts.reduce((a, d) => a + d.sy, 0) / pts.length : drag.y0;
     const tg = drag.target, label = !tg ? "Drop on a base or a country" : tg.base ? `Redeploy to ${tg.base.name}` : `Send to ${BY[tg.country].name}${G.owns(tg.country) ? "" : " (invade)"}`;
     ctx.save();
     ctx.strokeStyle = tg ? (tg.country && !G.owns(tg.country) ? COL.danger : COL.brass) : "#ffffff99";
@@ -1340,8 +1448,9 @@
   // Shift-drag is reserved for box-selecting units at base zoom.
   const zoom = d3.zoom().scaleExtent([1, 30000])
     .filter(e => (!e.ctrlKey || e.type === "wheel") && !e.button && !(e.shiftKey && e.type !== "wheel" && k >= ENT_K) &&
-      !((e.type === "mousedown" || e.type === "touchstart" || e.type === "pointerdown") && ownUnitAt(e)))
+      !((e.type === "mousedown" || e.type === "touchstart" || e.type === "pointerdown") && ownGrabAt(e)))
     .on("zoom", e => {
+    if (e.transform.k !== k) lastZoomAt = performance.now();
     k = e.transform.k;
     root.attr("transform", e.transform);
     positionTerrain(e.transform);
@@ -1676,7 +1785,7 @@
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
     const iso = z.iso || selected, c = BY[iso], host = hostLabel(z);
-    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details</div>`;
+    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">Click for details${G.owns(iso) ? " · drag to move its units" : ""}</div>`;
     placeTip(e);
   }
   // Weapon models behind a set of unit counts, one line per kind, with its icon.
@@ -1700,12 +1809,14 @@
       <dl>${zoneStats(c, z).map(t => { const [n, ...rest] = t.split(" "); return `<div><dd>${n}</dd><dt>${rest.join(" ")}</dt></div>`; }).join("")}</dl>
       <p>${esc(z.note)}</p>
       <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
-      ${G.owns(c.iso3) ? `<p class="hint">Zoom in to see every unit here. Click, shift-click or shift-drag to pick units (double-click picks a whole model), then <b>Send to…</b> and click a country.</p><button class="bc-sel">Select all units here</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs.</p>`}<button class="bc-fly">Zoom to base</button>`;
+      ${G.owns(c.iso3) ? `<p class="hint">Zoom in to see every unit here. <b>Drag</b> a unit, or this base's marker, onto another base or a country to move them. Click, shift-click or shift-drag to pick units (double-click picks a whole model).</p><button class="bc-sel">Select all units here</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.
     const baseK = () => Math.min(12000, Math.max(d3.zoomTransform(svg.node()).k * 6, 6000));
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, baseK());
+    const bp = baseCard.querySelector(".bc-play");
+    if (bp) bp.onclick = ev => { ev.preventDefault(); const err = G.choose(c.iso3); if (err) return toast(err); toast(`You now command ${c.name}. Drag its units, or a whole base marker, to move them.`); drawDeploy(); refresh(); pickZone(z, false); };
     const bs = baseCard.querySelector(".bc-sel");
     if (bs) bs.onclick = () => selectAllAt(c.iso3, z.name);
     if (fly) flyTo(z.at, baseK());
@@ -1762,6 +1873,19 @@
     for (const g of groups) g.forEach((o, i) => { o.stack = g.length > 1; o.sx = g[0].sx; o.sy = g[0].sy + (i - (g.length - 1) / 2) * (2 * r + 3); });
     for (const { sh, sx, sy, stack } of pos) {
       const mine = sh.nat === selected;
+      // Up close, ships are drawn to scale from above; active carriers come with their base's units.
+      if (k >= ENT_K) {
+        if (sh.kind === "carrier" && sh.active) continue;
+        const a = projection(sh.at), b = projection([sh.at[0], sh.at[1] + 0.01]), ppm = Math.hypot(b[0] - a[0], b[1] - a[1]) / 1113.2 * k;
+        const shape = sh.kind === "carrier" ? "carrier" : sh.kind === "amphib" ? "amphib" : "destroyer", L = Math.max(16, window.shapeLength(shape) * ppm);
+        const sp = window.unitSprite(shape, "navy", L, false, DPR);
+        ctx.globalAlpha = sh.active ? 1 : 0.75;
+        ctx.drawImage(sp.canvas, sx - sp.dim / 2, sy - sp.dim / 2, sp.dim, sp.dim);
+        ctx.textAlign = "center"; ctx.lineWidth = 3; ctx.strokeStyle = "#0c1316"; ctx.strokeText(sh.name, sx, sy + L / 2 + 14);
+        ctx.fillStyle = sh.active ? "#e6f4f1" : "#f3c48f"; ctx.fillText(sh.name + (sh.active ? "" : " (not in service)"), sx, sy + L / 2 + 14);
+        shipDrawn.push({ sh, sx, sy, r: L / 2 });
+        continue;
+      }
       ctx.globalAlpha = mine || !selected ? 1 : 0.8;
       ctx.beginPath();
       ctx.arc(sx, sy, r, 0, 2 * Math.PI);
@@ -1774,7 +1898,7 @@
       ctx.setLineDash([]);
       const img = iconImg(sh.kind === "command" ? "ship" : "carrier", window.techTier(effGen(sh.nat)));
       if (img.ready) ctx.drawImage(img, sx - r * 0.8, sy - r * 0.8, r * 1.6, r * 1.6);
-      if (k >= 6 || mine) {
+      if (k >= 6 || mine || (sh.kind === "carrier" && k >= 2.5)) {
         const lx = stack ? sx + r + 5 : sx, ly = stack ? sy + 4 : sy + r + 12;
         ctx.textAlign = stack ? "left" : "center";
         ctx.lineWidth = 3; ctx.strokeStyle = "#0c1316"; ctx.strokeText(sh.name, lx, ly);
