@@ -164,6 +164,7 @@
     for (const z of zones.slice().sort((a, b) => (b.kit[key] || 0) - (a.kit[key] || 0))) { if (extra <= 1e-6) break; const cut = Math.min(z.kit[key] || 0, extra); z.kit[key] -= cut; extra -= cut; }
   }
   // What one base of a country holds now ({kind: count}, troops in thousands).
+  window.basePoint = (iso, name) => { const z = deploymentFor(iso).find(x => x.name === name); return z ? z.at : (window.CENTROIDS || {})[iso]; };
   window.baseKit = (iso, name) => { const z = computeDeployment(iso).find(x => x.name === name); return z ? z.kit : null; };
   function deploymentFor(iso) {
     const hand = window.DEPLOYMENTS && window.DEPLOYMENTS[iso];
@@ -541,6 +542,7 @@
       ctx.globalAlpha = 1;
       ctx.setLineDash([]);
       drawFleet(ctx, t, w, h);
+      drawTransit(ctx, t);
       drawEntities(ctx, t, w, h);
       drawDrag(ctx);
     });
@@ -713,7 +715,7 @@
     cmdbar.hidden = false;
     wrap.classList.toggle("targeting", targeting);
     cmdbar.innerHTML = targeting
-      ? `<b>Click a country on the map to send them there.</b> <span class="hint">They travel from ${esc(sel.base)}; armies take turns to arrive. Esc to cancel.</span> <button class="btn ghost" data-cmd="cancel">Cancel</button>`
+      ? `<b>Click a country on the map to send them there.</b> <span class="hint">They travel from ${esc(sel.base)} at their real speed (1 game hour = 1 real minute). Esc to cancel.</span> <button class="btn ghost" data-cmd="cancel">Cancel</button>`
       : `<div><b>${num(sel.list.reduce((a, e) => a + e.n, 0))} unit${sel.list.length === 1 && sel.list[0].n === 1 ? "" : "s"} selected</b> at ${esc(sel.base)} · combat value ${power.toFixed(0)}
           <div class="hint">${parts.slice(0, 6).map(([m, n]) => `${num(n)} × ${esc(m)}`).join(" · ")}${parts.length > 6 ? ` · +${parts.length - 6} more` : ""}${clipped(sel) ? ` · access levels let only part of this go` : ""}</div></div>
         <button class="btn" data-cmd="send">Send to…</button><button class="btn ghost" data-cmd="all">Select all here</button><button class="btn ghost" data-cmd="clear">Clear</button>`;
@@ -889,7 +891,7 @@
     if (d.target.country) return sendSelection(d.target.country);
     const err = G.moveUnits(sel.iso, sel.base, d.target.base.name, sel.units);
     if (err) return toast(err);
-    toast(G.state.log[0].msg);
+    toast(G.state.log[0].msg + (G.state.paused ? " The clock is paused: press ▶ to let them move." : ""));
     setSelection([]);
     drawDeploy(); refresh();
   });
@@ -1482,14 +1484,19 @@
     const moving = s.armies.filter(a => !G.arrived(a) && P[a.from] && P[a.to]);
     const foes = s.enemies.filter(e => !G.arrived(e) && (!e.vsPlayer || e.detected) && P[e.from] && P[e.to]);
     armyLayer.selectAll("path").data([...moving, ...foes.map(e => ({ ...e, enemy: true }))]).join("path").attr("class", a => "route" + (a.enemy ? (a.vsPlayer ? " enemy" : " aiwar") : ""))
-      .attr("d", a => path({ type: "LineString", coordinates: [P[a.from], P[a.to]] }));
+      .attr("d", a => path({ type: "LineString", coordinates: [a.fromPt || P[a.from], P[a.to]] }));
     const marks = [];
-    const progress = a => Math.max(0.15, Math.min(0.9, (s.turn - a.sent) / Math.max(1, a.eta - a.sent)));
+    // How far along its route a force is, by the clock (moves continuously in real time).
+    const progress = a => {
+      const t0 = a.sentH != null ? a.sentH : (a.sent - 1) * 24, t1 = a.etaH != null ? a.etaH : (a.eta - 1) * 24;
+      return Math.max(0, Math.min(1, ((s.clock || 0) - t0) / Math.max(0.01, t1 - t0)));
+    };
     const name = iso => esc(BY[iso].name);
-    moving.forEach(a => marks.push({ at: d3.geoInterpolate(P[a.from], P[a.to])(progress(a)), kind: "move", type: armyType(a.units), nat: a.nat, go: a.to,
-      tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}, arrives turn ${a.eta}</div>` }));
-    foes.forEach(e => marks.push({ at: d3.geoInterpolate(P[e.from], P[e.to])(progress(e)), kind: e.vsPlayer ? "attack" : "aiwar", type: armyType(e.units), nat: e.nat, go: e.to,
-      tip: `<b>${name(e.nat)} ${e.vsPlayer ? "attack force" : "invasion force"}</b><div class="k">→ ${name(e.to)}, arrives turn ${e.eta}</div>` }));
+    const modeTxt = a => (a.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[a.mode]}` : "");
+    moving.forEach(a => marks.push({ at: d3.geoInterpolate(a.fromPt || P[a.from], P[a.to])(progress(a)), kind: "move", type: armyType(a.units), nat: a.nat, go: a.to, live: a,
+      tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}${modeTxt(a)}, arrives in ${G.etaLeft(a)}</div><div class="k">${esc(G.unitList(a.units))}</div>` }));
+    foes.forEach(e => marks.push({ at: d3.geoInterpolate(P[e.from], P[e.to])(progress(e)), kind: e.vsPlayer ? "attack" : "aiwar", type: armyType(e.units), nat: e.nat, go: e.to, live: e,
+      tip: `<b>${name(e.nat)} ${e.vsPlayer ? "attack force" : "invasion force"}</b><div class="k">→ ${name(e.to)}, arrives in ${G.etaLeft(e)}</div>` }));
     const seen = new Set();
     s.armies.filter(G.arrived).forEach(a => {
       const kind = !G.owns(a.to) ? "war" : G.inRevolt(a.to) ? "revolt" : a.to === a.nat ? null : "station";
@@ -1715,6 +1722,31 @@
   // under the canvas, so ships drawn there were hidden by naval bases at the same ports).
   function drawShips() { drawBaseCanvas(); }
   function placeShips() { /* drawn with the base canvas */ }
+  // Units moving between two of your bases: a dashed line and an icon creeping along it.
+  function drawTransit(ctx, t) {
+    const s = G.state, moves = s.moves || [];
+    if (!moves.length) return;
+    ctx.save();
+    for (const m of moves) {
+      const p = Math.max(0, Math.min(1, ((s.clock || 0) - m.sentH) / Math.max(0.01, m.etaH - m.sentH)));
+      const A = projection(m.a), B = projection(m.b), here = projection(d3.geoInterpolate(m.a, m.b)(p));
+      ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = COL.brass;
+      ctx.beginPath(); ctx.moveTo(t.applyX(A[0]), t.applyY(A[1])); ctx.lineTo(t.applyX(B[0]), t.applyY(B[1])); ctx.stroke();
+      ctx.setLineDash([]);
+      const x = t.applyX(here[0]), y = t.applyY(here[1]), r = 9;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fillStyle = "#0c1316e6"; ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
+      const img = iconImg(armyType(m.units), window.techTier(effGen(m.iso)));
+      if (img.ready) ctx.drawImage(img, x - 7, y - 7, 14, 14);
+      if (k >= 4) {
+        ctx.font = "600 11px sans-serif"; ctx.textAlign = "left";
+        const label = `→ ${m.to} · ${G.etaLeft(m)}`;
+        ctx.lineWidth = 3; ctx.strokeStyle = "#0c1316"; ctx.strokeText(label, x + 12, y + 4);
+        ctx.fillStyle = "#fff"; ctx.fillText(label, x + 12, y + 4);
+        ctx.strokeStyle = COL.brass;
+      }
+    }
+    ctx.restore();
+  }
   let shipDrawn = [], fleetFont = "";
   function drawFleet(ctx, t, w, h) {
     shipDrawn = [];
@@ -1843,7 +1875,7 @@
         <span class="avail">of ${unitFmt(u.key, src.avail[u.key])}</span>
         <input id="amt-${u.key}" type="number" inputmode="decimal" min="0" step="${u.key === "troops" ? 0.1 : 1}" data-amt="${u.key}" value="${sendAmt[u.key] ?? ""}" placeholder="0">
         <button class="mini" data-max="${u.key}" data-v="${u.key === "troops" ? +src.avail[u.key].toFixed(1) : Math.floor(src.avail[u.key])}">All</button></div>`).join("");
-    return `<div class="section"><h3>${title} <small>arrives over the next turns</small></h3>
+    return `<div class="section"><h3>${title} <small>travels in real time</small></h3>
       <div class="send">
         <label class="srcl">From<select id="send-src">${srcs.map(x => `<option value="${x.key}" ${x.key === sendSrc ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
         <div class="srows">${rows}</div>
@@ -1851,14 +1883,16 @@
         <p class="hint" id="send-preview"></p>
         <button class="btn ${mine ? "diplo" : "attack"}" id="send-go">${mine ? "Send forces" : "Launch invasion"} <small id="send-eta"></small></button>
       </div>
-      <p class="hint">Only troops and unlocked weapon types can be sent. Ground units crossing the sea need sealift from ships, carriers or transport aircraft in the same army. Armies fight once per turn when you press End turn.</p></div>`;
+      <p class="hint">Only the share your access levels allow can be sent. Units travel in real time at their real speed (1 game hour = 1 real minute): jets in hours, ships and armour over days. Ground units crossing the sea need sealift from ships and carriers in the same army, or an airlift by the nation's own transport aircraft (vehicles need heavy lifters like the C-17 or Il-76, which few countries have). Battles fight one round each midnight.</p></div>`;
   }
+  // Game hours as real time (1 game hour = 1 real minute).
+  const realMin = h => (h < 1 ? "under a minute" : h < 90 ? `${Math.round(h)} min` : `${(h / 60).toFixed(1)} h`);
   function sendPreview(c) {
     const out = $("#send-preview"); if (!out) return;
     const p = G.preview(sendSrc, c.iso3, sendAmt);
     const go = $("#send-go"), eta = $("#send-eta");
     if (p.err || p.empty) { out.textContent = p.err || "Enter how many of each unit to send."; go.disabled = true; eta.textContent = ""; return; }
-    const r = p.route, by = r.sea ? "by sea" : r.land ? "by land" : "by air";
+    const r = p.route, by = { land: "by road", sea: "by sea", air: "by air", airlift: `by airlift (${r.air && r.air.trips} sorties of ${r.air && r.air.H} heavy + ${r.air && r.air.T} tactical transports)` }[r.mode];
     let vs = "";
     if (!G.owns(c.iso3)) {
       const D = G.defenceOf(c.iso3);
@@ -1866,8 +1900,8 @@
       vs = ` Army strength ${p.power.toFixed(0)} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
-    out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${by}, arrives turn ${G.state.turn + r.turns}.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">Not enough sealift.</b>`}`;
-    go.disabled = !r.ok; eta.textContent = `${r.turns} turn${r.turns === 1 ? "" : "s"}`;
+    out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${esc(by)}: arrives in ${G.fmtDur(r.hours)} of game time (${G.clockLabel((G.state.clock || 0) + r.hours)}), about ${realMin(r.hours)} real.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">No way to get these ground units there: not enough sealift, and no airlift that can carry them.</b>`}`;
+    go.disabled = !r.ok; eta.textContent = G.fmtDur(r.hours);
   }
   function wireSend(pane, c) {
     const sel = pane.querySelector("#send-src");
@@ -1887,7 +1921,7 @@
 
   function armyLi(a) {
     const to = esc(BY[a.to].name);
-    const st = !G.arrived(a) ? `en route to ${to}, arrives turn ${a.eta}` : !G.owns(a.to) ? `fighting in ${to}` :
+    const st = !G.arrived(a) ? `en route to ${to}, arrives in ${G.etaLeft(a)}` : !G.owns(a.to) ? `fighting in ${to}` :
       G.inRevolt(a.to) ? `fighting rebels in ${to}` : a.to === a.nat ? "home" : `stationed in ${to}`;
     return `<li><div class="z-h"><b>Army ${a.id}</b><span>${G.armyPower(a).toFixed(0)} strength</span></div>
       <div class="z-stats">${esc(BY[a.nat].name)} units · ${st}</div>
@@ -1931,13 +1965,13 @@
       const E = at.reduce((x, e) => x + G.enemyPower(e), 0);
       front += `<div class="front"><h4>🚨 ${at.length ? "Under attack" : "Attack incoming"}</h4>
         ${inv ? `<div class="bar"><i style="width:${Math.min(100, inv.progress)}%;background:${COL.danger}"></i></div><p class="hint">The enemy is ${Math.round(inv.progress)}% of the way to taking ${esc(c.name)}. Enemy strength ${E.toFixed(0)} vs your defence ${G.homeDefence(c.iso3).toFixed(0)}.</p>` : ""}
-        ${foes.map(e => `<p class="hint"><b>${esc(BY[e.nat].name)}</b>: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}${G.arrived(e) ? " (fighting)" : `, arrives turn ${e.eta}`}.</p>`).join("")}
+        ${foes.map(e => `<p class="hint"><b>${esc(BY[e.nat].name)}</b>: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}${G.arrived(e) ? " (fighting)" : `, arrives in ${G.etaLeft(e)}`}.</p>`).join("")}
         <p class="hint">Your defence: ${G.homeDefence(c.iso3).toFixed(0)} (this nation's unlocked forces, order and any armies stationed here). Send armies here or unlock weapons to hold it.</p></div>`;
     }
     if (!G.owns(c.iso3) && G.isHostile(c.iso3)) front += `<p class="hint">⚠️ ${esc(c.name)} is hostile and may attack your nations.</p>`;
     const invaders = s.enemies.filter(e => e.to === c.iso3 && !e.vsPlayer), outgoing = s.enemies.filter(e => e.nat === c.iso3 && !e.vsPlayer);
     if (invaders.length) front += `<div class="front aiwar"><h4>🌍 Invaded by ${esc([...new Set(invaders.map(e => BY[e.nat].name))].join(", "))}</h4>
-      ${invaders.map(e => `<p class="hint">${esc(G.unitList(e.units))}${G.arrived(e) ? " (fighting)" : `, arrives turn ${e.eta}`}.</p>`).join("")}
+      ${invaders.map(e => `<p class="hint">${esc(G.unitList(e.units))}${G.arrived(e) ? " (fighting)" : `, arrives in ${G.etaLeft(e)}`}.</p>`).join("")}
       <p class="hint">Defence ${G.defenceOf(c.iso3).total.toFixed(0)}. It falls when 80% of its forces are destroyed.</p></div>`;
     if (outgoing.length) front += `<p class="hint">🌍 ${esc(c.name)} is invading ${outgoing.map(e => esc(BY[e.to].name)).join(", ")}.</p>`;
     const list = here.length ? `<ul class="armies">${here.map(armyLi).join("")}</ul>` : "";
@@ -2254,11 +2288,11 @@
     }
     const ops = s.player ? `<div class="section"><h3>Operations <small>turn ${s.turn}</small></h3>
         ${Object.keys(s.revolts).map(iso => `<p class="hint">🔥 <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a> is in revolt: rebels ${Math.round(s.revolts[iso].progress)}% of the way to independence.</p>`).join("")}
-        ${s.enemies.filter(e => !e.vsPlayer).length ? `<h4 class="zgroup">World conflicts</h4>${s.enemies.filter(e => !e.vsPlayer).map(e => `<p class="hint">🌍 <a href="#" data-goto="${e.nat}">${esc(BY[e.nat].name)}</a> ${G.arrived(e) ? "is fighting in" : "is invading"} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : `, arriving turn ${e.eta}`}.</p>`).join("")}` : ""}
-        ${s.enemies.filter(e => e.vsPlayer && (e.detected || G.arrived(e))).map(e => `<p class="hint">🚨 <b>${esc(BY[e.nat].name)}</b> ${G.arrived(e) ? "is attacking" : `will hit`} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : ` on turn ${e.eta}`}: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}.</p>`).join("")}
+        ${s.enemies.filter(e => !e.vsPlayer).length ? `<h4 class="zgroup">World conflicts</h4>${s.enemies.filter(e => !e.vsPlayer).map(e => `<p class="hint">🌍 <a href="#" data-goto="${e.nat}">${esc(BY[e.nat].name)}</a> ${G.arrived(e) ? "is fighting in" : "is invading"} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : `, arriving in ${G.etaLeft(e)}`}.</p>`).join("")}` : ""}
+        ${s.enemies.filter(e => e.vsPlayer && (e.detected || G.arrived(e))).map(e => `<p class="hint">🚨 <b>${esc(BY[e.nat].name)}</b> ${G.arrived(e) ? "is attacking" : `will hit`} <a href="#" data-goto="${e.to}">${esc(BY[e.to].name)}</a>${G.arrived(e) ? "" : ` in ${G.etaLeft(e)}`}: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}.</p>`).join("")}
         ${Object.keys(s.wars).map(iso => `<p class="hint">⚔️ War in <a href="#" data-goto="${iso}">${esc(BY[iso].name)}</a>: defences ${Math.round(G.warProgress(iso) * 100)}% broken.</p>`).join("")}
         ${s.armies.length ? `<ul class="armies">${s.armies.map(armyLi).join("")}</ul>` : `<p class="hint">No armies in the field. Open any country's dossier and use "Send an invasion force" to pick units and launch an attack.</p>`}
-        <button class="btn attack" id="endturn2" style="margin-top:10px" ${s.over ? "disabled" : ""}>End turn <small>+${G.income()} coins</small></button></div>` : "";
+        <button class="btn attack" id="endturn2" style="margin-top:10px" ${s.over ? "disabled" : ""}>Skip to next day <small>+${G.income()} coins</small></button></div>` : "";
     pane.innerHTML = `${empire}${ops}
       <div class="${s.player ? "section" : ""}"><h3>Playable nations <small>${s.unlocked.length} of ${C.length} unlocked</small></h3>
       <p class="hint">Rules: 4 random African nations (never South Africa), 3 random European, Argentina plus 2 random South American (never Brazil), and Mexico, Mongolia, Kazakhstan and Bangladesh. Every other country is locked until you buy it at its national value (1 coin = $1).</p>
@@ -2267,7 +2301,7 @@
         <button class="btn ghost" id="reroll" ${s.player ? "disabled" : ""}>Reroll random picks</button>
         <button class="btn ghost" id="newgame">New campaign</button></div>
       <div class="section"><h3>How to play</h3>
-        <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Armies take turns to arrive, by land if the target borders your territory, otherwise by sea, which needs enough sealift. Each <b>End turn</b>, every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
+        <p class="hint">Pick a playable nation. Then open any country's dossier and <b>send an invasion force</b>: choose which of your nations (or armies) the units come from and exactly how many troops, tanks, aircraft, ships and so on to send. Time runs in real time: 1 game hour passes every real minute, so a day (one turn) lasts 24 minutes. Pause it with ⏸, or press <b>Next day</b> to skip to midnight. Units travel at their real speeds: tanks road-march ~300 km a day, warships make ~16 knots, jets fly ~650 km/h. Ground units go by road if the target borders your territory, otherwise by sea (which needs enough sealift) or by airlift with the nation's own transport aircraft. Each midnight every battle fights one round with losses on both sides. Conquer a country by destroying 80% of its forces; defenders get home advantage, morale from soft power and help from treaty allies. You can reinforce, recall or redirect armies at any time. <b>Diplomatic union</b> can be tried once per turn per country. Occupied lands can revolt: rebels then fight your garrison over several turns, and you can send armies to crush them before they win independence. Control 50% of world GDP to win.</p>
         <p class="hint"><b>Coins & weapons.</b> Every upgrade is tiered from level 1 to 100. Each nation you control starts with troops at level 1 (10% of its troops) and every weapon category at level 0 (locked). Level 1 gives access to 10% of that category, rising linearly to 100% at level 90; levels 91–100 replace losses of that kind up to 10% faster. Nothing you buy makes units fight better: their ability, training and patriotism are fixed by the real military. Access is a ceiling on what you can send or defend with, not what every attack must use. Nukes sit outside the levels and always count. Open a nation's dossier and spend coins on access levels (Military power) and technology tracks. Prices scale with the hardware's real replacement value; Max buys as many levels as you can afford up to 90, then up to 100. You earn coins every turn from your empire's GDP, from each conquest or union, and from promo codes.</p></div>
       <div class="section"><h3>Map &amp; graphics <small>imagery and speed</small></h3>
         <div class="seg" role="group" aria-label="Map style">${Object.entries(MAP_STYLES).map(([st, lab]) => `<button class="btn ghost${st === mapStyle ? " on" : ""}" data-style="${st}" aria-pressed="${st === mapStyle}">${lab}</button>`).join("")}</div>
@@ -2311,9 +2345,39 @@
   function refresh() { paint(); render(); coinChip(); drawArmies(); }
   function coinChip() {
     $("#coins").textContent = G.fmtCoins(G.state.coins);
-    $("#turnno").textContent = G.state.turn;
+    $("#turnno").textContent = G.state.turn + 1;
     $("#endturn").disabled = !G.state.player || G.state.over;
+    clockChip();
   }
+  function clockChip() {
+    const s = G.state, h = s.clock || 0, el = $("#clock");
+    el.textContent = `Day ${Math.floor(h / 24) + 1} · ${String(Math.floor(h % 24)).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
+    el.classList.toggle("paused", !!s.paused || !s.player);
+    $("#pause").setAttribute("aria-pressed", !!s.paused);
+    $("#pause").textContent = s.paused ? "▶" : "⏸";
+    $("#pause").disabled = !s.player || s.over;
+  }
+  $("#pause").onclick = () => { G.setPaused(!G.state.paused); clockChip(); toast(G.state.paused ? "Clock paused." : "Clock running: 1 game hour per real minute."); };
+  // The game clock: every second of real time is a minute of game time. Moving forces creep
+  // along their routes; arrivals and the midnight battle round update the map and dossier.
+  let lastTick = performance.now();
+  setInterval(() => {
+    const now = performance.now(), dt = Math.min(5000, now - lastTick);
+    lastTick = now;
+    if (document.hidden) return; // the clock stops while the tab is in the background
+    const r = G.tick(dt);
+    clockChip();
+    if (r.newDay) {
+      const news = G.state.log.filter(l => l.t === G.state.turn && !l.msg.startsWith("📍"));
+      toast(`🌅 Day ${G.state.turn}. ` + (news.length ? news.slice(0, 2).map(l => l.msg).join("  ") : `+${G.income()} coins.`));
+      refresh(); drawDeploy();
+    } else if (r.arrived) {
+      toast(G.state.log[0].msg);
+      refresh(); drawDeploy();
+    } else if (G.state.armies.some(a => !G.arrived(a)) || G.state.enemies.some(e => !G.arrived(e)) || (G.state.moves || []).length) {
+      drawArmies(); drawBaseCanvas();
+    }
+  }, 1000);
   $("#endturn").onclick = () => {
     const err = G.endTurn();
     if (err) return toast(err);

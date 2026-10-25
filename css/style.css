@@ -329,6 +329,12 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .endturn small { font: 600 11px var(--font-data); letter-spacing: 0; opacity: .8; }
 .endturn:disabled { background: var(--line); color: var(--muted); }
 .endturn + .wallet { margin-left: 0; }
+.clockbox { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font: 600 13px var(--font-data); font-variant-numeric: tabular-nums; color: var(--fg); }
+.clockbox + .endturn { margin-left: 8px; }
+.clock { padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); white-space: nowrap; }
+.pause { background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 4px; padding: 4px 8px; }
+.pause[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
+.clock.paused { color: var(--muted); }
 .route { fill: none; stroke: var(--brass); stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .spot { stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
 .spot.war { fill: #e2654f99; stroke: var(--danger); }
