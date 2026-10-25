@@ -38,15 +38,15 @@
   // forces: unit counts per country, created on first use from its inventory. armies: task forces
   // you have sent out. wars / revolts: fighting that resolves one round per turn.
   // enemies: AI armies sent against your nations. hostile: turn each country last turned on you.
-  const EXTRA = () => ({ forces: {}, armies: [], wars: {}, revolts: {}, courted: {}, nextArmy: 1, enemies: [], hostile: {}, nextEnemy: 1 });
+  const EXTRA = () => ({ forces: {}, armies: [], wars: {}, revolts: {}, courted: {}, nextArmy: 1, enemies: [], hostile: {}, nextEnemy: 1, clock: 0, moves: [], nextMove: 1 });
 
   function fresh(seed) {
     seed = seed ?? Math.floor(Math.random() * 2 ** 31);
     const owner = {}, garrison = {};
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
     return {
-      seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false,
-      coins: window.START_COINS, access: {}, tech: {}, tiers: 2, redeemed: [], purchased: [], ...EXTRA(),
+      seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false, timeV: 1,
+      coins: window.START_COINS, access: {}, tech: {}, tiers: 3, redeemed: [], purchased: [], ...EXTRA(),
     };
   }
 
@@ -57,9 +57,23 @@
     } catch (e) { /* storage unavailable */ }
     return fresh();
   }
+  // Saves from before real-time travel: arrival turns become hours on the new clock.
+  function migrateClock(s) {
+    if (s.timeV) return;
+    s.clock = Math.max(s.clock || 0, (s.turn - 1) * 24);
+    [...(s.armies || []), ...(s.enemies || [])].forEach(a => {
+      if (a.etaH != null) return;
+      a.sentH = Math.max(0, (a.sent - 1) * 24);
+      a.etaH = Math.max(a.sentH, (a.eta - 1) * 24);
+      if (a.eta <= s.turn) a.landed = true;
+    });
+    s.moves = s.moves || [];
+    s.timeV = 1;
+  }
   // Saves from before tiered access: an unlocked category (and troops) becomes level 90 (100%),
   // and each of the old 5 technology levels becomes 18 of the new 100.
   function migrate(s) {
+    migrateClock(s);
     // Tiers 2: the old Weapons systems track (a combat bonus) became Arms production.
     if (s.tiers === 1) {
       Object.values(s.tech || {}).forEach(t => { if (t.weapons) { t.production = Math.max(t.production || 0, t.weapons); delete t.weapons; } });
@@ -180,7 +194,7 @@
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
-  const arrived = a => a.eta <= G.state.turn;
+  const arrived = a => (a.etaH != null ? a.etaH <= (G.state.clock || 0) : a.eta <= G.state.turn);
   const armiesAt = iso => G.state.armies.filter(a => a.to === iso && arrived(a));
   const deployedFrom = iso => {
     const d = {};
@@ -204,17 +218,66 @@
   };
   // Sealift: ships, carriers and transport aircraft carry ground units overseas.
   const liftMult = nat => 1 + bonus("proj") + TFULL.logistics * techShare(nat, "logistics");
-  function route(from, to, units, nat) {
-    const km = distKm(from, to);
-    const ground = UNITS.some(u => u.kind === "ground" && units[u.key] > 0);
-    const naval = UNITS.some(u => u.kind === "naval" && units[u.key] > 0);
+  // ── Travel in real time ── 1 game hour passes per real minute, so a game day is 24 minutes.
+  // Each unit moves at its real effective speed (km/h averaged over a day's movement, with halts,
+  // refuelling and rest): a tank column road-marches ~300 km a day, a frigate makes ~16 knots,
+  // a jet ferries at ~650 km/h. An army moves as fast as its slowest part. Roads wind (×1.25 the
+  // straight line) and sea lanes go around land (×1.3).
+  const SPEED = { troops: 30, tanks: 12, afv: 20, arty: 15, helis: 180, fighters: 650, aircraft: 550, ships: 30, subs: 22, carriers: 37 };
+  // Airlift: only real transport aircraft can fly ground units, and only heavy lifters (C-17,
+  // C-5, An-124, Il-76, A400M, Y-20, KC-390, Kawasaki C-2) can carry vehicles. Most countries have
+  // a few tactical transports at most, so their armour can't fly. Only part of the fleet is free
+  // for the job (15% of heavy lifters, 25% of tactical; the rest are in maintenance or busy),
+  // times readiness.
+  const HEAVY_LIFT = /C-17|C-5|An-124|An-22|Il-76|A400M|Y-20|KC-390|C-2\b/;
+  function airlift(nat, units, km) {
+    const c = BY[nat], f = forces(nat);
+    const n = Math.round((f.aircraft || 0) * (owns(nat) ? accessShare(nat, "aircraft") : 1));
+    let heavy = 0, tactical = 0;
+    window.splitModels(c, "aircraft", n).forEach(([m, cnt]) => {
+      if (window.modelSpec("aircraft", m).family !== "Transport aircraft" && !HEAVY_LIFT.test(m)) return;
+      if (HEAVY_LIFT.test(m)) heavy += cnt; else tactical += cnt;
+    });
+    const H = Math.floor(heavy * 0.15 * c.tech.ready), T = Math.floor(tactical * 0.25 * c.tech.ready);
+    const vehicles = (units.tanks || 0) + (units.afv || 0) / 2 + (units.arty || 0) / 2, troops = units.troops || 0;
+    if ((vehicles > 0 && H < 1) || (troops > 0 && H + T < 1) || (!vehicles && !troops)) return { ok: false, H, T };
+    // Per sortie a heavy lifter carries 1 tank, 2 lighter vehicles or ~100 troops; a tactical one ~80 troops.
+    const trips = (vehicles ? Math.ceil(vehicles / H) : 0) + (troops ? Math.ceil(troops / (0.1 * H + 0.08 * T)) : 0);
+    if (trips > 60) return { ok: false, H, T, trips };
+    return { ok: true, H, T, trips, hours: 12 + (2 * trips - 1) * (km * 1.05) / 600 };
+  }
+  // fromPt (optional): the exact starting point, e.g. a base, instead of the source country's centre.
+  function route(from, to, units, nat, fromPt) {
+    const P = window.CENTROIDS || {};
+    const km = fromPt && P[to] ? d3.geoDistance(fromPt, P[to]) * 6371 : distKm(from, to);
+    const has = u => (units[u.key] || 0) > 0;
+    const ground = UNITS.some(u => u.kind === "ground" && has(u));
+    const naval = UNITS.some(u => u.kind === "naval" && has(u));
     const land = landLinked(from, to);
     const need = UNITS.reduce((s, u) => s + (u.lift || 0) * (units[u.key] || 0), 0);
     const cap = UNITS.reduce((s, u) => s + (u.carry || 0) * (units[u.key] || 0), 0) * liftMult(nat);
-    const sea = ground && !land;
-    const turns = !ground && !naval ? 1 : land && !naval ? 1 + Math.floor(km / 2500) : 1 + Math.ceil(km / 4000);
-    return { km, land, sea, need, cap, turns, ok: !sea || need <= cap };
+    const legs = [];
+    UNITS.filter(u => u.kind === "air" && has(u)).forEach(u => legs.push((km * 1.05) / SPEED[u.key]));
+    const navalUnits = UNITS.filter(u => u.kind === "naval" && has(u));
+    navalUnits.forEach(u => legs.push((km * 1.3) / SPEED[u.key]));
+    let mode = !ground && !naval ? "air" : naval ? "sea" : "land", ok = true, air = null;
+    if (ground) {
+      const slowest = Math.min(...UNITS.filter(u => u.kind === "ground" && has(u)).map(u => SPEED[u.key]));
+      const byLand = land ? (km * 1.25) / slowest : Infinity;
+      // Ground units overseas ride the army's own ships (sealift), with ~2 days to load and unload.
+      const seaSpeed = navalUnits.length ? Math.min(...navalUnits.map(u => SPEED[u.key])) : 30;
+      const bySea = !land && need <= cap ? (km * 1.3) / seaSpeed + 48 : Infinity;
+      air = airlift(nat, units, km);
+      const byAir = air.ok ? air.hours : Infinity;
+      const best = Math.min(byLand, bySea, byAir);
+      if (best === Infinity) ok = false;
+      else { legs.push(best); mode = best === byAir ? "airlift" : best === bySea ? "sea" : "land"; }
+    }
+    const hours = legs.length ? Math.max(...legs) : 1;
+    return { km, land, sea: mode === "sea" && ground, mode, need, cap, air, hours: Math.max(0.5, hours), turns: Math.max(1, Math.ceil(hours / 24)), ok };
   }
+  // When an army leaving now with this route arrives: hours on the clock, and the day (turn).
+  const etaOf = hours => { const h = (G.state.clock || 0) + hours; return { etaH: h, eta: Math.floor(h / 24) + 1 }; };
 
   // What a nation's access levels let you call on from its home pool: the accessible share of its
   // whole force (home plus deployed), less what is already deployed.
@@ -253,7 +316,7 @@
     if (!kit) return null;
     const acc = accessible(iso), avail = {};
     UNITS.forEach(u => { const v = Math.min(kit[u.key] || 0, acc[u.key] || 0); if (v > 0) avail[u.key] = v; });
-    return { key, label: `${name} (${BY[iso].name})`, at: iso, nat: iso, base: name, avail };
+    return { key, label: `${name} (${BY[iso].name})`, at: iso, nat: iso, base: name, avail, pt: window.basePoint && window.basePoint(iso, name) };
   }
   const findSource = (key, to) => (key.startsWith("b:") ? baseSource(key) : sources(to).find(s => s.key === key));
 
@@ -271,7 +334,7 @@
     if (!src) return { err: "Choose where the units come from." };
     if (src.at === to) return { err: `Those units are already in ${BY[to].name}.` };
     const u = clean(units, src.avail);
-    const r = route(src.at, to, u, src.nat);
+    const r = route(src.at, to, u, src.nat, src.pt);
     const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
     return { src, units: u, route: r, power, empty: total(u) === 0 };
   }
@@ -294,8 +357,11 @@
     const s = G.state, p = preview(srcKey, to, units, models);
     if (p.err) return p.err;
     if (p.empty) return "Pick at least one unit to send.";
-    if (!p.route.ok) return `Not enough sealift: these ground units need ${Math.ceil(p.route.need)} lift and your ships and transports give ${Math.floor(p.route.cap)}. Add ships, carriers or transport aircraft, or send fewer ground units.`;
-    const src = p.src, eta = s.turn + p.route.turns;
+    if (!p.route.ok) {
+      const a2 = p.route.air || {};
+      return `These ground units can't get there: overland is blocked, your ships give ${Math.floor(p.route.cap)} of the ${Math.ceil(p.route.need)} sealift needed, and ${a2.H || a2.T ? `${BY[p.src.nat].name}'s ${a2.H} heavy and ${a2.T} tactical transports available ${a2.H < 1 && (p.units.tanks || p.units.afv || p.units.arty) ? "can't lift vehicles (that needs heavy lifters like the C-17 or Il-76)" : "would need too many sorties"}` : `${BY[p.src.nat].name} has no transport aircraft for an airlift`}. Add ships or carriers, or send fewer ground units.`;
+    }
+    const src = p.src, { etaH, eta } = etaOf(p.route.hours);
     if (src.army) {
       UNITS.forEach(u => (src.army.units[u.key] = (src.army.units[u.key] || 0) - (p.units[u.key] || 0)));
       if (total(src.army.units) < 0.05) s.armies = s.armies.filter(a => a !== src.army);
@@ -308,14 +374,14 @@
         UNITS.forEach(u => { if (p.units[u.key]) out[u.key] = (out[u.key] || 0) + p.units[u.key]; });
       }
     }
-    const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, sent: s.turn, sea: p.route.sea };
+    const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, mode: p.route.mode, fromPt: src.pt };
     if (models) a.models = JSON.parse(JSON.stringify(models));
     else if (src.army && src.army.models) a.models = JSON.parse(JSON.stringify(src.army.models));
     s.armies.push(a);
     if (!owns(to)) provoke(s.owner[to]);
     const t = BY[to];
     const goal = owns(to) ? (inRevolt(to) ? "to put down the revolt in" : "to") : "to invade";
-    log(`🚚 Army ${a.id} (${unitList(p.units)}) left ${src.base ? src.base + ", " : ""}${BY[src.at].name} ${goal} ${t.name}. Arrives turn ${eta} by ${p.route.sea ? "sea" : p.route.land ? "land" : "air"}.`, "info");
+    log(`🚚 Army ${a.id} (${unitList(p.units)}) left ${src.base ? src.base + ", " : ""}${BY[src.at].name} ${goal} ${t.name} by ${MODE_LABEL[p.route.mode]}${p.route.mode === "airlift" ? ` (${p.route.air.trips} sorties)` : ""}. ${Math.round(p.route.km).toLocaleString("en-US")} km: arrives in ${fmtDur(p.route.hours)} (${clockLabel(etaH)}).`, "info");
     save();
     return null;
   }
@@ -331,13 +397,30 @@
     if (!kit || !window.baseKit(iso, to)) return "Unknown base.";
     const u = clean(units, kit);
     if (!total(u)) return "Pick at least one unit to move.";
+    // They leave now and join the other base when they get there.
     const mv = ((s.baseMoves = s.baseMoves || {})[iso] = s.baseMoves[iso] || {});
-    const a = (mv[from] = mv[from] || {}), b = (mv[to] = mv[to] || {});
-    UNITS.forEach(x => { if (u[x.key]) { a[x.key] = (a[x.key] || 0) - u[x.key]; b[x.key] = (b[x.key] || 0) + u[x.key]; } });
-    log(`🚛 Redeployed ${unitList(u)} from ${from} to ${to} (${BY[iso].name}).`, "info");
+    const a = (mv[from] = mv[from] || {});
+    UNITS.forEach(x => { if (u[x.key]) a[x.key] = (a[x.key] || 0) - u[x.key]; });
+    const pa = window.basePoint(iso, from), pb = window.basePoint(iso, to), km = d3.geoDistance(pa, pb) * 6371;
+    const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key]));
+    const m = { id: s.nextMove = (s.nextMove || 1), iso, from, to, units: u, sentH: s.clock || 0, ...etaOf(hours), a: pa, b: pb };
+    s.nextMove++;
+    (s.moves = s.moves || []).push(m);
+    log(`🚛 ${unitList(u)} left ${from} for ${to} (${BY[iso].name}, ${Math.round(km)} km): arrive in ${fmtDur(hours)} (${clockLabel(m.etaH)}).`, "info");
     save();
     return null;
   }
+
+  const MODE_LABEL = { land: "road", sea: "sea", air: "air", airlift: "airlift" };
+  // Game-time durations and clock labels. 1 game hour = 1 real minute.
+  function fmtDur(h) {
+    if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+    const d = Math.floor(h / 24), hh = Math.floor(h % 24), mm = Math.round((h % 1) * 60);
+    return d ? `${d} d ${hh} h` : `${hh} h${mm ? ` ${mm} min` : ""}`;
+  }
+  const clockLabel = h => `day ${Math.floor(h / 24) + 1}, ${String(Math.floor(h % 24)).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
+  // Time left until something (an army, enemy force or base move) arrives.
+  const etaLeft = x => fmtDur(Math.max(0, (x.etaH != null ? x.etaH : (x.eta - 1) * 24) - (G.state.clock || 0)));
 
   // Bring an army back to its home nation (no sealift needed to come home).
   function recall(id) {
@@ -347,8 +430,9 @@
     const at = arrived(a) ? a.to : a.from;
     if (at === home && arrived(a)) return disband(id);
     const r = route(at, home, a.units, a.nat);
-    a.from = at; a.to = home; a.eta = s.turn + r.turns; a.sent = s.turn;
-    log(`↩️ Army ${a.id} is heading home to ${BY[home].name}, arriving turn ${a.eta}.`, "info");
+    const back = r.ok ? r.hours : (r.km * 1.3) / 30 + 48; // home by any means
+    Object.assign(a, { from: at, to: home, sent: s.turn, sentH: s.clock || 0, landed: false, fromPt: null }, etaOf(back));
+    log(`↩️ Army ${a.id} is heading home to ${BY[home].name}, arriving in ${fmtDur(back)} (${clockLabel(a.etaH)}).`, "info");
     save();
     return null;
   }
@@ -539,15 +623,15 @@
     scaleUnits(units, 1);
     if (rawPower(units, A) < 30) return;
     UNITS.forEach(u => (f[u.key] -= units[u.key] || 0));
-    const km = distKm(A, T), eta = s.turn + (land ? 1 + Math.floor(km / 2500) : 1 + Math.ceil(km / 4000));
+    const r = route(A, T, units, A), hours = r.ok ? r.hours : (r.km * 1.3) / 30 + 48, { eta, etaH } = etaOf(hours);
     // Your intelligence decides whether you see the attack coming or only when it lands.
     const detected = !vsPlayer || Math.random() < Math.max(0.1, Math.min(0.97, 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter));
-    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, sent: s.turn, sea: !land, vsPlayer, detected };
+    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: !land, vsPlayer, detected };
     s.enemies.push(e);
     if (vsPlayer) {
       s.hostile[A] = s.turn;
-      if (detected) log(`🚨 Intelligence warning: ${BY[A].name} launched an attack on ${BY[T].name}: about ${unitList(fuzzUnits(units, A))}. Arrives turn ${eta}. Send forces to defend it.`, "bad");
-    } else log(`🌍 ${BY[A].name} invaded ${BY[T].name} with ${unitList(units)}. Arrives turn ${eta}.`, "world");
+      if (detected) log(`🚨 Intelligence warning: ${BY[A].name} launched an attack on ${BY[T].name}: about ${unitList(fuzzUnits(units, A))}. Arrives in ${fmtDur(hours)} (${clockLabel(etaH)}). Send forces to defend it.`, "bad");
+    } else log(`🌍 ${BY[A].name} invaded ${BY[T].name} with ${unitList(units)}. Arrives in ${fmtDur(hours)}.`, "world");
   }
 
   // ── Intelligence: what you can see of others ───────────────
@@ -697,19 +781,55 @@
     log(`🏛️ Your government fled to ${BY[cap].name}, the new capital of your empire.`, "bad");
   }
 
+  // Armies, enemy forces and base moves that have reached their destination by the clock.
+  // Returns the number of new arrivals.
+  function arrivals() {
+    const s = G.state;
+    let n = 0;
+    s.armies.filter(a => !a.landed && arrived(a)).forEach(a => {
+      a.landed = true; n++;
+      if (a.to === a.nat && owns(a.nat)) { disband(a.id); log(`🏠 Army ${a.id} is home in ${BY[a.nat].name} and back in reserve.`, "info"); }
+      else log(`📍 Army ${a.id} arrived in ${BY[a.to].name}${owns(a.to) ? "" : ". It fights at the end of the day"}.`, "info");
+    });
+    s.enemies.filter(e => !e.landed && arrived(e)).forEach(e => {
+      e.landed = true;
+      if (e.vsPlayer && !e.detected) {
+        e.detected = true; n++;
+        log(`💥 Surprise attack! ${BY[e.nat].name} struck ${BY[e.to].name} without warning: about ${unitList(fuzzUnits(e.units, e.nat))}. Better intelligence would have seen it coming.`, "bad");
+      } else if (e.vsPlayer) { n++; log(`⚔️ ${BY[e.nat].name}'s forces reached ${BY[e.to].name}.`, "bad"); }
+    });
+    (s.moves || []).filter(m => arrived(m)).forEach(m => {
+      if (owns(m.iso)) {
+        const mv = ((s.baseMoves = s.baseMoves || {})[m.iso] = s.baseMoves[m.iso] || {}), b = (mv[m.to] = mv[m.to] || {});
+        UNITS.forEach(x => { if (m.units[x.key]) b[x.key] = (b[x.key] || 0) + m.units[x.key]; });
+        log(`📍 ${unitList(m.units)} reached ${m.to}.`, "info");
+        n++;
+      }
+      s.moves = s.moves.filter(x => x !== m);
+    });
+    return n;
+  }
+  // Advance the clock by `ms` real milliseconds (1 real minute = 1 game hour). At midnight the
+  // day's fighting resolves (endTurn). Returns { arrived, newDay }.
+  function tick(ms) {
+    const s = G.state;
+    if (!s.player || s.over || s.paused) return { arrived: 0, newDay: false };
+    s.clock = (s.clock || 0) + ms / 60000;
+    let arrivedN = arrivals(), newDay = false;
+    while (!s.over && s.clock >= s.turn * 24) { endTurn(); newDay = true; }
+    if (arrivedN || newDay) save();
+    else if (Math.random() < 0.1) save(); // keep the clock saved without writing every second
+    return { arrived: arrivedN, newDay };
+  }
+  function setPaused(p) { G.state.paused = !!p; save(); }
+
   function endTurn() {
     const err = ready(); if (err) return err;
     const s = G.state;
+    // A turn is one game day: the clock moves on to the start of the next day.
+    s.clock = Math.max(s.clock || 0, s.turn * 24);
     s.turn++;
-    // Armies arriving home stand down; arriving elsewhere they station or start fighting.
-    s.armies.filter(a => a.eta === s.turn).forEach(a => {
-      if (a.to === a.nat && owns(a.nat)) { disband(a.id); log(`🏠 Army ${a.id} is home in ${BY[a.nat].name} and back in reserve.`, "info"); }
-      else log(`📍 Army ${a.id} arrived in ${BY[a.to].name}.`, "info");
-    });
-    s.enemies.filter(e => e.vsPlayer && !e.detected && e.eta === s.turn).forEach(e => {
-      e.detected = true;
-      log(`💥 Surprise attack! ${BY[e.nat].name} struck ${BY[e.to].name} without warning: about ${unitList(fuzzUnits(e.units, e.nat))}. Better intelligence would have seen it coming.`, "bad");
-    });
+    arrivals();
     // Enemy armies go home when their target changed hands (no longer yours, now yours, or already theirs).
     s.enemies.filter(e => arrived(e) && (e.vsPlayer ? !owns(e.to) : owns(e.to) || s.owner[e.to] === e.nat)).forEach(e => {
       const f = forces(e.nat);
@@ -882,7 +1002,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    baseSource, moveUnits, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    baseSource, moveUnits, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
