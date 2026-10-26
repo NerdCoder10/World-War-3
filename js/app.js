@@ -345,11 +345,21 @@
   // propeller planes, tall tanks, gunboats), standard (modern-ish) and advanced (stealth jets,
   // low angular tanks, stealth destroyers). Colour follows the tier; poorly maintained forces
   // are drawn faded and grey.
+  // A marching soldier (side view): helmet, pack, rifle, swinging legs and arm, a slight bob.
+  function soldierSvg(helmet, rifle, armour) {
+    const swing = (from, to) => `<animateTransform attributeName="transform" type="rotate" values="${from} 11.6 14;${to} 11.6 14;${from} 11.6 14" dur="0.8s" repeatCount="indefinite"/>`;
+    return `<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -.5;0 0;0 -.5;0 0" dur="0.8s" repeatCount="indefinite"/>
+      ${helmet}<path d="M10.2 5.4h3.4v2h-3.4z"/><path d="M9 7.6h5.2l.6 6.6H9.2z"/><path d="M6.8 8h2.4v5H6.8z" opacity=".75"/>${armour || ""}
+      <g>${rifle}<path d="M12 8.2h1.6l1.4 3.6-1.3.5z"/>${swing(-14, 14).replace(/11\.6 14/g, "12.6 8.6")}</g>
+      <g opacity=".7"><path d="M10.6 13.6h2.2l-.2 7.6h-2z"/><path d="M10.4 21h3v1.4h-3z"/>${swing(-24, 24)}</g>
+      <g><path d="M10.6 13.6h2.2l-.2 7.6h-2z"/><path d="M10.4 21h3v1.4h-3z"/>${swing(24, -24)}</g></g>`;
+  }
   const ICONS = {
+    // Soldiers march: legs and arms swing and the body bobs (SVG animation, paused while the map moves).
     soldier: {
-      dated: '<path d="M9 4a3 3 0 0 1 6 0v1H9z"/><path d="M10 6h4v2h-4z"/><path d="M8 9h8l1 7h-2l-1 6h-4l-1-6H7z"/><path d="M17 8l4-6 1 1-4 6z"/>',
-      standard: '<path d="M8.5 5a3.5 3.5 0 0 1 7 0v1.5h-7z"/><path d="M10 7h4v2h-4z"/><path d="M7 10h10l1 6h-2l-1 6h-6l-1-6H6z"/><path d="M17 9.5h6V11h-6z"/>',
-      advanced: '<path d="M8 5a4 4 0 0 1 8 0v2H8z"/><path d="M10.5 1.2h3v2.6h-3z"/><path d="M10 8h4v1.5h-4z"/><path d="M6.5 10.5h11l.5 5.5h-2l-1 6h-7l-1-6H6z"/><path d="M9 12h6v3H9z" opacity=".45"/><path d="M17 11h6.5v1.5H17z"/><path d="M19.5 9.5h2v1.5h-2z"/>',
+      dated: soldierSvg('<path d="M8.6 3.6a3.4 2.6 0 0 1 6.8 0l.8.8H7.8z"/>', '<path d="M14 9.2l7.6-3.4.5 1-7.6 3.4z"/>'),
+      standard: soldierSvg('<path d="M8.8 4.4a3.2 3.4 0 0 1 6.4 0v.9H8.8z"/>', '<path d="M13.6 9.4h8.4v1.3h-8.4z"/><path d="M18.6 10.6h1.2v1.6h-1.2z"/>'),
+      advanced: soldierSvg('<path d="M8.6 4.6a3.4 3.6 0 0 1 6.8 0v1.1H8.6z"/><path d="M11 .6h2.2v2.2H11z"/>', '<path d="M13.4 9.3h9v1.4h-9z"/><path d="M17 8h2.4v1.3H17z"/><path d="M18.8 10.6h1.2v1.8h-1.2z"/>', '<path d="M9.2 8.4h4.6v3.8H9.2z" opacity=".45"/>'),
     },
     tank: {
       dated: '<path d="M3 14h18l-2 5H5z"/><path d="M8 8.5h7v5.5H8z"/><path d="M15 10.5h4.5V12H15z"/><circle cx="7" cy="17" r="1" opacity=".4"/><circle cx="12" cy="17" r="1" opacity=".4"/><circle cx="17" cy="17" r="1" opacity=".4"/>',
@@ -603,6 +613,9 @@
   const NAVAL = new Set(["ships", "subs", "carriers"]);
   const ENT_CAP = 12000;
   const entCache = new Map();
+  // Which units are down for maintenance: an even, fixed spread of each model's share that isn't
+  // mission-capable (js/models.js mcRate), drawn grey.
+  const inMaint = (j, down) => down > 0.001 && ((Math.imul(j + 1, 2654435761) >>> 0) % 1000) / 1000 < down;
   // Units at one base: [{id, key, model, n, iso, base, ox, oy}] with ox/oy in metres from the base.
   function entitiesOf(z) {
     const sig = z.iso + "|" + z.name + "|" + ENT_ORDER.map(k2 => Math.round((z.kit[k2] || 0) * (k2 === "troops" ? 10 : 1))).join(",");
@@ -647,9 +660,10 @@
       }
       let i = 0;
       g.models.forEach(([model, cnt]) => {
-        for (let left = cnt; left > 0; left -= per, i++) {
+        const down = 1 - window.mcRate(c, g.key, g.key === "troops" ? null : model);
+        for (let left = cnt, j = 0; left > 0; left -= per, i++, j++) {
           list.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, left), iso: z.iso, base: z.name,
-            ox: shelfX + (i % cols) * spx + spx / 2, oy: by + Math.floor(i / cols) * sp + sp / 2, sp });
+            ox: shelfX + (i % cols) * spx + spx / 2, oy: by + Math.floor(i / cols) * sp + sp / 2, sp, maint: inMaint(j, down) });
         }
       });
       shelfX += bw + 40; shelfH = Math.max(shelfH, bh + top);
@@ -666,7 +680,8 @@
     const anchor = named.length ? [d3.mean(named, sh => sh.at[0]), d3.mean(named, sh => sh.at[1])] : z.at;
     const fleet = [];
     groups.filter(g => NAVAL.has(g.key)).forEach(g => g.models.forEach(([model, cnt]) => {
-      for (let i = 0; i < Math.ceil(cnt / per); i++) fleet.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, cnt - i * per), iso: z.iso, base: z.name, sp: ENT_SP[g.key], naval: anchor });
+      const down = 1 - window.mcRate(c, g.key, model);
+      for (let i = 0; i < Math.ceil(cnt / per); i++) fleet.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, cnt - i * per), iso: z.iso, base: z.name, sp: ENT_SP[g.key], naval: anchor, maint: g.key !== "carriers" && inMaint(i, down) });
     }));
     // The named carriers sit at their own real positions and carry their names.
     fleet.filter(e => e.key === "carriers").forEach((e, i) => { const sh = named[i]; if (sh) { e.geo = sh.at; e.ship = sh; e.model = sh.cls + "-class carrier"; e.label = sh.name; } });
@@ -677,7 +692,7 @@
     const piers = fleet.filter(e => !e.geo);
     if (piers.length) { const rowsN = Math.ceil(piers.length / 10); for (let r2 = 0; r2 < rowsN; r2++) infra.push({ type: "pier", naval: anchor, x: -230, y: r2 * 240 + (named.length ? 420 : 0) + 125, w: 460, h: 14 }); }
     list.infra = infra;
-    list.forEach(e => { e.shape = window.unitShape(e.key, e.model); e.pal = window.unitPalette(e.iso, e.key); });
+    list.forEach(e => { e.shape = window.unitShape(e.key, e.model); e.pal = e.maint ? "maint" : window.unitPalette(e.iso, e.key); });
     list.per = per;
     if (entCache.size > 60) entCache.delete(entCache.keys().next().value);
     entCache.set(sig, list);
@@ -726,7 +741,8 @@
       clearTimeout(layerTimer); layerTimer = setTimeout(drawBaseCanvas, 180);
       return old;
     }
-    const ground = ents.filter(e => !e.geo && !e.naval), infra = (ents.infra || []).filter(b => !b.naval);
+    // Infantry squads aren't baked in: they're drawn each frame so they can march (drawEntities).
+    const ground = ents.filter(e => !e.geo && !e.naval && e.key !== "troops"), infra = (ents.infra || []).filter(b => !b.naval);
     if (!ground.length && !infra.length) return null;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     ground.forEach(e => { const L = groundLen(e, g) * 0.75 + 4; x0 = Math.min(x0, e.ox * g - L); y0 = Math.min(y0, e.oy * g - L); x1 = Math.max(x1, e.ox * g + L); y1 = Math.max(y1, e.oy * g + L); });
@@ -777,9 +793,13 @@
     }
   }
   // Draw units for the bases in view (up to 8 nearest the centre). Called from drawBaseCanvas.
+  // Squads in view march in step (4 frames, ~6 a second) while there aren't too many to redraw.
+  let marchTimer = null, lastMarching = 0;
   function drawEntities(ctx, t, w, h) {
     drawnBases = [];
     if (k < ENT_K) return;
+    let marching = 0;
+    const step = lastMarching > 0 && lastMarching < 3000 ? Math.floor(performance.now() / 160) % 4 : 0;
     const cx = w / 2, cy = h / 2;
     const near = otherBases.concat(myBases).map(z => ({ z, sx: t.applyX(z.xy[0]), sy: t.applyY(z.xy[1]) }))
       .filter(b => b.sx > -w && b.sx < 2 * w && b.sy > -h && b.sy < 2 * h)
@@ -799,10 +819,11 @@
         ctx.fillStyle = "rgba(190,186,176,0.85)"; ctx.fillRect(X, Y, p2.w * gN, Math.max(2, p2.h * gN));
       });
       for (const e of ents) {
-        if (layer && !e.geo && !e.naval) continue;
+        if (layer && !e.geo && !e.naval && e.key !== "troops") continue;
         const { sx, sy, L } = entPos(b, e, t);
         if (sx < -L || sx > w + L || sy < -L || sy > h + L) continue;
-        const sp = window.unitSprite(e.shape, e.pal, L, entSel.has(e.id), DPR);
+        if (e.key === "troops") marching++;
+        const sp = window.unitSprite(e.shape, e.pal, L, entSel.has(e.id), DPR, e.key === "troops" ? step : 0);
         ctx.drawImage(sp.canvas, sx - sp.dim / 2, sy - sp.dim / 2, sp.dim, sp.dim);
         if (e.label && L > 30) {
           ctx.font = "600 12px sans-serif"; ctx.textAlign = "center";
@@ -812,6 +833,8 @@
       }
     }
     ctx.globalAlpha = 1;
+    lastMarching = marching;
+    if (marching && marching < 3000 && !marchTimer && !document.hidden) marchTimer = setTimeout(() => { marchTimer = null; drawBaseCanvas(); }, 160);
   }
   // Units currently on screen with their positions (for hovering, clicking and box-selecting).
   function shownUnits() {
@@ -835,16 +858,30 @@
     if (G.canCommand(e.iso)) return `<div class="k">${G.owns(e.iso) ? "" : `Commanding ${esc(BY[e.iso].name)}'s forces · `}${entSel.has(e.id) ? "Selected · drag to move" : "Drag to move · click to select · shift-click to add · double-click: all of this model"}</div>`;
     return `<div class="k">${G.state.player ? `Conquer or buy ${esc(BY[e.iso].name)} to command these units.` : `Start a campaign as ${esc(BY[e.iso].name)} (or buy it) to command these units.`}</div>`;
   }
+  // A unit's top-down picture as a small image, for tooltips and lists.
+  const picCache = new Map();
+  function unitPic(shape, pal, size, cls) {
+    const key = shape + "|" + pal + "|" + (size || 56);
+    if (!picCache.has(key)) {
+      const sp = window.unitSprite(shape, pal, (size || 56) * 0.82, false, 2);
+      picCache.set(key, sp.canvas.toDataURL());
+    }
+    const px = size || 56;
+    return `<img class="${cls || "tipimg"}" src="${picCache.get(key)}" width="${px}" height="${px}" alt="">`;
+  }
+  // The marching soldier icon, larger, for tooltips.
+  const soldierPic = iso => `<svg class="tipimg soldierpic ${iconClass(iso)}" viewBox="0 0 24 24" width="52" height="52" aria-hidden="true"><use href="${iconHref("soldier", iso)}"/></svg>`;
   const specLine = (k2, v) => (v ? `<div class="k">${k2}: ${esc(v)}</div>` : "");
   function entTip(ev, e) {
     const c = BY[e.iso];
     if (e.key === "troops") {
-      tip.innerHTML = `<b>Infantry squad</b> <span class="k">${num(e.n * 10)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${unitHint(e)}`;
+      tip.innerHTML = `${soldierPic(e.iso)}<b>Infantry squad</b> <span class="k">${num(e.n * 10)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${unitHint(e)}`;
       return placeTip(ev);
     }
-    const m = window.modelSpec(e.key, e.model), sp = m.specs;
-    tip.innerHTML = `<b>${esc(e.label ? `${e.label} (${e.ship.hull})` : e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
-      <div class="k">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · readiness ${Math.round(c.tech.ready * 100)}%</div>
+    const m = window.modelSpec(e.key, e.model), sp = m.specs, mc = window.mcRate(c, e.key, e.ship ? null : e.model);
+    tip.innerHTML = `${unitPic(e.shape, window.unitPalette(e.iso, e.key))}<b>${esc(e.label ? `${e.label} (${e.ship.hull})` : e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
+      ${e.maint ? `<div class="k bad">🔧 In maintenance: not mission-capable right now</div>` : ""}
+      <div class="k">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · ${Math.round(mc * 100)}% of ${esc(c.name)}'s fleet of these mission-capable · readiness ${Math.round(c.tech.ready * 100)}%</div>
       <div class="tipnote">${specLine("Weapons", sp.arm)}${specLine("Speed", sp.speed)}${specLine("Range", sp.range)}${specLine("Protection", sp.protect)}${specLine("Crew", sp.crew)}</div>
       ${unitHint(e)}`;
     placeTip(ev);
@@ -880,26 +917,69 @@
   }
   // Moving units: (1) click a unit, several (shift-click, shift-drag) or "Select all units here";
   // (2) click the destination: another of your bases, or any country; (3) confirm. Nothing moves
-  // until you press Confirm, so a stray click is easily undone.
-  let pending = null; // { target: {base} | {country}, x, y, quote }
+  // until you press Confirm, so a stray click is easily undone. "+ Another destination" splits
+  // the selection: set how many of each kind go to each place, and all the orders go at once.
+  let pending = null; // { legs: [{ target: {base} | {country}, x, y, amt: {kind: n}, quote }], adding }
+  const SHORT = { troops: "soldiers", tanks: "tanks", afv: "AFVs", arty: "artillery", fighters: "fighters", aircraft: "aircraft", helis: "helicopters", ships: "ships", subs: "submarines", carriers: "carriers" };
+  // Counts as shown in the order bar (soldiers, not thousands) and back.
+  const toShown = (key, v) => (key === "troops" ? Math.round(v * 1000) : Math.round(v));
+  const fromShown = (key, v) => (key === "troops" ? v / 1000 : v);
+  // What's left of the selection once the other legs have taken their share.
+  function unassigned(sel, except) {
+    const left = { ...sel.units };
+    (pending ? pending.legs : []).forEach(l => { if (l !== except) Object.keys(left).forEach(k2 => (left[k2] = Math.max(0, left[k2] - (l.amt[k2] || 0)))); });
+    return left;
+  }
+  // Which models go with a leg: each kind split across its models in proportion, taken from `pool`.
+  function legModels(pool, amt) {
+    const out = {};
+    Object.keys(amt).forEach(k2 => {
+      const p = pool[k2]; if (!p || k2 === "troops") return;
+      let want = Math.round(amt[k2]);
+      const tot = Object.values(p).reduce((a, b) => a + b, 0), m = (out[k2] = {});
+      const ents = Object.entries(p).sort((a, b) => b[1] - a[1]);
+      ents.forEach(([name, cnt]) => { const n = Math.min(cnt, Math.floor((want * cnt) / Math.max(1, tot))); if (n > 0) m[name] = n; });
+      let rest = want - Object.values(m).reduce((a, b) => a + b, 0);
+      for (const [name, cnt] of ents) { if (rest <= 0) break; const add = Math.min(rest, cnt - (m[name] || 0)); if (add > 0) { m[name] = (m[name] || 0) + add; rest -= add; } }
+      Object.entries(m).forEach(([name, n]) => (p[name] -= n));
+    });
+    return out;
+  }
+  function quoteLeg(sel, leg) {
+    const units = {};
+    Object.keys(leg.amt).forEach(k2 => { if (leg.amt[k2] > 0) units[k2] = leg.amt[k2]; });
+    if (!Object.keys(units).length) return { err: "Nothing assigned to this destination." };
+    if (leg.target.base) return G.moveQuote(sel.iso, sel.base, leg.target.base.name, units);
+    const p = G.preview("b:" + sel.iso + "|" + sel.base, leg.target.country, units, sel.models);
+    return p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
+  }
+  const legDest = (sel, tg) => (tg.base ? tg.base.name : BY[tg.country].name + (G.state.owner[tg.country] === G.state.owner[sel.iso] ? "" : G.owns(tg.country) ? " (attacking you)" : " (invasion)"));
+  const legHow = q => (q.err ? `<b class="bad">${esc(q.err)}</b>` : `${Math.round(q.km).toLocaleString("en-US")} km${q.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[q.mode]}` : ""} · arrives in ${G.fmtDur(q.hours)} (${G.clockLabel((G.state.clock || 0) + q.hours)})`);
   function updateCmdbar() {
     const sel = selection();
-    if (!sel) { pending = null; cmdbar.hidden = true; wrap.classList.remove("targeting"); return; }
+    if (!sel) { pending = null; cmdbar.hidden = true; cmdbar.classList.remove("multi"); wrap.classList.remove("targeting"); return; }
     const power = G.rawPower(sel.units, sel.iso, sel.models);
     const byModel = {};
     sel.list.forEach(e => (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] = (byModel[e.key === "troops" ? "Infantry (soldiers)" : e.model] || 0) + (e.key === "troops" ? e.n * 10 : e.n)));
     const parts = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
     const count = num(sel.list.reduce((a, e) => a + (e.key === "troops" ? e.n * 10 : e.n), 0));
     cmdbar.hidden = false;
-    wrap.classList.toggle("targeting", !pending);
+    wrap.classList.toggle("targeting", !pending || pending.adding);
+    cmdbar.classList.toggle("multi", !!pending);
     const what = `<div class="hint">${parts.slice(0, 6).map(([m, n]) => `${num(n)} × ${esc(m)}`).join(" · ")}${parts.length > 6 ? ` · +${parts.length - 6} more` : ""}${clipped(sel) ? ` · access levels let only part of this go` : ""}</div>`;
     if (pending) {
-      const q = pending.quote, tg = pending.target;
-      const dest = tg.base ? tg.base.name : BY[tg.country].name + (G.state.owner[tg.country] === G.state.owner[sel.iso] ? "" : G.owns(tg.country) ? " (attacking you)" : " (invasion)");
-      const how = q.err ? `<b class="bad">${esc(q.err)}</b>` : `${Math.round(q.km).toLocaleString("en-US")} km${q.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[q.mode]}` : ""} · arrives in ${G.fmtDur(q.hours)} (${G.clockLabel((G.state.clock || 0) + q.hours)})`;
+      const kinds = window.UNITS.filter(u => sel.units[u.key] > 0).map(u => u.key);
       const whose = G.owns(sel.iso) ? "" : ` of ${esc(BY[sel.iso].name)}'s units`;
-      cmdbar.innerHTML = `<div><b>${tg.country && !G.owns(sel.iso) ? `Order ${esc(BY[sel.iso].name)} to send` : "Move"} ${count}${whose} from ${esc(sel.base)} to ${esc(dest)}?</b><div class="hint">${how}</div>${what}</div>
-        <button class="btn confirm" data-cmd="confirm" ${q.err ? "disabled" : ""}>Confirm</button><button class="btn ghost" data-cmd="cancel">Cancel</button>`;
+      const left = unassigned(sel), leftTxt = kinds.filter(k2 => toShown(k2, left[k2]) > 0).map(k2 => `${num(toShown(k2, left[k2]))} ${SHORT[k2]}`).join(", ");
+      const legs = pending.legs.map((l, i) => `<div class="leg" data-leg="${i}"><div class="lh"><b>→ ${esc(legDest(sel, l.target))}</b>${pending.legs.length > 1 ? `<button class="mini" data-cmd="drop" data-i="${i}" title="Remove this destination">×</button>` : ""}</div>
+        <div class="lamts">${kinds.map(k2 => `<label>${SHORT[k2]}<input type="number" min="0" step="${k2 === "troops" ? 10 : 1}" max="${toShown(k2, sel.units[k2])}" data-i="${i}" data-k="${k2}" value="${toShown(k2, l.amt[k2] || 0)}"></label>`).join("")}</div>
+        <div class="hint lq">${legHow(l.quote)}</div></div>`).join("");
+      const bad = pending.legs.some(l => l.quote.err);
+      cmdbar.innerHTML = `<div><b>${pending.legs.some(l => l.target.country) && !G.owns(sel.iso) ? `Orders for ${esc(BY[sel.iso].name)}` : "Move"}: ${count}${whose} from ${esc(sel.base)}</b>
+        <div class="legs">${legs}</div>
+        <div class="hint">${pending.adding ? `<span class="pick">Click another destination on the map</span> · ` : ""}${leftTxt ? `Staying at ${esc(sel.base)}: ${esc(leftTxt)}` : "Every selected unit has a destination."}</div>${what}</div>
+        <div class="cbtns"><button class="btn ghost" data-cmd="add" ${leftTxt ? "" : "disabled"} title="Split the selection: send some of it somewhere else">+ Another destination</button>
+        <button class="btn confirm" data-cmd="confirm" ${bad ? "disabled" : ""}>Confirm${pending.legs.length > 1 ? ` ${pending.legs.length} orders` : ""}</button><button class="btn ghost" data-cmd="cancel">Cancel</button></div>`;
     } else {
       cmdbar.innerHTML = `<div><b>${count} selected</b> at ${esc(sel.base)} · combat value ${power.toFixed(0)} · <span class="pick">now click a destination: one of your bases or any country</span>${what}</div>
         <button class="btn ghost" data-cmd="all">Select all here</button><button class="btn ghost" data-cmd="clear">Clear</button>`;
@@ -909,32 +989,62 @@
       const cmd = b.dataset.cmd;
       if (cmd === "confirm") executePending();
       else if (cmd === "cancel") { pending = null; updateCmdbar(); drawBaseCanvas(); }
+      else if (cmd === "add") { pending.adding = true; updateCmdbar(); }
+      else if (cmd === "drop") { pending.legs.splice(+b.dataset.i, 1); updateCmdbar(); drawBaseCanvas(); }
       else if (cmd === "clear") setSelection([]);
       else if (cmd === "all") selectAllAt(sel.iso, sel.base);
     }));
+    // Typing a number re-quotes that order without redrawing the bar (keeps the cursor in the box).
+    cmdbar.querySelectorAll(".lamts input").forEach(inp => {
+      inp.onclick = ev => ev.stopPropagation();
+      inp.oninput = () => {
+        const l = pending && pending.legs[+inp.dataset.i]; if (!l) return;
+        const k2 = inp.dataset.k, cap = unassigned(sel, l)[k2] || 0;
+        let v = fromShown(k2, Math.max(0, Number(inp.value) || 0));
+        if (v > cap + 1e-9) { v = cap; inp.value = toShown(k2, cap); }
+        l.amt[k2] = v;
+        l.quote = quoteLeg(sel, l);
+        const box = inp.closest(".leg").querySelector(".lq");
+        box.innerHTML = legHow(l.quote);
+        const left = unassigned(sel), leftTxt = Object.keys(sel.units).filter(k3 => toShown(k3, left[k3]) > 0).map(k3 => `${num(toShown(k3, left[k3]))} ${SHORT[k3]}`).join(", ");
+        const lh = cmdbar.querySelector(".legs + .hint");
+        if (lh) lh.innerHTML = `${pending.adding ? `<span class="pick">Click another destination on the map</span> · ` : ""}${leftTxt ? `Staying at ${esc(sel.base)}: ${esc(leftTxt)}` : "Every selected unit has a destination."}`;
+        cmdbar.querySelector("[data-cmd=add]").disabled = !leftTxt;
+        cmdbar.querySelector("[data-cmd=confirm]").disabled = pending.legs.some(x => x.quote.err);
+      };
+    });
   }
-  // Propose a destination for the selected units and show the confirm bar.
+  // Propose a destination for the selected units (a new order, or another leg of a split order).
   function propose(target, x, y) {
     const sel = selection();
     if (!sel || !target) return;
-    let quote;
-    if (target.base) quote = G.moveQuote(sel.iso, sel.base, target.base.name, sel.units);
-    else {
-      const p = G.preview("b:" + sel.iso + "|" + sel.base, target.country, sel.units, sel.models);
-      quote = p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
-    }
-    pending = { target, x, y, quote };
+    const adding = pending && pending.adding;
+    if (adding && pending.legs.some(l => (l.target.base && target.base ? l.target.base.name === target.base.name : l.target.country === target.country && !l.target.base && !target.base))) return toast("That destination already has an order: change its numbers instead.");
+    const leg = { target, x, y, amt: adding ? unassigned(sel) : { ...sel.units } };
+    if (!adding) pending = { legs: [] };
+    pending.adding = false;
+    pending.legs.push(leg);
+    leg.quote = quoteLeg(sel, leg);
     updateCmdbar();
     drawBaseCanvas();
   }
+  // Carry out every order in the bar, in turn (each takes its share of the selected models).
   function executePending() {
     const sel = selection(), pd = pending;
-    if (!sel || !pd || pd.quote.err) return;
+    if (!sel || !pd || pd.legs.some(l => l.quote.err)) return;
     pending = null;
-    if (pd.target.country) return sendSelection(pd.target.country);
-    const err = G.moveUnits(sel.iso, sel.base, pd.target.base.name, sel.units);
-    if (err) return toast(err);
-    toast(G.state.log[0].msg + (G.state.paused ? " The clock is paused: press ▶ to let them move." : ""));
+    const pool = JSON.parse(JSON.stringify(sel.models)), msgs = [];
+    for (const l of pd.legs) {
+      const units = {};
+      Object.keys(l.amt).forEach(k2 => { if (l.amt[k2] > 0) units[k2] = l.amt[k2]; });
+      if (!Object.keys(units).length) continue;
+      const models = legModels(pool, units);
+      const err = l.target.base ? G.moveUnits(sel.iso, sel.base, l.target.base.name, units) : G.dispatch("b:" + sel.iso + "|" + sel.base, l.target.country, units, models);
+      if (err) { toast(err); break; }
+      msgs.push(G.state.log[0].msg);
+    }
+    if (msgs.length) toast((msgs.length > 1 ? `${msgs.length} orders sent. ` : "") + msgs[msgs.length - 1] + (G.state.paused ? " The clock is paused: press ▶ to let them move." : ""));
+    targeting = false;
     setSelection([]);
     drawDeploy(); refresh();
   }
@@ -960,17 +1070,6 @@
     const z = (iso === selected ? myBases : otherBases).find(x => x.iso === iso && x.name === base);
     if (!z || !G.canCommand(iso)) return;
     setSelection(entitiesOf(z).filter(e => (!key || e.key === key) && (!model || e.model === model)));
-  }
-  // Send the selected units to the country clicked.
-  function sendSelection(to) {
-    const sel = selection();
-    if (!sel) return;
-    const err = G.dispatch("b:" + sel.iso + "|" + sel.base, to, sel.units, sel.models);
-    if (err) { toast(err); return; }
-    toast(G.state.log[0].msg);
-    targeting = false;
-    setSelection([]);
-    drawDeploy(); refresh();
   }
   function countryAt(e) {
     // The country shape under the pointer (what you see), then the exact geography.
@@ -1135,38 +1234,39 @@
     if (!sel || !d.target) return toast("Drop the units on one of your bases, or on another country to send them there.");
     propose(d.target, d.x, d.y); // dropping asks for confirmation too
   });
-  // The drag arrow, drawn on the base canvas.
+  // The drag arrow (or one arrow per order awaiting confirmation), drawn on the base canvas.
   function drawDrag(ctx) {
     const live = drag && drag.on;
     if (!live && !pending) return;
     const t = d3.zoomTransform(svg.node()), sel = selection();
     if (!sel) return;
     const pts = shownUnits().filter(d => entSel.has(d.e.id));
-    // The arrow starts at the selected units (or their base marker) and ends at the destination.
+    // Arrows start at the selected units (or their base marker) and end at the destination.
     const src = (sel.iso === selected ? myBases : otherBases).find(z => z.iso === sel.iso && z.name === sel.base);
     const cx = pts.length ? pts.reduce((a, d) => a + d.sx, 0) / pts.length : src ? t.applyX(src.xy[0]) : drag.x0;
     const cy = pts.length ? pts.reduce((a, d) => a + d.sy, 0) / pts.length : src ? t.applyY(src.xy[1]) : drag.y0;
-    const tg = live ? drag.target : pending.target;
-    const end = live ? [drag.x, drag.y] : tg.base ? [t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1])] : [pending.x, pending.y];
-    const [ex, ey] = end;
-    const label = !tg ? "Drop on a base or a country" : `${live ? "" : "Confirm: "}${tg.base ? `redeploy to ${tg.base.name}` : `send to ${BY[tg.country].name}${G.owns(tg.country) ? "" : " (invade)"}`}`;
+    const arrows = live ? [{ tg: drag.target, end: [drag.x, drag.y] }] : pending.legs.map(l => ({ tg: l.target, end: l.target.base ? [t.applyX(l.target.base.xy[0]), t.applyY(l.target.base.xy[1])] : [l.x, l.y] }));
     ctx.save();
-    // Dark casing under a bright dashed line, so the route shows on any imagery.
-    ctx.strokeStyle = "rgba(12,19,22,0.85)"; ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.strokeStyle = tg ? (tg.country && !G.owns(tg.country) ? COL.danger : COL.brass) : "#ffffffcc";
-    ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.setLineDash([]);
-    const ang = Math.atan2(ey - cy, ex - cx);
-    ctx.beginPath(); ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 14 * Math.cos(ang - 0.4), ey - 14 * Math.sin(ang - 0.4));
-    ctx.lineTo(ex - 14 * Math.cos(ang + 0.4), ey - 14 * Math.sin(ang + 0.4));
-    ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
-    ctx.font = "600 13px sans-serif"; ctx.textAlign = "left";
-    ctx.lineWidth = 4; ctx.strokeStyle = "#0c1316"; ctx.strokeText(label, ex + 14, ey - 10);
-    ctx.fillStyle = "#fff"; ctx.fillText(label, ex + 14, ey - 10);
-    if (tg && tg.base) { ctx.beginPath(); ctx.arc(t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1]), 18, 0, 2 * Math.PI); ctx.lineWidth = 3; ctx.strokeStyle = COL.brass; ctx.stroke(); }
+    for (const { tg, end } of arrows) {
+      const [ex, ey] = end;
+      const label = !tg ? "Drop on a base or a country" : `${live ? "" : "Confirm: "}${tg.base ? `redeploy to ${tg.base.name}` : `send to ${BY[tg.country].name}${G.owns(tg.country) ? "" : " (invade)"}`}`;
+      // Dark casing under a bright dashed line, so the route shows on any imagery.
+      ctx.strokeStyle = "rgba(12,19,22,0.85)"; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.strokeStyle = tg ? (tg.country && !G.owns(tg.country) ? COL.danger : COL.brass) : "#ffffffcc";
+      ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.setLineDash([]);
+      const ang = Math.atan2(ey - cy, ex - cx);
+      ctx.beginPath(); ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - 14 * Math.cos(ang - 0.4), ey - 14 * Math.sin(ang - 0.4));
+      ctx.lineTo(ex - 14 * Math.cos(ang + 0.4), ey - 14 * Math.sin(ang + 0.4));
+      ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+      ctx.font = "600 13px sans-serif"; ctx.textAlign = "left";
+      ctx.lineWidth = 4; ctx.strokeStyle = "#0c1316"; ctx.strokeText(label, ex + 14, ey - 10);
+      ctx.fillStyle = "#fff"; ctx.fillText(label, ex + 14, ey - 10);
+      if (tg && tg.base) { ctx.beginPath(); ctx.arc(t.applyX(tg.base.xy[0]), t.applyY(tg.base.xy[1]), 18, 0, 2 * Math.PI); ctx.lineWidth = 3; ctx.strokeStyle = COL.brass; ctx.stroke(); }
+    }
     ctx.restore();
   }
   // ── Terrain ───────────────────────────────────────────────
@@ -1606,7 +1706,7 @@
     // every 150 ms (and at the end of the gesture) in Fast mode. In between they scale with the map.
     drawBaseCanvas();
     if (Q.live || performance.now() - lastPlace > 150) placeMarkers();
-  }).on("start", () => hideTip()).on("end", () => { placeMarkers(); liftBases(); });
+  }).on("start", () => { hideTip(); svg.node().pauseAnimations(); }).on("end", () => { placeMarkers(); liftBases(); svg.node().unpauseAnimations(); });
   let lastPlace = 0;
   function placeMarkers() {
     lastPlace = performance.now();
@@ -1936,7 +2036,7 @@
     return window.UNITS.filter(u => (u.key === "troops" ? units.troops >= 0.05 : units[u.key] >= 1)).map(u => {
       const icon = `<svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-${KIT_ICON[u.key]}-${window.techTier(effGen(c.iso3))}"/></svg>`;
       const body = u.key === "troops" ? `${kPers(units.troops)} troops: ${esc(c.equipment.small)}` :
-        `${esc(u.label)}: ${window.splitModels(c, u.key, Math.round(units[u.key])).map(m => `${num(m[1])} ${esc(m[0])} <small title="Combat value per unit vs a typical ${esc(u.label.toLowerCase())}">×${window.modelSpec(u.key, m[0]).mult}</small>`).join(", ") || num(units[u.key])}`;
+        `${esc(u.label)}: ${window.splitModels(c, u.key, Math.round(units[u.key])).map(m => `${unitPic(window.unitShape(u.key, m[0]), window.unitPalette(c.iso3, u.key), 24, "mpic")}${num(m[1])} ${esc(m[0])} <small title="Combat value per unit vs a typical ${esc(u.label.toLowerCase())}">×${window.modelSpec(u.key, m[0]).mult}</small>`).join(", ") || num(units[u.key])}`;
       return `<div class="mline">${icon}<span>${body}</span></div>`;
     }).join("");
   }
@@ -2374,7 +2474,8 @@
           G.state.player ? `Your estimates of ${esc(c.name)}'s forces are off by up to ±${Math.round(G.intelError(c.iso3) * 100)}% (your intelligence ${G.myIntel().toFixed(1)} against its counter-intelligence ${ip.counter}).` : ""}</p></div>`;
     const equipHtml = `<div class="section"><h3>Equipment <span class="tag">${c.equipSource === "researched" ? "researched" : esc(c.equipSource.replace("_", " ")) + " template"}</span></h3>
         <div class="bc-models">${modelLines(c, G.baseForces(c))}</div>
-        <p class="hint">×N is each model's combat value against a typical unit of its kind (a 4th-gen tank ×1.8, a 1950s T-55 ×0.45; an F-35 ×2.2, a MiG-21 ×0.45). Readiness (${Math.round(c.tech.ready * 100)}%) then scales all of it. Zoom into a base to inspect every unit's specs.</p></div>`;
+        <p class="mcline">🔧 <b>Mission-capable</b> (the rest is in maintenance and can't fight): ${window.UNITS.filter(u => u.key !== "troops" && G.baseForces(c)[u.key] >= 1).map(u => `${esc(u.label.toLowerCase())} <b>${Math.round(window.mcRate(c, u.key) * 100)}%</b>`).join(" · ")}</p>
+        <p class="hint">×N is each model's combat value against a typical unit of its kind (a 4th-gen tank ×1.8, a 1950s T-55 ×0.45; an F-35 ×2.2, a MiG-21 ×0.45). Only the mission-capable share fights: it follows readiness (${Math.round(c.tech.ready * 100)}%: maintenance, spare parts, funding) and is lower for maintenance-heavy models (F-35, F-22, B-1) and worn-out ones (MiG-21, T-55, anything in reserve). Zoom into a base to inspect every unit's specs; units in maintenance are grey with an orange marker.</p></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p>

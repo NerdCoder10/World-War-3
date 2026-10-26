@@ -139,8 +139,48 @@
     for (const m in models) { n += models[m]; s += models[m] * window.modelSpec(key, m).mult; }
     return n ? s / n : window.modelMult(c, key);
   };
-  // Quality of one kind of unit for a country: troops by the country's technology generation,
-  // equipment by its actual models; both scaled by readiness (maintenance, spares, training).
+  // ── Maintenance ──
+  // Not every unit is ready to fight on a given day: some are in depot overhaul, waiting for
+  // spares or grounded. The mission-capable rate of each kind follows the country's readiness
+  // (maintenance, spares, funding) and is lower for complex or worn-out models. Benchmarks:
+  // USAF fighter fleet ~70% (F-35 ~55%, F-22 ~50%, B-1 ~40%), US Army armour ~85–90%,
+  // US Navy attack submarines ~60–65% (shipyard backlog); Russian and other less funded forces lower.
+  const MC_BASE = { troops: [1, 0], tanks: [0.3, 0.65], afv: [0.3, 0.65], arty: [0.3, 0.65], fighters: [0.1, 0.75], aircraft: [0.1, 0.75], helis: [0.1, 0.7], ships: [0.25, 0.65], subs: [0.1, 0.6], carriers: [0.2, 0.6] };
+  const MC_MODEL = [
+    [/F-22/, 0.68], [/F-35/, 0.72], [/B-1/, 0.55], [/B-2/, 0.65], [/V-22|Osprey/, 0.8], [/Tu-160|Tu-95|Tu-22/, 0.8],
+    [/Su-57|T-14|Armata|prototype/i, 0.6], [/retir|reserve|storage|few flyable|training\)/i, 0.55],
+    [/MiG-1[579]|MiG-2[13]|F-4|Su-2[24]|Il-28|H-5|Q-5|A-5|F-5|J-7|F-7|Mirage (III|F1)|T-5[45]|T-62|Type 59|Type 69|M48|M60|AMX-30|Chieftain|Leopard 1|PT-76|Type 6[23]|Kilo|Foxtrot|Romeo/i, 0.85],
+  ];
+  const mcCache = {};
+  // Share of one model (or a kind, averaged over the country's mix) that is mission-capable.
+  window.mcRate = (c, key, model) => {
+    const ck = c.iso3 + "|" + key + "|" + (model || "");
+    if (ck in mcCache) return mcCache[ck];
+    const [b, r] = MC_BASE[key] || [0.3, 0.6];
+    if (key === "troops") return (mcCache[ck] = 1);
+    if (!model) {
+      const list = (c.equipment && c.equipment[key]) || [], tot = list.reduce((a, m) => a + m[1], 0);
+      if (tot) return (mcCache[ck] = list.reduce((a, m) => a + m[1] * window.mcRate(c, key, m[0]), 0) / tot);
+    }
+    const f = model ? (MC_MODEL.find(x => x[0].test(model)) || [0, 1])[1] : 1;
+    return (mcCache[ck] = Math.max(0.15, Math.min(0.95, (b + r * c.tech.ready) * f)));
+  };
+  // Average combat value × availability of a kind: from given model counts, or the country's mix.
+  const valCache = {};
+  function fieldValue(c, key, models) {
+    if (!models) {
+      const ck = c.iso3 + "|" + key;
+      if (ck in valCache) return valCache[ck];
+      const list = (c.equipment && c.equipment[key]) || [], tot = list.reduce((a, m) => a + m[1], 0);
+      return (valCache[ck] = tot ? list.reduce((a, m) => a + m[1] * window.modelSpec(key, m[0]).mult * window.mcRate(c, key, m[0]), 0) / tot : window.mcRate(c, key));
+    }
+    let n = 0, s = 0;
+    for (const m in models) { n += models[m]; s += models[m] * window.modelSpec(key, m).mult * window.mcRate(c, key, m); }
+    return n ? s / n : fieldValue(c, key);
+  }
+  // Quality of one kind of unit for a country: troops by the country's technology generation and
+  // readiness; equipment by its actual models, only the mission-capable share of which can fight,
+  // and that share's crews and supplies (the rest of readiness).
   window.unitQuality = (c, key, models) =>
-    (key === "troops" ? 0.35 + 0.13 * c.tech.gen : 0.8 * window.modelMult(c, key, models)) * (0.4 + 0.6 * c.tech.ready);
+    key === "troops" ? (0.35 + 0.13 * c.tech.gen) * (0.4 + 0.6 * c.tech.ready) : 0.8 * fieldValue(c, key, models) * (0.75 + 0.25 * c.tech.ready);
 })();

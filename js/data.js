@@ -127,7 +127,7 @@ window.COUNTRY_ROWS = [
 ["BTN","BT","064","Bhutan","Asia",0.79,3,0.04,8,0,0,20,0,0,0,2,0,0,0,0,35,"Gross National Happiness, carbon-negative Himalayan kingdom"],
 ["BRN","BN","096","Brunei","Asia",0.46,15.5,0.45,7,1,0,60,30,20,0,15,15,0,0,0,25,"Sultanate wealth, Malay Islamic monarchy"],
 ["KHM","KH","116","Cambodia","Asia",17.5,50,1.3,125,0,300,400,450,30,0,20,20,0,0,0,30,"Angkor Wat, Khmer classical dance"],
-["CHN","CN","156","China","Asia",1410,19400,249,2035,510,5000,35000,9500,3300,1300,950,750,70,3,600,72,"5,000-year civilisation, Confucius Institutes, TikTok, cuisine, Belt & Road"],
+["CHN","CN","156","China","Asia",1410,19400,249,2035,510,5000,35000,9500,3300,1580,950,750,61,3,600,72,"5,000-year civilisation, Confucius Institutes, TikTok, cuisine, Belt & Road"],
 ["GEO","GE","268","Georgia","Asia",3.7,34,0.4,20,0,120,300,200,40,3,30,20,0,0,0,34,"Wine birthplace (8,000 yrs), polyphonic singing, supra feasts"],
 ["IND","IN","356","India","Asia",1460,4190,79,1450,1150,4200,9000,9000,2230,600,900,290,18,2,180,55,"Bollywood, yoga, cricket (IPL), cuisine, diaspora CEOs, spirituality"],
 ["IDN","ID","360","Indonesia","Asia",285,1430,10,400,400,330,1700,700,470,40,190,330,4,0,0,45,"Bali tourism, batik, gamelan, largest Muslim democracy"],

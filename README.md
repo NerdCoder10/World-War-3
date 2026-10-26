@@ -21,12 +21,20 @@ At street level (past 25×) the country colour wash fades to 30% so the imagery 
 
 **Individual units at base zoom.** Zoom in past 1,500× on a base and its forces split into separate units at real counts. Every tank, armoured vehicle, gun, helicopter, jet, transport, ship and submarine is its own unit, and infantry shows as 10-soldier squads. Fort Cavazos alone shows about 3,300 squads and 3,400 vehicles and aircraft. Only bases with more than 12,000 units group a few per icon (×N).
 
-Units are drawn top-down, as they look in satellite photos (`js/sprites.js`), with a soft sun shadow and a thin outline:
-- **Tanks** come Western-style (angular turret with a rear bustle) or Soviet-style (round turret).
-- **Other ground vehicles** are tracked IFVs, 8×8 wheeled vehicles, MRAP trucks, self-propelled guns, rocket launchers, towed guns and mortars.
-- **Aircraft** are stealth, delta and twin-tail fighters, transports with four engines, AEW planes with radar domes, bombers and the B-2 flying wing, drones, and helicopters with rotor discs (Chinooks with two).
-- **Ships** are destroyers, frigates, corvettes, amphibious ships and submarines.
-- **Carriers** have angled flight decks.
+Units are drawn top-down, as they look in satellite photos (`js/sprites.js`), with a soft sun shadow and a thin outline. **Each model gets its own picture**, drawn from its real planform and proportions (length, span, rotor size), so an F-16 looks like an F-16 and a Su-27 like a Su-27:
+- **Fighters:** the F-16, F-15, F-35, F-22, F/A-18, F-14, F-4, F-5/T-38, A-10, Harrier, Su-27/30/35 (with canards on the Su-30MKI/SM), Su-34, Su-57, Su-25, MiG-21, MiG-29, MiG-31, J-10, J-20, JF-17, Rafale, Typhoon, Gripen, Mirage 2000, Kfir, Tejas, and swing-wings such as the Tornado, Su-24 and MiG-23.
+- **Large aircraft:**
+  - bombers: the B-52, B-1B / Tu-160 / Tu-22M3, the B-2 at its true 52 m span, the Tu-95 and the H-6;
+  - transports: the C-17 / Il-76 / Y-20, A400M, C-130 / Y-9, KC-390, and twin-prop C-295 / An-26 types;
+  - tankers and patrol: the KC-135, KC-46 / A330 MRTT and P-8;
+  - early warning: the E-3 / A-50 radar domes, the E-7 and Erieye "top hat", and the E-2;
+  - others: business-jet ISR, MQ-9 / TB2 / Global Hawk drones and the Shahed.
+- **Helicopters:** real rotor size and blade count (Black Hawk 4, Mi-8 5, CH-53 7), coaxial Kamovs, the tandem Chinook, and gunships with stub wings (Apache, Mi-24, Mi-28, Tiger, Cobra).
+- **Tanks:** the Abrams, Leopard 2 (wedge turret), Challenger, Leclerc, Merkava (turret at the back), T-72/T-90 and T-80 (round turret with reactive armour), T-55, M60, Leopard 1, Type 99, T-14 and light tanks.
+- **Other ground vehicles:** tracked IFVs, 8×8 wheeled vehicles, MRAP trucks, self-propelled guns, rocket launchers, towed guns and mortars.
+- **Ships:** destroyers, frigates, corvettes, amphibious ships, submarines, and carriers with angled flight decks.
+
+The same pictures appear in unit tooltips and next to every model in base cards and the dossier's Equipment list. **Infantry squads march:** their 10 soldiers step in time at base zoom, and the soldier icon on bases and in tooltips is an animated marching soldier (paused while the map moves, so zooming stays smooth).
 
 Vehicles are painted woodland olive, or desert tan for Middle Eastern and North African armies. Ships are haze grey and aircraft air-superiority grey. Each shape is drawn to the model's real length, and ground vehicles are exaggerated a little so they read clearly.
 
@@ -40,6 +48,7 @@ Vehicles park side by side in motor-pool rows. Warships moor in rows at true sca
    - or press *Select units to move* on the base card for the whole base.
 2. **Click the destination.** Another of your bases (click its marker) redeploys them inside the country. Any other country sends them as an army. Clicking a base marker anywhere, even one just offshore, means its country.
 3. A bar shows the move: how many units, the route, distance and arrival time, with the reason if it can't happen. A dashed arrow on the map shows where they'll go. Nothing moves until you press **Confirm**, so a stray click is undone with **Cancel** or Esc.
+4. **To split a selection over several places,** press **+ Another destination** and click the next one. Each destination has a box for each kind of unit selected (soldiers, tanks, AFVs, artillery, aircraft and so on). Type how many go there. Whatever you don't assign stays at the base, and the bar can't hand out more than you selected. Each order shows its own route and arrival time. **Confirm** sends them all at once, and each takes its share of the selected models. × removes a destination. For example, send 1,000 soldiers to another base and the rest to invade a neighbour.
 
 Dragging units, or a whole base marker, also works, with a mouse or by touch, and stops at the same confirm step. Before you start a campaign, clicking units explains that commanding needs one, with a *Play as* button when that nation is playable.
 
@@ -96,7 +105,17 @@ The command bar shows what's selected and its combat value. Press **Send to…**
 | Submarines | Virginia / Astute / Yasen ×2.2 · modern AIP boats ×1.0 · old diesel boats ×0.5 |
 | Carriers | Ford ×1.25 · Nimitz ×1.15 · ski-jump carriers ×0.45 · Kuznetsov in refit ×0.1 |
 
-A unit's combat power is its kind's base power × its model's value × 0.8, times the country's readiness, so badly maintained modern kit still fights below its paper value. Infantry quality follows the country's technology generation. Armies remember the exact models they were sent with. The dossier's Equipment list shows each model's value.
+A unit's combat power is its kind's base power × its model's value × 0.8 × the share that is **mission-capable** × (0.75 + 0.25 × readiness for crews and supplies). Badly maintained modern kit therefore fights below its paper value.
+
+**Maintenance.** On any day part of every fleet is in depot overhaul, waiting for spares or grounded. Each kind's mission-capable rate follows the country's readiness (`js/models.js` `mcRate`):
+- ground vehicles: 0.30 + 0.65 × readiness;
+- fixed-wing aircraft: 0.10 + 0.75 × readiness;
+- helicopters: 0.10 + 0.70 × readiness;
+- surface ships: 0.25 + 0.65 × readiness;
+- submarines: 0.10 + 0.60 × readiness;
+- carriers: 0.20 + 0.60 × readiness.
+
+Maintenance-heavy models are lower: the F-35 ×0.72, F-22 ×0.68 and B-1 ×0.55, matching USAF rates of about 55%, 50% and 40%. Worn-out types (MiG-21, T-55, F-4…) are ×0.85, and anything in reserve, storage or "retiring" ×0.55. That makes the US fighter fleet about 71% mission-capable, its armour 89% and its submarines 64% (the shipyard backlog). China's are about 65%, 71% and 55%, Russia's 50%, 60% and 40%, and North Korea's 35%, 49% and 32%. The dossier lists each kind's rate. At base zoom, the units in maintenance are grey with an orange marker, an even spread of each model's down share. Infantry quality follows the country's technology generation. Armies remember the exact models they were sent with. The dossier's Equipment list shows each model's value.
 
 **Capital ships for every navy.** All 42 named carriers, assault ships and flagships (13 navies) are always on the map, drawn above the bases so they're no longer hidden at shared ports. Their names show from 6× zoom; ships not in service are drawn dashed in orange. Click one for its capabilities.
 
@@ -193,7 +212,7 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
 
 ## Data & methodology
 
-- `js/data.js`: one row per country. Sources: IMF WEO 2025 (GDP), UN WPP (population), SIPRI, IISS Military Balance and national budgets (defence spending), IISS and Global Firepower-style active inventories (equipment), FAS Nuclear Notebook (warheads), and Brand Finance Global Soft Power-style rankings (soft power). All figures are rounded estimates.
+- `js/data.js`: one row per country. Sources: IMF WEO 2025 (GDP), UN WPP (population), SIPRI, IISS Military Balance and national budgets (defence spending), IISS and Global Firepower-style active inventories (equipment), FAS Nuclear Notebook (warheads), and Brand Finance Global Soft Power-style rankings (soft power). All figures are rounded estimates. The major militaries were re-checked against IISS Military Balance 2025 and Global Firepower 2025. China was corrected to 1,580 fighter and attack aircraft (1,212 fighters plus 371 attack) and 61 submarines.
 - `js/intel.js`: researched "secret asset" profiles for about 80 countries, plus alliances and the mapping of overseas territories to their sovereign states.
 - `js/economy.js`: the world asset totals behind the valuation, natural-resource endowments, the weapon catalogue with unit costs, coin prices and promo codes.
 - `js/model.js`: the scoring.
