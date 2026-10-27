@@ -71,6 +71,29 @@ Warships moor in rows at true scale by the piers. Each navy's named carriers (`j
 
 Dragging units, or a whole base marker, also works, with a mouse or by touch, and stops at the same confirm step. Before you start a campaign, clicking units explains that commanding needs one, with a *Play as* button when that nation is playable.
 
+**Logistics.** A country's logistics rating (0–10) decides how well its armies are supplied and how fast they move. The US is the only 10: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent. The UK and France are 8, China 7, Russia 6, and most others lower.
+- **Supply:** an invading army loses strength with distance from home, in proportion to how far its logistics fall short of 10. The loss reaches up to 35% at 2,500 km overland and 50% at 9,000 km by sea. Harsh terrain at the destination makes it worse (×1 to ×1.6).
+  - The US fights at full strength anywhere.
+  - Russia keeps about 94% invading Ukraine next door but only about 75% in the Caribbean.
+  - Iran keeps about 85% attacking Saudi Arabia.
+- **Travel time:** times are ×(1.3 − 0.03 × logistics). The US moves at ×1.0, Russia ×1.12 and North Korea ×1.21.
+- **Airlift:** the share of a country's transport fleet free for an airlift scales with logistics, from 40% of the US share at logistics 0 to 100% at 10.
+
+The dossier's military profile shows each country's supply reach, travel speed and airlift. The send preview shows the supply multiplier for that exact route.
+
+**Terrain.** Every country is rated 0–10 on mountains, forest or jungle, desert, cold and dense cities (`js/terrain.js`: about 175 countries, with a regional mix for the rest).
+- **Defence:** defenders fight ×(1 + 0.25 mountains + 0.15 forest + 0.1 cold + 0.1 cities), up to ×1.5. Switzerland is ×1.36, Taiwan ×1.35, Afghanistan ×1.28 and Vietnam ×1.26, while Saudi Arabia is only ×1.07.
+- **Unit types:** an invader's units fight according to the ground.
+  - Tanks lose up to a quarter of their strength in mountains and a fifth in jungle, but do slightly better in open desert. Tanks invading Taiwan fight ×0.62, Afghanistan ×0.79 and Saudi Arabia ×1.02.
+  - Armoured vehicles and artillery suffer less.
+  - Jungle canopy and mountains hide targets from aircraft.
+  - Helicopters lose lift in thin mountain air.
+
+  So an armour-heavy army is the right tool for the Gulf and the wrong one for the Himalaya.
+- **Supply:** harsh terrain also stretches supply lines.
+
+The dossier shows each country's terrain bars and these multipliers, and the send preview shows how your actual army will fight there.
+
 **Fortified borders.** Every land border is rated from 1 (open) to 10 (the Korean DMZ) from what's really built there in 2025 (`js/borders.js`):
 - **9–10:** the DMZ (4 km of minefields, fences and tank traps) and the Ukrainian front's belts of trenches, minefields and dragon's teeth.
 - **7–9:** Israel's walls and barriers, the India–Pakistan Line of Control fence, Poland's steel wall and East Shield, the Baltic Defence Line, Finland's eastern fence, Turkey's 830 km Syria wall, Saudi Arabia's Iraq and Yemen barriers, the closed Morocco–Algeria border, Pakistan's Durand Line fence, and Kuwait's barrier with Iraq.
@@ -233,7 +256,7 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
 
 **Wars between AI countries.** The rest of the world fights too. From turn 3, long-running rivals (Russia–Ukraine, Israel–Iran, Rwanda–DR Congo, Pakistan–Afghanistan, India–Pakistan, Armenia–Azerbaijan, Ethiopia–Eritrea, Sudan–South Sudan, the two Koreas, China–Taiwan and others) build tension every day. The rate depends on how hot the rivalry really is: Russia–Ukraine, an ongoing war, flares within days, while Greece–Turkey takes about 200. When it boils over, the stronger side attacks. There are no random opportunistic invasions. At most six AI wars run at once. They use the same armies and turn-by-turn battles as yours (purple routes and markers on the map), and a country falls when 80% of its forces are destroyed. Conquered countries are shaded purple on the Campaign map, and you can invade them to take them yourself. The Campaign tab lists every world conflict.
 
-**Military profile.** Every country rates 0–10 on patriotism, training, combat experience, logistics, leadership and corruption. About 90 are researched in `js/techlevels.js`, and the rest are estimated from wealth and recent conflicts. Training, experience and leadership raise every unit's skill and corruption lowers it. Patriotism strengthens defence, and logistics decides how well an army fights away from home (overland or, more so, across the sea). Russia, for example, has combat experience but high corruption and middling training, for a unit skill of ×0.86. The US is ×1.09.
+**Military profile.** Every country rates 0–10 on patriotism, training, combat experience, logistics, leadership and corruption. About 90 are researched in `js/techlevels.js`, and the rest are estimated from wealth and recent conflicts. Training, experience and leadership raise every unit's skill and corruption lowers it. Patriotism strengthens defence. Logistics is covered below. Russia, for example, has combat experience but high corruption and middling training, for a unit skill of ×0.86. The US is ×1.09.
 
 **Fronts.** An invasion doesn't flip a country in one go. The ground the attacker holds is drawn as a ragged wave spreading from where it crossed in (the border or coast point nearest the attacker) across the country, with a marching front line at its edge. It advances as the defenders are worn down: gold for your invasions, red for attacks on you and purple for wars between other countries. A nation of yours that is being invaded loses income in proportion to the ground the enemy holds.
 

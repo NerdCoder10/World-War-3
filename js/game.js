@@ -235,7 +235,24 @@
   // Fixed fortification of a country's bases (js/app.js nationFort, 1–10): every point above 3
   // adds 4% to its defence, so a 10/10 tunnel network defends about 28% harder.
   const fortMult = iso => (window.nationFort ? Math.max(0.96, Math.min(1.3, 1 + 0.04 * (window.nationFort(iso) - 3))) : 1);
-  const reach = (iso, sea) => (sea ? ms(iso).far : ms(iso).near);
+  // ── Logistics and terrain ──
+  // Supply: an army fighting away from home loses strength with distance, in proportion to how far
+  // its country's logistics (0–10) fall short of perfect: up to 35% at 2,500 km overland and 50%
+  // at 9,000 km by sea, made worse (×1 to ×1.6) by harsh terrain at the far end. The US, with
+  // logistics 10 (strategic airlift and sealift, tankers, prepositioned stocks and bases worldwide),
+  // fights at full strength anywhere; Russia (6) loses a few percent next door and about 25% in
+  // the Caribbean.
+  function supply(nat, to, km, sea) {
+    const lack = (10 - ms(nat).logistics) / 10, dist = Math.min(1, km / (sea ? 9000 : 2500));
+    const harsh = window.terrainOf ? window.terrainOf(to).harsh : 0;
+    return Math.max(0.45, 1 - lack * dist * (sea ? 0.5 : 0.35) * (1 + 0.6 * harsh));
+  }
+  // Good logistics also moves armies faster: travel times ×1.3 − 0.03 × logistics (US ×1.0).
+  const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
+  // An attacking force's strength in the target's terrain: each kind of unit counts by how well it
+  // fights there (tanks bog down in mountains and jungle, aircraft lose targets under canopy).
+  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * window.terrainKind(to, u.key), 0);
+  const terrainDef = iso => (window.terrainOf ? window.terrainOf(iso).defence : 1);
   // Is a country fighting right now? (Private satellites join the national effort only then.)
   function atWar(iso) {
     const s = G.state;
@@ -246,7 +263,12 @@
   // Intelligence, surveillance and reconnaissance: satellites (space) times the country's spy
   // agencies (js/space.js intelMult: targeting, early warning, sabotage and cyber).
   const isr = iso => space(iso) * window.intelMult(BY[iso]);
-  const armyPower = a => rawPower(a.units, a.nat, a.models) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * isr(a.nat);
+  // An army's strength where it is: in its own or your territory it fights as a defender (no
+  // supply or terrain penalty); invading, it counts by the terrain and its supply line.
+  const armyPower = a => {
+    const home = owns(a.to) || a.to === a.nat;
+    return (home ? rawPower(a.units, a.nat, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat);
+  };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
   const borderMult = (to, from) => (from && window.borderFort ? 1 + 0.03 * Math.max(0, window.borderFort(to, from).level - 2) : 1);
@@ -272,7 +294,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -320,7 +342,8 @@
       if (window.modelSpec("aircraft", m).family !== "Transport aircraft" && !HEAVY_LIFT.test(m)) return;
       if (HEAVY_LIFT.test(m)) heavy += cnt; else tactical += cnt;
     });
-    const H = Math.floor(heavy * 0.15 * c.tech.ready), T = Math.floor(tactical * 0.25 * c.tech.ready);
+    // Share of the fleet free for an airlift grows with logistics (US 10: 15% heavy, 25% tactical).
+    const lg = 0.4 + 0.06 * c.milStats.logistics, H = Math.floor(heavy * 0.15 * lg * c.tech.ready), T = Math.floor(tactical * 0.25 * lg * c.tech.ready);
     const vehicles = (units.tanks || 0) + (units.afv || 0) / 2 + (units.arty || 0) / 2, troops = units.troops || 0;
     if ((vehicles > 0 && H < 1) || (troops > 0 && H + T < 1) || (!vehicles && !troops)) return { ok: false, H, T };
     // Per sortie a heavy lifter carries 1 tank, 2 lighter vehicles or ~100 troops; a tactical one ~80 troops.
@@ -355,7 +378,7 @@
       if (best === Infinity) ok = false;
       else { legs.push(best); mode = best === byAir ? "airlift" : best === bySea ? "sea" : "land"; }
     }
-    const hours = legs.length ? Math.max(...legs) : 1;
+    const hours = (legs.length ? Math.max(...legs) : 1) * travelMult(nat);
     return { km, land, sea: mode === "sea" && ground, mode, need, cap, air, hours: Math.max(0.5, hours), turns: Math.max(1, Math.ceil(hours / 24)), ok };
   }
   // When an army leaving now with this route arrives: hours on the clock, and the day (turn).
@@ -422,8 +445,9 @@
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat, src.pt);
     const cross = r.sea || owns(to) || G.state.owner[to] === src.nat ? null : crossing(to, src.at, n => n === src.at || owns(n) || G.state.owner[n] === src.nat), bm = borderMult(to, cross);
-    const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * isr(src.nat) / bm;
-    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true), border: cross ? { from: cross, ...window.borderFort(to, cross), mult: bm } : null };
+    const home = owns(to) || G.state.owner[to] === src.nat, sup = home ? 1 : supply(src.nat, to, r.km, r.sea);
+    const power = (home ? rawPower(u, src.nat, models) : powerIn(u, src.nat, models, to)) * sup * (1 + bonus("atk")) * ms(src.nat).skill * isr(src.nat) / bm;
+    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true), border: cross ? { from: cross, ...window.borderFort(to, cross), mult: bm } : null, supply: sup, terrain: home ? 1 : powerIn(u, src.nat, models, to) / Math.max(1e-9, rawPower(u, src.nat, models)) };
   }
 
   // ── Actions ─────────────────────────────────────────────────
@@ -505,7 +529,7 @@
     const u = clean(units, kit);
     if (!total(u)) return { err: "Pick at least one unit to move." };
     const pa = window.basePoint(iso, from), pb = window.basePoint(iso, to), km = d3.geoDistance(pa, pb) * 6371;
-    const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key]));
+    const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key])) * travelMult(iso);
     return { u, km, hours, pa, pb };
   }
   // `ships`: hull numbers of named carriers in the move, so they keep their names at the new base.
@@ -714,7 +738,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => rawPower(e.units, e.nat, e.models) * ms(e.nat).skill * reach(e.nat, e.sea) * isr(e.nat) /
+  const enemyPower = e => powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) /
     (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
@@ -725,7 +749,7 @@
   // Your side when one of your nations is attacked: its own accessible forces, order, trait, stationed armies and allies.
   function homeDefence(iso) {
     const u = homeShare(iso);
-    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
 
@@ -1135,6 +1159,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
