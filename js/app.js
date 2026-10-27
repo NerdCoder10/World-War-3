@@ -338,6 +338,40 @@
     .on("click", (e, f) => f.iso && select(f.iso, { fly: k < 60 }))
     .on("mousemove", (e, f) => showTip(e, f))
     .on("mouseleave", hideTip);
+  // ── Fortified borders (js/borders.js) ──
+  // Borders of level 5 and up are drawn everywhere (the DMZ, the Ukrainian front, the Baltic
+  // Defence Line, Morocco's closed border...), and every border of the selected country is drawn
+  // too, coloured by level: amber 4–5, orange 6–7, red 8–10. Hover for what's there.
+  const borderLayer = root.append("g").attr("class", "fort-layer");
+  const geomIso = new Map(geoms.map((g, i) => [g, features[i].iso]));
+  const meshCache = new Map();
+  function borderMesh(a, b) {
+    const key = window.borderKey(a, b);
+    if (!meshCache.has(key)) meshCache.set(key, topojson.mesh(topo, topo.objects.countries, (x, y) => { const p2 = geomIso.get(x), q2 = geomIso.get(y); return x !== y && ((p2 === a && q2 === b) || (p2 === b && q2 === a)); }));
+    return meshCache.get(key);
+  }
+  const FORT_COL = lv => (lv >= 8 ? "#ff4d3d" : lv >= 6 ? "#ff8a3d" : lv >= 4 ? "#f0c66a" : "#c9d3cf");
+  function drawBorders() {
+    const pairs = new Map();
+    Object.entries(window.BORDER_FORTS).forEach(([key, [lv, note]]) => { if (lv >= 5) { const [a, b] = key.split("|"); pairs.set(key, { a, b, level: lv, note }); } });
+    if (selected) window.borderProfile(selected).forEach(x => pairs.set(window.borderKey(selected, x.n), { a: selected, b: x.n, level: x.level, note: x.note }));
+    const data = [...pairs.values()].map(d => ({ ...d, key: window.borderKey(d.a, d.b), geo: borderMesh(d.a, d.b) })).filter(d => d.geo.coordinates.length);
+    const g = borderLayer.selectAll("g.fort").data(data, d => d.key).join(en => {
+      const x = en.append("g").attr("class", "fort");
+      x.append("path").attr("class", "fort-case");
+      x.append("path").attr("class", "fort-line");
+      x.append("path").attr("class", "fort-hit");
+      return x;
+    });
+    g.selectAll("path").attr("d", d => path(d.geo));
+    g.select(".fort-case").style("stroke-width", d => 2 + d.level * 0.45 + "px");
+    g.select(".fort-line").style("stroke", d => FORT_COL(d.level)).style("stroke-width", d => 0.8 + d.level * 0.25 + "px")
+      .style("stroke-dasharray", d => (d.level >= 8 ? "1 2.5" : d.level >= 6 ? "3 2" : d.level >= 4 ? "6 3" : null));
+    g.select(".fort-hit").on("mousemove", (e, d) => {
+      tip.innerHTML = `<b>🧱 ${esc(BY[d.a].name)} – ${esc(BY[d.b].name)} border</b><div class="k">Fortification <b>${d.level}/10</b> · an army invading overland here fights at ${Math.round(100 / G.borderMult(d.a, d.b))}% strength</div><div class="tipnote">${esc(d.note)}</div>`;
+      placeTip(e);
+    }).on("mouseleave", hideTip);
+  }
   // States / provinces of the selected country (Natural Earth admin-1, loaded on demand).
   const provLayer = root.append("g").attr("class", "prov-layer");
   const markerSel = root.append("g").selectAll("circle").data(markers).join("circle")
@@ -660,43 +694,90 @@
     // Very large bases: one icon stands for a few units so a base never exceeds ENT_CAP icons.
     const per = Math.max(1, Math.ceil(total / ENT_CAP));
     const list = [], infra = [], fort = fortOf(z.iso, z);
-    let shelfX = 0, shelfY = 0, shelfH = 0;
-    const maxW = Math.max(600, Math.sqrt(groups.reduce((a, g) => a + (g.n / per) * ENT_SP[g.key] ** 2, 0)) * 1.4);
-    // The cantonment: an HQ and barracks blocks (about one per 250 soldiers), set out in rows.
-    const soldiers = (z.kit.troops || 0) * 1000;
+    // ── Layout: dispersed like a real installation ──
+    // Units aren't packed into one block. Each battalion has its own area spread over the site with
+    // roads and open ground between: barracks blocks with a parade ground for the infantry, motor
+    // pools of a company or two with their maintenance sheds for vehicles. On an air base,
+    // fighters sit in flights of four at dispersal spots (or two to a hardened shelter),
+    // transports on aprons and helicopters on pads. The layout is fixed for each base.
+    let seed = [...(z.iso + z.name)].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619), 2166136261) >>> 0;
+    const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const areas = []; // { w, h, ents: [...], infra: [...] } in metres from the area's top-left
+    const unitsOf = g => { const out = []; let i = 0; g.models.forEach(([model, cnt]) => {
+      const down = 1 - window.mcRate(c, g.key, g.key === "troops" ? null : model);
+      for (let left = cnt, j = 0; left > 0; left -= per, i++, j++) out.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, left), iso: z.iso, base: z.name, sp: ENT_SP[g.key], maint: inMaint(j, down) });
+    }); return out; };
+    const chunks = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
+    // Rows of units inside an area, starting at (x0, y0).
+    const placeRows = (units, x0, y0, cols, spx, sp) => units.forEach((e, i) => { e.ox = x0 + (i % cols) * spx + spx / 2; e.oy = y0 + Math.floor(i / cols) * sp + sp / 2; });
+    const grp = k2 => groups.find(g => g.key === k2);
+    // Infantry: battalion areas of six barracks (about 1,500 soldiers) with their squads drilling in front.
+    const soldiers = (z.kit.troops || 0) * 1000, troops = grp("troops") ? unitsOf(grp("troops")) : [];
     if (soldiers >= 20) {
-      const nb = Math.max(1, Math.min(160, Math.ceil(soldiers / 250))), cols = Math.max(2, Math.ceil(Math.sqrt(nb * 0.7))), rows = Math.ceil(nb / cols);
-      infra.push({ type: "hq", x: 0, y: 0, w: 60, h: 40 });
-      for (let i = 0; i < nb; i++) infra.push({ type: "barracks", x: (i % cols) * 72, y: 60 + Math.floor(i / cols) * 28, w: 56, h: 14 });
-      shelfX = cols * 72 + 40; shelfH = 60 + rows * 28;
-    }
-    groups.filter(g => !NAVAL.has(g.key)).forEach(g => {
-      // Vehicles park side by side in rows (half their length apart sideways), like a real motor pool.
-      const sp = ENT_SP[g.key], spx = ["tanks", "afv", "arty"].includes(g.key) ? sp * 0.5 : sp;
-      const count = Math.ceil(g.n / per), cols = Math.max(1, Math.ceil(Math.sqrt(count * 1.6 * sp / spx))), rows = Math.ceil(count / cols);
-      const bw = cols * spx, bh = rows * sp;
-      // Room above each block for its maintenance sheds or hangars.
-      const air = ["fighters", "aircraft", "helis"].includes(g.key), vehicles = ["tanks", "afv", "arty"].includes(g.key);
-      const top = air && g.key !== "helis" ? (fort >= 5 ? 34 : 64) : vehicles ? 24 : 0;
-      if (shelfX > 0 && shelfX + bw > maxW) { shelfX = 0; shelfY += shelfH + 40; shelfH = 0; }
-      const by = shelfY + top;
-      if (g.key !== "troops") infra.push({ type: air ? "apron" : "pool", x: shelfX - 6, y: by - 6, w: bw + 12, h: bh + 12 });
-      if (vehicles) for (let x = 0; x < bw; x += 90) infra.push({ type: "shed", x: shelfX + x, y: shelfY, w: Math.min(80, bw - x), h: 18 });
-      if (air && g.key !== "helis") {
-        if (fort >= 5) { const n = Math.min(40, Math.ceil(g.n / 2)); for (let j = 0; j < n && j * 34 < bw + 34; j++) infra.push({ type: "has", x: shelfX + j * 34, y: shelfY, w: 28, h: 26 }); }
-        else for (let x = 0; x < bw; x += 80) infra.push({ type: "hangar", x: shelfX + x, y: shelfY, w: Math.min(72, bw - x), h: 56 });
+      const nb = Math.max(1, Math.min(160, Math.ceil(soldiers / 250))), nAreas = Math.ceil(nb / 6), sq = chunks(troops, Math.ceil(troops.length / nAreas) || 1);
+      areas.push({ w: 60, h: 40, ents: [], infra: [{ type: "hq", x: 0, y: 0, w: 60, h: 40 }] });
+      for (let a2 = 0; a2 < nAreas; a2++) {
+        const nbHere = Math.min(6, nb - a2 * 6), inf = [], units = sq[a2] || [], cols = 10, rows = Math.ceil(units.length / cols);
+        for (let i = 0; i < nbHere; i++) inf.push({ type: "barracks", x: (i % 2) * 72, y: Math.floor(i / 2) * 28, w: 56, h: 14 });
+        const py = Math.ceil(nbHere / 2) * 28 + 14;
+        if (units.length) inf.push({ type: "parade", x: -4, y: py - 4, w: cols * 14 + 8, h: rows * 14 + 8 });
+        placeRows(units, 0, py, cols, 14, 14);
+        areas.push({ w: Math.max(144, cols * 14), h: py + rows * 14, ents: units, infra: inf });
       }
-      let i = 0;
-      g.models.forEach(([model, cnt]) => {
-        const down = 1 - window.mcRate(c, g.key, g.key === "troops" ? null : model);
-        for (let left = cnt, j = 0; left > 0; left -= per, i++, j++) {
-          list.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, left), iso: z.iso, base: z.name,
-            ox: shelfX + (i % cols) * spx + spx / 2, oy: by + Math.floor(i / cols) * sp + sp / 2, sp, maint: inMaint(j, down) });
-        }
-      });
-      shelfX += bw + 40; shelfH = Math.max(shelfH, bh + top);
+    } else if (troops.length) { placeRows(troops, 0, 0, 10, 14, 14); areas.push({ w: 140, h: Math.ceil(troops.length / 10) * 14, ents: troops, infra: [] }); }
+    // Vehicles: motor pools of about two companies, sheds along the top, vehicles side by side in rows.
+    const POOL = { tanks: 28, afv: 30, arty: 18 };
+    ["tanks", "afv", "arty"].forEach(k2 => { const g = grp(k2); if (!g) return; chunks(unitsOf(g), POOL[k2]).forEach(units => {
+      const sp = ENT_SP[k2], spx = sp * 0.5, cols = Math.max(2, Math.ceil(Math.sqrt(units.length * 1.6 * 2))), rows = Math.ceil(units.length / cols), bw = cols * spx, inf = [];
+      for (let x = 0; x < bw; x += 90) inf.push({ type: "shed", x, y: 0, w: Math.min(80, bw - x), h: 18 });
+      inf.push({ type: "pool", x: -6, y: 18, w: bw + 12, h: rows * sp + 12 });
+      placeRows(units, 0, 24, cols, spx, sp);
+      areas.push({ w: bw, h: 24 + rows * sp, ents: units, infra: inf });
+    }); });
+    // Helicopters: pads in clusters of eight.
+    if (grp("helis")) chunks(unitsOf(grp("helis")), 8).forEach(units => {
+      const cols = 4, rows = Math.ceil(units.length / cols);
+      placeRows(units, 0, 0, cols, 34, 34);
+      areas.push({ w: cols * 34, h: rows * 34, ents: units, infra: [{ type: "apron", x: -6, y: -6, w: cols * 34 + 12, h: rows * 34 + 12 }] });
     });
-    // Centre the blocks on the base, inside a perimeter (fence, then berms, towers and bunker
+    // Mix the areas (battalions sit side by side, not sorted by kind), keeping the HQ first.
+    for (let i = areas.length - 1; i > 1; i--) { const j = 1 + Math.floor(rnd() * i); [areas[i], areas[j]] = [areas[j], areas[i]]; }
+    // Lay the areas out in rows with irregular gaps (roads, open ground, training areas).
+    const totA = areas.reduce((a2, ar) => a2 + (ar.w + 160) * (ar.h + 160), 0), rowW = Math.max(500, Math.sqrt(totA) * 1.15);
+    let cx = 0, cy = 0, rowH = 0;
+    areas.forEach(ar => {
+      if (cx > 0 && cx + ar.w > rowW) { cx = 0; cy += rowH + 70 + rnd() * 140; rowH = 0; }
+      const ax = cx, ay = cy + rnd() * 60;
+      ar.ents.forEach(e => { e.ox += ax; e.oy += ay; list.push(e); });
+      ar.infra.forEach(f => infra.push({ ...f, x: f.x + ax, y: f.y + ay }));
+      cx += ar.w + 70 + rnd() * 180; rowH = Math.max(rowH, ar.h + (ay - cy));
+    });
+    const groundW = Math.max(...list.map(e => e.ox + e.sp / 2), ...infra.map(f => f.x + f.w), 0);
+    const groundH = Math.max(...list.map(e => e.oy + e.sp / 2), ...infra.map(f => f.y + f.h), 0);
+    // Air zone along the south side: flights at dispersal spots either side of the taxiway line.
+    const jets = grp("fighters") ? unitsOf(grp("fighters")) : [], heavies = grp("aircraft") ? unitsOf(grp("aircraft")) : [];
+    if (jets.length || heavies.length) {
+      const y0 = groundH + 260, flights = chunks(jets, 4), aprons = chunks(heavies, 8);
+      const runY = y0 + 230;
+      // (No runway is drawn: the satellite imagery shows the real one; this just keeps the flights apart.)
+      let x = 260;
+      aprons.forEach(units => { // transports, tankers and AEW on a big apron, in two rows
+        const cols = Math.ceil(units.length / 2);
+        infra.push({ type: "apron", x, y: y0 - 60, w: cols * 75 + 20, h: 170 });
+        placeRows(units, x + 10, y0 - 50, cols, 75, 75);
+        units.forEach(e => list.push(e));
+        x += cols * 75 + 120 + rnd() * 120;
+      });
+      flights.forEach((units, f) => { // a flight of four on its dispersal loop, alternating sides of the taxiway
+        const south = f % 2 === 1, fy = south ? runY + 110 : y0 + 20;
+        if (fort >= 5) for (let h2 = 0; h2 < Math.ceil(units.length / 2); h2++) infra.push({ type: "has", x: x + h2 * 44, y: fy - 6, w: 30, h: 28 });
+        else { infra.push({ type: "hangar", x: x - 4, y: fy - 70, w: 76, h: 56 }); infra.push({ type: "apron", x: x - 8, y: fy - 10, w: 96, h: 50 }); }
+        placeRows(units, x, fy, 2, fort >= 5 ? 44 : 44, 20);
+        units.forEach(e => list.push(e));
+        if (south) x += 150 + rnd() * 120;
+      });
+    }
+    // Centre everything on the base, inside a perimeter (fence, then berms, towers and bunker
     // entrances as the fortification rises).
     const W = Math.max(...list.map(e => e.ox + e.sp / 2), ...infra.map(b => b.x + b.w), 0), H = Math.max(...list.map(e => e.oy + e.sp / 2), ...infra.map(b => b.y + b.h), 0);
     list.forEach(e => { e.ox -= W / 2; e.oy -= H / 2; });
@@ -907,6 +988,7 @@
           break;
         }
         case "pool": c2.fillStyle = "rgba(68,70,68,0.6)"; c2.fillRect(X, Y, Wd, Ht); break;
+        case "parade": c2.fillStyle = desert ? "rgba(214,196,150,0.45)" : "rgba(150,140,110,0.4)"; c2.fillRect(X, Y, Wd, Ht); break;
         case "apron": c2.fillStyle = "rgba(176,176,170,0.62)"; c2.fillRect(X, Y, Wd, Ht); break;
         case "shed": shadow(b); R(b, "#7f8384"); c2.fillStyle = "#9da1a2"; c2.fillRect(X, Y + Ht / 2 - 0.5, Wd, 1); break;
         case "hangar": shadow(b); R(b, "#a3a9ad"); c2.fillStyle = "#858b8f"; for (let x = 4 * g; x < Wd; x += 8 * g) c2.fillRect(X + x, Y, 1, Ht); break;
@@ -945,6 +1027,10 @@
       if (layer) {
         const sc = b.g / layer.g;
         ctx.drawImage(layer.canvas, b.sx + layer.x0 * sc, b.sy + layer.y0 * sc, layer.W * sc, layer.H * sc);
+      } else {
+        // Too big for one image (a large base up close): draw the buildings in view directly.
+        const inView = (ents.infra || []).filter(f => !f.naval && (f.type === "perimeter" || (b.sx + (f.x + f.w) * b.g > 0 && b.sx + f.x * b.g < w && b.sy + (f.y + f.h) * b.g > 0 && b.sy + f.y * b.g < h)));
+        drawInfra(ctx, inView, b.g, b.sx, b.sy, window.unitPalette(b.z.iso, "troops") === "desert");
       }
       (ents.infra || []).filter(p2 => p2.naval).forEach(p2 => {
         const gN = Math.max(b.gTrue, 0.12), a = projection(p2.naval), X = t.applyX(a[0]) + p2.x * gN, Y = t.applyY(a[1]) + p2.y * gN;
@@ -1907,6 +1993,7 @@
     projection.fitExtent([[8, 8], [w - 8, h - 8]], { type: "Sphere" });
     sphere.attr("d", path); grat.attr("d", path); countryPaths.attr("d", path);
     provLayer.selectAll("path").attr("d", path);
+    drawBorders();
     markerSel.attr("cx", m => projection(m.at)[0]).attr("cy", m => projection(m.at)[1]).attr("r", 3.2 / Math.sqrt(k));
     zoom.translateExtent([[-w * 0.2, -h * 0.2], [w * 1.2, h * 1.2]]);
     drawDeploy();
@@ -2413,6 +2500,14 @@
       <p class="hint">Price is its national value in coins (1 coin = $1)${prem}.${short ? ` You have ${G.fmtCoins(s.coins)}.` : ""}</p>`;
   }
 
+  // A country's land borders, strongest first, with what's built on them (js/borders.js).
+  function borderHtml(c) {
+    const list = window.borderProfile(c.iso3);
+    if (!list.length) return `<p class="hint">🧱 <b>Borders:</b> no land borders. The sea is the barrier: invaders need sealift or airlift.</p>`;
+    const top = list[0];
+    return `<div class="borders"><p class="hint">🧱 <b>Border fortification</b> (strongest ${top.level}/10): an army invading overland across a border of level L fights at 1 / (1 + 0.03 × (L − 2)) of its strength.</p>
+      <ul class="blist">${list.map(b => `<li><span class="bl lv${b.level >= 8 ? 3 : b.level >= 6 ? 2 : b.level >= 4 ? 1 : 0}">${b.level}</span><b>${esc(BY[b.n].name)}</b> <small>${esc(b.note)}</small></li>`).join("")}</ul></div>`;
+  }
   // Alliance with an AI country: the terms it weighs (fixed, no dice) and the button.
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) return `<p class="hint">🤝 <b>Your ally.</b> It sends 15% of its forces to defend any of your nations it can reach, joins your invasions with 10% of them, and never attacks you.</p><button class="btn ghost" data-act="unally">End alliance</button>`;
@@ -2477,6 +2572,7 @@
       vs = ` Army strength ${p.power.toFixed(0)}${help ? ` + ${help.toFixed(0)} from your allies (${p.allies.map(h => BY[h.iso].name).join(", ")})` : ""} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
+    if (p.border && p.border.level > 2) vs += ` 🧱 Crossing the ${BY[p.border.from].name} border (fortified ${p.border.level}/10: ${p.border.note.toLowerCase()}): the army fights at ${Math.round(100 / p.border.mult)}% there.`;
     out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${esc(by)}: arrives in ${G.fmtDur(r.hours)} of game time (${G.clockLabel((G.state.clock || 0) + r.hours)}), about ${realMin(r.hours)} real.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">No way to get these ground units there: not enough sealift, and no airlift that can carry them.</b>`}`;
     go.disabled = !r.ok; eta.textContent = G.fmtDur(r.hours);
   }
@@ -2691,6 +2787,7 @@
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p>
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
+        ${borderHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -2997,7 +3094,7 @@
   // without flying back out, so you can click around at street level.
   function select(iso, opts) {
     if (iso !== selected) { unpickZone(); province = null; }
-    selected = iso; paint(); drawDeploy(); drawShips(); drawSats(); drawProvinces();
+    selected = iso; paint(); drawDeploy(); drawShips(); drawSats(); drawProvinces(); drawBorders();
     if (!opts || opts.fly !== false) zoomTo(iso);
     setTab("dossier"); $("#pane-dossier").scrollTop = 0;
     loadAdmin1(iso, () => { if (selected === iso) { drawProvinces(); if (tab === "dossier") dossier(); } });
