@@ -491,3 +491,5 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .mline img.mpic { width: 22px; height: 22px; vertical-align: middle; margin-right: 2px; }
 .mcline { font-size: 12.5px; margin: 6px 0 2px; }
 .tooltip svg.soldierpic, svg.soldierpic { width: 52px; height: 52px; background: #0c1316; border: 1px solid #ffffff22; }
+.tooltip .tipnote.wrap, .tooltip .k.wrap { white-space: normal; max-width: 360px; }
+.tooltip { max-width: 440px; } .tooltip .k { white-space: normal; }

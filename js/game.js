@@ -359,7 +359,7 @@
 
   // Send units from a home pool or an army to any country. Nothing fights until the next End turn.
   // `models` ({kind: {model: count}}) records exactly which models were picked, e.g. at a base.
-  function dispatch(srcKey, to, units, models) {
+  function dispatch(srcKey, to, units, models, ships) {
     const err = ready(); if (err) return err;
     const s = G.state, p = preview(srcKey, to, units, models);
     if (p.err) return p.err;
@@ -380,6 +380,7 @@
       const vsPlayer = owns(to);
       const e = { id: s.nextEnemy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, vsPlayer, detected: true, ordered: true, fromPt: src.pt };
       if (models) e.models = JSON.parse(JSON.stringify(models));
+      if (ships && ships.length) { e.ships = ships.slice(); ships.forEach(h => ((s.shipBase = s.shipBase || {})[h] = { gone: true })); }
       s.enemies.push(e);
       if (vsPlayer) s.hostile[src.nat] = s.turn;
       log(`🎖️ On your orders, ${BY[src.nat].name} sent ${unitList(p.units)} from ${src.base} ${vsPlayer ? "against your nation" : "to invade"} ${BY[to].name} by ${MODE_LABEL[p.route.mode]}: arrives in ${fmtDur(p.route.hours)} (${clockLabel(etaH)}).`, vsPlayer ? "bad" : "world");
@@ -401,6 +402,7 @@
     const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, mode: p.route.mode, fromPt: src.pt };
     if (models) a.models = JSON.parse(JSON.stringify(models));
     else if (src.army && src.army.models) a.models = JSON.parse(JSON.stringify(src.army.models));
+    if (ships && ships.length) { a.ships = ships.slice(); ships.forEach(h => ((s.shipBase = s.shipBase || {})[h] = { gone: true })); }
     s.armies.push(a);
     if (!owns(to)) provoke(s.owner[to]);
     const t = BY[to];
@@ -425,7 +427,8 @@
     const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key]));
     return { u, km, hours, pa, pb };
   }
-  function moveUnits(iso, from, to, units) {
+  // `ships`: hull numbers of named carriers in the move, so they keep their names at the new base.
+  function moveUnits(iso, from, to, units, ships) {
     const q = moveQuote(iso, from, to, units);
     if (q.err) return q.err;
     const s = G.state, u = q.u;
@@ -437,6 +440,7 @@
     const m = { id: s.nextMove = (s.nextMove || 1), iso, from, to, units: u, sentH: s.clock || 0, ...etaOf(hours), a: pa, b: pb };
     s.nextMove++;
     (s.moves = s.moves || []).push(m);
+    if (ships && ships.length) { m.ships = ships.slice(); ships.forEach(h => ((s.shipBase = s.shipBase || {})[h] = { base: to, move: m.id })); }
     log(`🚛 ${unitList(u)} left ${from} for ${to} (${BY[iso].name}, ${Math.round(km)} km): arrive in ${fmtDur(hours)} (${clockLabel(m.etaH)}).`, "info");
     save();
     return null;

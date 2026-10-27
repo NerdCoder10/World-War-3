@@ -12,7 +12,7 @@ window.EQUIPMENT = {
     afv: [["M2/M3 Bradley", 0.12], ["Stryker", 0.1], ["JLTV & MRAP", 0.6], ["AMPV", 0.05], ["AAV-7 / ACV", 0.13]],
     arty: [["M109A7 Paladin", 0.35], ["M777 howitzer", 0.3], ["M142 HIMARS", 0.15], ["M270 MLRS", 0.1], ["M119 howitzer", 0.1]],
     fighters: [["F-35A/B/C Lightning II", 0.25], ["F-16C/D Fighting Falcon", 0.3], ["F/A-18E/F Super Hornet", 0.18], ["F-15C/E/EX Eagle", 0.13], ["F-22A Raptor", 0.06], ["A-10C Thunderbolt II", 0.08]],
-    aircraft: [["KC-135 / KC-46 tankers", 0.12], ["C-130J Hercules", 0.12], ["C-17A Globemaster III", 0.06], ["B-52H Stratofortress", 0.0175], ["B-1B Lancer", 0.0175], ["B-2A Spirit", 0.005], ["MQ-9 Reaper & drones", 0.08], ["P-8A Poseidon", 0.03], ["E-3 Sentry / E-2D Hawkeye AEW", 0.03], ["RC-135 / U-2 & ISR", 0.02], ["T-38 / T-6 trainers", 0.5]],
+    aircraft: [["KC-135 / KC-46 tankers", 0.12], ["C-130J Hercules", 0.12], ["C-17A Globemaster III", 0.06], ["B-52H Stratofortress", 0.0175], ["B-1B Lancer", 0.0175], ["B-2A Spirit", 0.005], ["MQ-9 Reaper & drones", 0.08], ["P-8A Poseidon", 0.03], ["E-3 Sentry AEW", 0.012], ["E-2D Hawkeye", 0.018], ["RC-135 / U-2 & ISR", 0.02], ["T-38 / T-6 trainers", 0.5]],
     helis: [["UH-60 Black Hawk", 0.4], ["AH-64E Apache", 0.15], ["CH-47F Chinook", 0.1], ["MH-60R/S Seahawk", 0.12], ["AH-1Z / UH-1Y", 0.08], ["CH-53E/K", 0.05], ["Other", 0.1]],
     ships: [["Arleigh Burke-class destroyers", 0.17], ["Ticonderoga-class cruisers", 0.03], ["Wasp / America-class assault ships", 0.02], ["San Antonio-class LPDs", 0.03], ["Littoral combat ships", 0.06], ["Coast Guard & patrol", 0.5], ["Support & auxiliary", 0.19]],
     subs: [["Virginia-class SSN", 0.33], ["Los Angeles-class SSN", 0.37], ["Ohio-class SSBN/SSGN", 0.25], ["Seawolf-class SSN", 0.05]],
