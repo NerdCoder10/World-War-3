@@ -2500,6 +2500,13 @@
       <p class="hint">Price is its national value in coins (1 coin = $1)${prem}.${short ? ` You have ${G.fmtCoins(s.coins)}.` : ""}</p>`;
   }
 
+  // What an invader has to fight through (js/terrain.js).
+  function terrainHtml(c) {
+    const t = window.terrainOf(c.iso3), bar = (l, v) => `<span class="tbar"><i style="width:${Math.round(v * 100)}%"></i></span>${l}`;
+    const k2 = key => `×${window.terrainKind(c.iso3, key).toFixed(2)}`;
+    return `<div class="terrain"><p class="hint">⛰️ <b>Terrain:</b> ${esc(window.terrainLabel(c.iso3))}${t.estimated ? " <small>(regional estimate)</small>" : ""}. Defenders fight <b>×${t.defence.toFixed(2)}</b>; an invader's tanks ${k2("tanks")}, armoured vehicles ${k2("afv")}, artillery ${k2("arty")}, aircraft ${k2("fighters")}, helicopters ${k2("helis")}${t.harsh >= 0.5 ? "; supply lines suffer" : ""}.</p>
+      <div class="tbars">${bar("Mountains", t.m)}${bar("Forest / jungle", t.f)}${bar("Desert", t.d)}${bar("Cold", t.c)}${bar("Cities", t.u)}</div></div>`;
+  }
   // A country's land borders, strongest first, with what's built on them (js/borders.js).
   function borderHtml(c) {
     const list = window.borderProfile(c.iso3);
@@ -2572,6 +2579,7 @@
       vs = ` Army strength ${p.power.toFixed(0)}${help ? ` + ${help.toFixed(0)} from your allies (${p.allies.map(h => BY[h.iso].name).join(", ")})` : ""} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
+    if (p.supply != null && !G.owns(c.iso3)) vs += ` 🚚 Supply line: ×${p.supply.toFixed(2)} (${BY[p.src.nat].name}'s logistics ${BY[p.src.nat].milStats.logistics}/10). ⛰️ Terrain (${window.terrainLabel(c.iso3)}): this army fights ×${p.terrain.toFixed(2)} there, and the defenders ×${window.terrainOf(c.iso3).defence.toFixed(2)}.`;
     if (p.border && p.border.level > 2) vs += ` 🧱 Crossing the ${BY[p.border.from].name} border (fortified ${p.border.level}/10: ${p.border.note.toLowerCase()}): the army fights at ${Math.round(100 / p.border.mult)}% there.`;
     out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${esc(by)}: arrives in ${G.fmtDur(r.hours)} of game time (${G.clockLabel((G.state.clock || 0) + r.hours)}), about ${realMin(r.hours)} real.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">No way to get these ground units there: not enough sealift, and no airlift that can carry them.</b>`}`;
     go.disabled = !r.ok; eta.textContent = G.fmtDur(r.hours);
@@ -2785,9 +2793,11 @@
         <p class="hint">×N is each model's combat value against a typical unit of its kind (a 4th-gen tank ×1.8, a 1950s T-55 ×0.45; an F-35 ×2.2, a MiG-21 ×0.45). Only the mission-capable share fights: it follows readiness (${Math.round(c.tech.ready * 100)}%: maintenance, spare parts, funding) and is lower for maintenance-heavy models (F-35, F-22, B-1) and worn-out ones (MiG-21, T-55, anything in reserve). Zoom into a base to inspect every unit's specs; units in maintenance are grey with an orange marker.</p></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
-        <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) · fighting overland ×${ms.near.toFixed(2)}, overseas ×${ms.far.toFixed(2)} (logistics).</p>
+        <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) .</p>
+        <p class="hint">🚚 <b>Logistics ${ms.logistics}/10</b>: invading, its armies keep ${Math.round(100 * (1 - (10 - ms.logistics) / 10 * 0.4 * 0.35))}% of their strength 1,000 km away overland and ${Math.round(100 * Math.max(0.45, 1 - (10 - ms.logistics) / 10 * 0.5))}% across 9,000 km of sea (less in harsh terrain); they travel ×${G.travelMult(c.iso3).toFixed(2)} as long as perfect logistics would take, and ${Math.round((0.4 + 0.06 * ms.logistics) * 100)}% of the usual share of its transport fleet is free for an airlift.${c.iso3 === "USA" ? " The strongest in the world: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent." : ""}</p>
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
         ${borderHtml(c)}
+        ${terrainHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>

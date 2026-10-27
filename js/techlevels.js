@@ -86,11 +86,9 @@ window.MIL_STATS = [
     const m = (c.milStats = { estimated: !p });
     window.MIL_STATS.forEach(([k], i) => (m[k] = v[i]));
     // Combat multipliers. Training, experience and leadership sharpen every unit; corruption
-    // hollows them out; patriotism stiffens defence; logistics decides how well armies fight
-    // far from home.
+    // hollows them out; patriotism stiffens defence. (Logistics decides how well armies are
+    // supplied far from home: js/game.js supply.)
     m.skill = (0.8 + 0.0133 * (m.training + m.experience + m.leadership)) * (1 - 0.02 * m.corruption);
     m.defend = 0.8 + 0.04 * m.patriotism;
-    m.near = 0.9 + 0.01 * m.logistics;
-    m.far = 0.7 + 0.03 * m.logistics;
   });
 })();
