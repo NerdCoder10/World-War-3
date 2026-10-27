@@ -10,7 +10,7 @@
     arty: 0.06, subs: 0.06, afv: 0.05, ships: 0.05, pop: 0.05, helis: 0.04, reserve: 0.03, soft: 0.05,
   };
   const MAX = {};
-  Object.keys(WEIGHTS).concat(["nukes"]).forEach(k => (MAX[k] = max(k)));
+  Object.keys(WEIGHTS).concat(["missileTotal"]).forEach(k => (MAX[k] = max(k)));
 
   // Equipment quality proxy: richer economies field newer, better-maintained kit.
   const quality = c => {
@@ -27,7 +27,9 @@
       const w = k === "mil" || k === "gdp" || k === "pop" || k === "soft" ? 1 : q;
       s += WEIGHTS[k] * w * Math.sqrt(Math.min(1, v / MAX[k]));
     }
-    if (c.nukes > 0) s += 0.08 + 0.06 * Math.sqrt(c.nukes / MAX.nukes);
+    // Conventional missiles and air defence (js/missiles.js); nuclear weapons aren't part of the game.
+    if (c.missileTotal > 0) s += 0.06 * Math.sqrt(c.missileTotal / MAX.missileTotal);
+    s += 0.02 * (c.missiles.ad / 10);
     return s;
   }
 
@@ -54,9 +56,8 @@
     const s = c.secret;
     s.trueBudget = c.mil * (1 + s.offbook / 100);
     c._raw = rawPower(c, c.mil);
-    // Threshold / host states (latency 6-9) get a breakout premium; intel, cyber and proxies multiply force.
-    const breakout = c.nukes === 0 && s.latency >= 6 ? 0.08 * (s.latency - 5) : 0;
-    c._mult = 1 + 0.01 * s.intel + 0.01 * s.cyber + 0.01 * s.proxies + breakout;
+    // Intelligence, cyber and proxies multiply force (no nuclear breakout premium: nukes are out of the game).
+    c._mult = 1 + 0.01 * s.intel + 0.01 * s.cyber + 0.01 * s.proxies;
     // Readiness (js/techlevels.js) discounts true strength: well-specified kit that is poorly
     // maintained or never fully fielded fights below its paper value.
     c._ready = 0.4 + 0.6 * c.tech.ready;
@@ -87,7 +88,7 @@
   rank("soft", "softRank");
   rank("secretIndex", "secretRank");
 
-  // Estimated true strength when only a share of each weapon category is usable (nukes always count).
+  // Estimated true strength when only a share of each weapon category is usable (missiles always count).
   // `share` maps a category (and "troops") to 0..1; a missing key counts as 0.
   const WEAPON_KEYS = window.WEAPONS.map(w => w.key);
   window.truePowerWith = (c, share) => {

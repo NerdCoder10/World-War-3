@@ -133,7 +133,7 @@
     return Math.max(...e.map(c => c.soft)) + 3 * Math.log2(e.length);
   }
   const empireGdp = () => empire().reduce((s, c) => s + c.gdp, 0);
-  const empireNukes = () => empire().reduce((s, c) => s + c.nukes, 0);
+  const empireMissiles = () => empire().reduce((s, c) => { const st = missileStock(c.iso3); return s + st.bm + st.cm; }, 0);
 
   function bordersEmpire(iso) {
     const nb = window.NEIGHBORS[iso] || [];
@@ -220,6 +220,37 @@
     return null;
   }
 
+  // ── Missiles (js/missiles.js) ───────────────────────────────
+  // No nuclear weapons: each country fires its conventional ballistic and cruise missiles instead.
+  // Stocks start at the real arsenal and rebuild 0.5% of it a day.
+  const missileStock = iso => ((G.state.missiles = G.state.missiles || {})[iso] = G.state.missiles[iso] || { bm: BY[iso].missiles.bm, cm: BY[iso].missiles.cm });
+  // One day's salvo from countries fighting together, against `targetIso`'s air defence: each fires
+  // 4% of each stock (at least 5 if it has any). Hits = fired × (1 − 0.08 × air defence); a ballistic
+  // hit is worth 2.5 combat power, a cruise missile 1.5.
+  function missileSalvo(shooters, targetIso) {
+    const leak = 1 - 0.08 * BY[targetIso].missiles.ad;
+    let power = 0, fired = 0, hits = 0;
+    [...new Set(shooters)].forEach(iso => {
+      const st = missileStock(iso);
+      ["bm", "cm"].forEach(k2 => {
+        const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04)));
+        st[k2] -= n; fired += n; hits += n * leak; power += n * leak * (k2 === "bm" ? 2.5 : 1.5);
+      });
+    });
+    return { power, fired, hits: Math.round(hits) };
+  }
+  const salvoText = (mine, theirs) => (mine.fired || theirs.fired ? ` Missiles: you fired ${mine.fired} (${mine.hits} got through), they fired ${theirs.fired} (${theirs.hits} got through).` : "");
+  // ── Submarines against invasions by sea ─────────────────────
+  // A defender's submarines hunt an invasion fleet's transports and escorts. The invader keeps
+  // 1 − 0.3 × S / (S + ASW) of its strength: S is the defender's submarine power, ASW what the
+  // invader's warships, submarines, carriers and helicopters bring to hunt them.
+  function subScreen(def, defSubs, units, nat) {
+    const q = key => window.unitQuality(BY[nat], key);
+    const S = (defSubs || 0) * 25 * window.unitQuality(BY[def], "subs") * ms(def).skill;
+    const asw = ((units.ships || 0) * 12 * q("ships") + (units.subs || 0) * 25 * q("subs") + (units.carriers || 0) * 75 * q("carriers") + (units.helis || 0) * 1.5 * q("helis")) * ms(nat).skill;
+    return 1 - (0.3 * S) / (S + asw + 1);
+  }
+
   // ── Units, armies and power ─────────────────────────────────
   const baseForces = c => ({
     troops: c.active, tanks: c.tanks, afv: c.afv, arty: c.arty, aircraft: Math.max(0, c.aircraft - c.fighters),
@@ -267,7 +298,7 @@
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
     const home = owns(a.to) || a.to === a.nat;
-    return (home ? rawPower(a.units, a.nat, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat);
+    return (home ? rawPower(a.units, a.nat, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat);
   };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
@@ -445,9 +476,9 @@
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat, src.pt);
     const cross = r.sea || owns(to) || G.state.owner[to] === src.nat ? null : crossing(to, src.at, n => n === src.at || owns(n) || G.state.owner[n] === src.nat), bm = borderMult(to, cross);
-    const home = owns(to) || G.state.owner[to] === src.nat, sup = home ? 1 : supply(src.nat, to, r.km, r.sea);
-    const power = (home ? rawPower(u, src.nat, models) : powerIn(u, src.nat, models, to)) * sup * (1 + bonus("atk")) * ms(src.nat).skill * isr(src.nat) / bm;
-    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true), border: cross ? { from: cross, ...window.borderFort(to, cross), mult: bm } : null, supply: sup, terrain: home ? 1 : powerIn(u, src.nat, models, to) / Math.max(1e-9, rawPower(u, src.nat, models)) };
+    const home = owns(to) || G.state.owner[to] === src.nat, sup = home ? 1 : supply(src.nat, to, r.km, r.sea), subs = home || r.mode !== "sea" ? 1 : subScreen(to, forces(to).subs, u, src.nat);
+    const power = (home ? rawPower(u, src.nat, models) : powerIn(u, src.nat, models, to)) * sup * subs * (1 + bonus("atk")) * ms(src.nat).skill * isr(src.nat) / bm;
+    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true), border: cross ? { from: cross, ...window.borderFort(to, cross), mult: bm } : null, supply: sup, subs, terrain: home ? 1 : powerIn(u, src.nat, models, to) / Math.max(1e-9, rawPower(u, src.nat, models)) };
   }
 
   // ── Actions ─────────────────────────────────────────────────
@@ -595,7 +626,6 @@
   // there; it joins once your influence reaches 100%. No dice.
   function diplomacyOdds(iso) {
     const t = BY[iso];
-    if (t.nukes > 0) return { p: 0, why: "Nuclear powers cannot be absorbed diplomatically." };
     if (G.state.wars[iso]) return { p: 0, why: `You are at war with ${t.name}.` };
     const S = empireSoft(), Gp = empireGdp(), A = empireStrength();
     const D = BY[iso].truePower * 1.25 * (1 + t.soft / 400) + 0.3;
@@ -640,9 +670,10 @@
   // One round of fighting in a country you are invading.
   function warRound(iso) {
     const s = G.state, t = BY[iso], armies = armiesAt(iso);
-    const war = (s.wars[iso] = s.wars[iso] || { start: s.turn, p0: rawPower(forces(iso), iso), nuked: false });
-    const help = allyHelp(iso, true), D = defenceOf(iso).total;
-    const A = armies.reduce((x, a) => x + armyPower(a) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help);
+    const war = (s.wars[iso] = s.wars[iso] || { start: s.turn, p0: rawPower(forces(iso), iso) });
+    const help = allyHelp(iso, true), mine = missileSalvo(empire().map(c => c.iso3), iso), theirs = missileSalvo([iso], armies[0] ? armies[0].nat : s.player);
+    const D = defenceOf(iso).total + theirs.power;
+    const A = armies.reduce((x, a) => x + armyPower(a) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help) + mine.power;
     const r = A / (A + D);
     scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r));
     const al = Math.min(0.6, 0.3 * (1 - r));
@@ -658,22 +689,13 @@
     }
     if (prog >= 1) {
       // Nuclear-armed defenders escalate rather than lose (once per war).
-      // Nuclear doctrine, not dice: a nuclear power facing conquest strikes once, unless your
-      // arsenal deters it (at least half as many warheads as it has).
-      if (t.nukes > 0 && !war.nuked && empireNukes() < t.nukes * 0.5) {
-        war.nuked = true;
-        left.forEach(a => scaleUnits(a.units, 0.4));
-        empire().forEach(c => { scaleUnits(forces(c.iso3), 0.75); s.garrison[c.iso3] *= 0.7; });
-        log(`☢️ ${t.name} launched a nuclear strike to stop your invasion! Your armies there lost 60%, and your home forces lost 25%.`, "bad");
-        return;
-      }
       annex(iso, 0.5);
       scaleUnits(forces(iso), 0.5); // survivors surrender and join you, weapons locked
       s.coins += loot(t);
-      log(`⚔️ Conquered ${t.name} after ${s.turn - war.start + 1} turn(s) of fighting. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins${t.nukes ? `, +${t.nukes} warheads` : ""}. Your armies are now stationed there.`, "good");
+      log(`⚔️ Conquered ${t.name} after ${s.turn - war.start + 1} turn(s) of fighting. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins. Your armies are now stationed there.`, "good");
       return;
     }
-    log(`⚔️ Fighting in ${t.name}: your strength ${A.toFixed(0)} vs ${D.toFixed(0)}. Defences ${Math.round(prog * 100)}% broken.`, r >= 0.5 ? "good" : "info");
+    log(`⚔️ Fighting in ${t.name}: your strength ${A.toFixed(0)} vs ${D.toFixed(0)}. Defences ${Math.round(prog * 100)}% broken.${salvoText(mine, theirs)}`, r >= 0.5 ? "good" : "info");
   }
   // 0 → 1: share of the defender's pre-war forces destroyed, where 80% destroyed = conquest.
   const warProgress = iso => {
@@ -738,7 +760,8 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) /
+  const enemyPower = e => powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
+    (e.sea ? subScreen(e.to, owns(e.to) ? homeShare(e.to).subs : forces(e.to).subs, e.units, e.nat) : 1) /
     (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
@@ -867,7 +890,7 @@
   function aiWarRound(T) {
     const s = G.state, c = BY[T], foes = enemiesAt(T);
     const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0), D = defenceOf(T).total, r = E / (E + D);
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + missileSalvo(foes.map(e => e.nat), T).power, D = defenceOf(T).total + missileSalvo([T], foes[0].nat).power, r = E / (E + D);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
@@ -889,7 +912,8 @@
   function defendRound(iso) {
     const s = G.state, c = BY[iso], foes = enemiesAt(iso);
     const inv = (s.invasions = s.invasions || {})[iso] || (s.invasions[iso] = { start: s.turn, progress: 0, e0: foes.reduce((x, e) => x + enemyPower(e), 0) });
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0), D = homeDefence(iso);
+    const theirs = missileSalvo(foes.map(e => e.nat), iso), mine = missileSalvo(empire().map(c => c.iso3), foes[0].nat);
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + theirs.power, D = homeDefence(iso) + mine.power;
     const r = E / (E + D);
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
@@ -910,7 +934,7 @@
       delete s.invasions[iso];
       loseNation(iso, left[0].nat, left);
     } else {
-      log(`🚨 ${by} attacking ${c.name}: enemy ${E.toFixed(0)} vs your ${D.toFixed(0)}. Enemy ${Math.round(inv.progress)}% of the way to taking it.`, r < 0.5 ? "info" : "bad");
+      log(`🚨 ${by} attacking ${c.name}: enemy ${E.toFixed(0)} vs your ${D.toFixed(0)}. Enemy ${Math.round(inv.progress)}% of the way to taking it.${salvoText(mine, theirs)}`, r < 0.5 ? "info" : "bad");
     }
   }
 
@@ -1007,6 +1031,8 @@
       if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TFULL.production * techShare(iso, "production")), deployedFrom(iso));
       else regrow(c, 0.05 + fx(iso, "rec"), enemyDeployed(iso));
     });
+    // Missile production rebuilds 0.5% of each arsenal a day.
+    Object.entries(s.missiles || {}).forEach(([iso, st]) => { const m = BY[iso].missiles; st.bm = Math.min(m.bm, st.bm + Math.ceil(m.bm * 0.005)); st.cm = Math.min(m.cm, st.cm + Math.ceil(m.cm * 0.005)); });
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
@@ -1157,7 +1183,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, borderMult, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });

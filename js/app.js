@@ -123,7 +123,7 @@
     return 0;
   }
   window.computeDeployment = iso => computeDeployment(iso);
-  // Every known unit (nukes excluded) is assigned to a base, at home or abroad. During a campaign
+  // Every known unit (missiles aside) is assigned to a base, at home or abroad. During a campaign
   // the totals are the nation's current home pool, so losses and units sent away show up.
   // Units sent from a particular base (G.state.baseOut) are allocated as if still home, then taken
   // off that base, so the base that sent them is the one that's emptier.
@@ -139,6 +139,14 @@
     zones.forEach(z => (z.kit = {}));
     KIT.forEach(([key]) => {
       const n = Math.round((totals[key] || 0) + sent(key));
+      // Submarines: the share at sea goes to the patrol areas by weight, the rest to the ports.
+      if (key === "subs" && zones.some(z => z.patrol)) {
+        const sea = Math.round(n * window.SUB_PATROLS[iso].atSea), got = spreadBy(zones.map(z => z.patrol || 0), sea);
+        const portW = zones.map(z => (z.patrol ? 0 : kitWeight(z, key))), port = spreadBy(portW.some(x => x > 0) ? portW : zones.map(z => (z.patrol ? 0 : 1)), n - sea);
+        zones.forEach((z, i) => (z.kit[key] = Math.max(0, got[i] + port[i] - outOf(z, key))));
+        fitTo(zones, key, Math.round(totals[key] || 0));
+        return;
+      }
       // Carriers go first to the bases where the named ships are actually homeported (js/fleet.js).
       if (key === "carriers") {
         const fixed = zones.map(z => shipsAtBase(iso, z.name).length), fs = fixed.reduce((a, b) => a + b, 0);
@@ -181,6 +189,15 @@
       }
     }));
     return zones;
+  }
+  // Whole units in proportion to weights, adding up to n (largest remainder).
+  function spreadBy(w, n) {
+    const tw = w.reduce((a, b) => a + b, 0);
+    if (!tw || n <= 0) return w.map(() => 0);
+    const raw = w.map(x => (n * x) / tw), out = raw.map(Math.floor);
+    let left = n - out.reduce((a, b) => a + b, 0);
+    raw.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { out[i]++; left--; } });
+    return out;
   }
   // If losses left fewer units than the bases hold, take the difference from the fullest bases.
   function fitTo(zones, key, n) {
@@ -225,7 +242,16 @@
   };
   window.basePoint = (iso, name) => { const z = deploymentFor(iso).find(x => x.name === name); return z ? z.at : (window.CENTROIDS || {})[iso]; };
   window.baseKit = (iso, name) => { const z = computeDeployment(iso).find(x => x.name === name); return z ? z.kit : null; };
+  // A country's bases, plus its submarine patrol areas at sea (js/subpatrols.js), which hold
+  // only submarines: the share of the force deployed at any time.
   function deploymentFor(iso) {
+    const base = deploymentOnShore(iso), sp = window.SUB_PATROLS[iso];
+    if (!sp || !(BY[iso].subs > 0)) return base;
+    const out = base.concat(sp.areas.map(([name, lon, lat, w, note]) => ({ name, at: [lon, lat], ground: 0, air: 0, naval: 0, groundPct: 0, airPct: 0, navalPct: 0, patrol: w, fort: 1, note: note + ". Submarines on patrol (positions are secret; this is the area's middle)." })));
+    out.hand = base.hand;
+    return out;
+  }
+  function deploymentOnShore(iso) {
     const hand = window.DEPLOYMENTS && window.DEPLOYMENTS[iso];
     if (hand) {
       const zones = hand.map(([name, lon, lat, ground, air, naval, note, host]) => ({ name, at: [lon, lat], ground, air, naval, note, host }));
@@ -518,7 +544,7 @@
     // Unit rings are built for the selected country now, and for other bases when first seen up close.
     g.select("g.kits").each(function (z) { if (this.__for === z) return; this.__for = z; this.__built = false; d3.select(this).selectAll("*").remove(); if (z.iso === selected) buildKits(this, z); });
     g.select("circle")
-      .attr("class", z => "garrison" + (z.navalPct > z.groundPct ? " naval" : "") + (z.host ? " abroad" : ""))
+      .attr("class", z => "garrison" + (z.navalPct > z.groundPct || z.patrol ? " naval" : "") + (z.host || z.patrol ? " abroad" : ""))
       .classed("picked", isPicked)
       .on("mousemove", (e, z) => zoneTip(e, z))
       .on("mouseleave", hideTip)
@@ -630,7 +656,7 @@
         ctx.fillStyle = picked ? "#ffffffcc" : "#0c131699";
         ctx.fill();
         ctx.lineWidth = picked ? 3 : own ? 1.4 : 1;
-        ctx.setLineDash(z.host && !picked ? [3, 2] : []);
+        ctx.setLineDash((z.host || z.patrol) && !picked ? [3, 2] : []);
         ctx.strokeStyle = picked ? "#fff" : naval ? COL.teal : COL.brass;
         ctx.stroke();
         if (own || k >= 4) {
@@ -801,10 +827,11 @@
       Object.assign(e, { ship: sh, model: sh.cls + "-class carrier", label: sh.name, maint: !sh.active });
     });
     const rowsOf = fleet.filter(e => !e.geo), cols = 10;
-    rowsOf.forEach((e, i) => { e.ox = (i % cols) * 42 - (cols - 1) * 21; e.oy = Math.floor(i / cols) * 240 + (homes.length ? 420 : 0); });
+    if (z.patrol) rowsOf.forEach((e, i) => { e.ox = (i % 4) * 1200 - 1800 + rnd() * 500; e.oy = Math.floor(i / 4) * 1100 + rnd() * 500; }); // spread out at sea
+    else rowsOf.forEach((e, i) => { e.ox = (i % cols) * 42 - (cols - 1) * 21; e.oy = Math.floor(i / cols) * 240 + (homes.length ? 420 : 0); });
     list.push(...fleet);
     // Piers for the moored rows.
-    if (rowsOf.length) { const rowsN = Math.ceil(rowsOf.length / 10); for (let r2 = 0; r2 < rowsN; r2++) infra.push({ type: "pier", naval: anchor, x: -230, y: r2 * 240 + (homes.length ? 420 : 0) + 125, w: 460, h: 14 }); }
+    if (rowsOf.length && !z.patrol) { const rowsN = Math.ceil(rowsOf.length / 10); for (let r2 = 0; r2 < rowsN; r2++) infra.push({ type: "pier", naval: anchor, x: -230, y: r2 * 240 + (homes.length ? 420 : 0) + 125, w: 460, h: 14 }); }
     // Air wings: parked on deck in rows, the rest in the hangar (not drawn), each tied to its ship.
     wings.forEach(({ sh, list: wl }) => {
       const ce = fleet.find(e => e.ship === sh);
@@ -2580,6 +2607,8 @@
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
     if (p.supply != null && !G.owns(c.iso3)) vs += ` 🚚 Supply line: ×${p.supply.toFixed(2)} (${BY[p.src.nat].name}'s logistics ${BY[p.src.nat].milStats.logistics}/10). ⛰️ Terrain (${window.terrainLabel(c.iso3)}): this army fights ×${p.terrain.toFixed(2)} there, and the defenders ×${window.terrainOf(c.iso3).defence.toFixed(2)}.`;
+    if (p.subs != null && p.subs < 0.995) vs += ` 🌊 ${c.name}'s ${num(G.forces(c.iso3).subs || 0)} submarines hunt your fleet at sea: ×${p.subs.toFixed(2)} (more warships, submarines and helicopters in the army protect it).`;
+    if (c.missileTotal && !G.owns(c.iso3)) vs += ` 🚀 It will fire ~${num(Math.round((G.missileStock(c.iso3).bm + G.missileStock(c.iso3).cm) * 0.04))} missiles a day at you.`;
     if (p.border && p.border.level > 2) vs += ` 🧱 Crossing the ${BY[p.border.from].name} border (fortified ${p.border.level}/10: ${p.border.note.toLowerCase()}): the army fights at ${Math.round(100 / p.border.mult)}% there.`;
     out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${esc(by)}: arrives in ${G.fmtDur(r.hours)} of game time (${G.clockLabel((G.state.clock || 0) + r.hours)}), about ${realMin(r.hours)} real.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">No way to get these ground units there: not enough sealift, and no airlift that can carry them.</b>`}`;
     go.disabled = !r.ok; eta.textContent = G.fmtDur(r.hours);
@@ -2638,7 +2667,7 @@
         <p class="hint">Rebels are ${Math.round(rv.progress)}% of the way to independence. Loyal strength ${L.toFixed(0)} vs rebels ${R.toFixed(0)} (${esc(G.unitList(rv.units))}). Crush 85% of the rebels to end it, or send more forces.</p></div>`;
     } else if (!G.owns(c.iso3) && s.player) {
       const D = G.defenceOf(c.iso3);
-      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(estUnits(c.iso3) || "none")}.${c.nukes ? ` ☢️ Nuclear power (${num(c.nukes)} warheads): it will strike your armies once before it falls unless your arsenal deters it (at least ${num(Math.ceil(c.nukes / 2))} warheads).` : ""}</p>`;
+      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(estUnits(c.iso3) || "none")}.${c.missileTotal ? ` 🚀 Missiles: ${num(G.missileStock(c.iso3).bm)} ballistic and ${num(G.missileStock(c.iso3).cm)} cruise left; it fires 4% of them a day at invaders.` : ""}</p>`;
     }
     const foes = s.enemies.filter(e => e.to === c.iso3 && (!e.vsPlayer || e.detected));
     if (foes.length && G.owns(c.iso3)) {
@@ -2832,7 +2861,7 @@
         <div class="bar"><i style="width:${c.power}%;background:${MODES.power.hi}"></i></div>
         ${mine ? `<p class="hint armory">Each category has an access level from 1 to ${window.LEVEL_MAX}: level 1 lets you call on 10% of it, rising to 100% at level ${window.LEVEL_FULL}.${lockedCount ? ` ${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} still at level 0 and can't fight.` : ""} You have <b>${G.fmtCoins(G.state.coins)}</b> coins. Usable strength ${window.truePowerWith(c, accShare).toFixed(1)} of ${c.truePower}.</p>` : ""}
         <dl class="assets">${base.join("")}${weaponTiles.join("")}
-          <div class="nuke" style="grid-column:span 3"><dt>Nuclear warheads${mine ? " · always ready, outside access levels" : ""}</dt><dd>${c.nukes ? num(c.nukes) + (c.iso3 === "ISR" ? " (undeclared, est.)" : "") : "None"}</dd></div></dl>
+          <div class="nuke" style="grid-column:span 3"><dt>Missiles (conventional) · air defence ${c.missiles.ad}/10${c.missiles.estimated ? " · estimated" : ""}</dt><dd>${c.missileTotal ? `${num(G.missileStock(c.iso3).bm)} ballistic · ${num(G.missileStock(c.iso3).cm)} cruise${G.state.missiles && G.state.missiles[c.iso3] ? ` <small>of ${num(c.missiles.bm)} / ${num(c.missiles.cm)}</small>` : ""}` : "None"}</dd><p class="hint">${esc(c.missiles.note)}. Nuclear weapons aren't part of the game. In battle it fires 4% of its missiles a day; ${Math.round(c.missiles.ad * 8)}% of incoming missiles are shot down.</p></div></dl>
         ${mine ? accessHtml(c) : ""}</div>
 
       ${profileHtml}
@@ -2926,7 +2955,7 @@
     soft: ["Soft power", c => c.soft, v => v],
     mil: ["Defence budget", c => c.mil, money],
     active: ["Active troops", c => c.active, kPers],
-    nukes: ["Nuclear warheads", c => c.nukes, num],
+    missileTotal: ["Missile arsenal (ballistic + cruise)", c => c.missileTotal, num],
   };
   function rankings() {
     const pane = $("#pane-rankings");
@@ -2965,7 +2994,7 @@
           <div><dt>Armies</dt><dd>${s.armies.length} <small>${s.armies.reduce((x, a) => x + G.armyPower(a), 0).toFixed(0)} strength</small></dd></div>
           <div><dt>Wars · revolts · attacks</dt><dd>${Object.keys(s.wars).length} · ${Object.keys(s.revolts).length} · ${s.enemies.filter(e => e.vsPlayer).length}</dd></div>
           <div><dt>Soft power</dt><dd>${G.empireSoft().toFixed(0)}</dd></div>
-          <div><dt>Warheads</dt><dd>${G.empireNukes() || "None"}</dd></div>
+          <div><dt>Missiles</dt><dd>${num(G.empireMissiles()) || "None"}</dd></div>
           <div><dt>Coins</dt><dd>${G.fmtCoins(s.coins)} <small>+${G.income()}/turn</small></dd></div>
           <div><dt>Empire value</dt><dd>${money(e.reduce((a, c) => a + c.nationalValue, 0))}</dd></div>
         </dl>
@@ -3000,8 +3029,8 @@
         <div class="keyrow"><input id="gkey" type="password" autocomplete="off" placeholder="${googleKey ? "Key saved" : "Paste API key"}" class="gkey"><button class="btn ghost" id="gkey-save">${googleKey ? "Replace" : "Use key"}</button>${googleKey ? `<button class="btn ghost" id="gkey-clear">Remove</button>` : ""}</div></div>
       ${s.log.length ? `<div class="section"><h3>War log</h3><ul class="log">${s.log.map(l => `<li class="${l.kind}"><span>T${l.t}</span>${esc(l.msg)}</li>`).join("")}</ul></div>` : ""}
       <div class="section method"><details><summary>Methodology & sources</summary>
-        <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Warheads: FAS Nuclear Notebook. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>
-        <p>Military power index: square-root-scaled share of the world maximum across 14 weighted capabilities (budget 20%, fighters 10%, troops, armour, artillery, air, naval, submarines, carriers, GDP and population), discounted for equipment age using GDP per capita, plus a nuclear deterrent bonus.</p>
+        <p>GDP: IMF WEO 2025 estimates. Population: UN WPP. Defence budgets: SIPRI, IISS Military Balance and national budgets. Equipment: IISS and Global Firepower-style active inventories, rounded. Missiles: CSIS Missile Threat and IISS. Soft power: modelled on Brand Finance Global Soft Power Index rankings.</p>
+        <p>Military power index: square-root-scaled share of the world maximum across 14 weighted capabilities (budget 20%, fighters 10%, troops, armour, artillery, air, naval, submarines, carriers, GDP and population), discounted for equipment age using GDP per capita, plus conventional missiles and air defence (nuclear weapons aren't part of the game).</p>
         <p>National value is the gross value of everything a country owns. It adds up global asset estimates: human capital ($1,620trn, 40 years of labour income), real estate and land ($410trn), business equity ($165trn), infrastructure ($85trn), resources in the ground (about $477trn), gold (about $26trn) and military hardware (about $3trn). That gives a world value of ${money(window.WORLD_VALUE)}. Each country gets its share of each pool, weighted by GDP, population and income level, plus its own resources, gold and arsenal. Business equity partly overlaps the property companies own, so treat the total as gross. A $70trn cultural and brand pool is shared out by soft power, and the Vatican gets a hand-set estimate for its property, art and faith brand.</p>
         <p>Soft power also counts toward military power (5% weight), as cultural pull, alliances and morale. Force disposition is a best guess at peacetime basing: about 40% of ground forces near the capital, the rest on borders in proportion to each neighbour's strength (treaty allies count for one fifth), and the fleet at the coast facing open sea.</p>
         <p>Secret assets: nobody outside governments knows the real numbers. Researched profiles (${C.filter(c => !c.secret.estimated).length} countries) draw on published think-tank, SIPRI, FAS, World Gold Council and SWF Institute estimates; the rest are extrapolated from budget and economy. Treat all figures as informed estimates for gameplay.</p>
