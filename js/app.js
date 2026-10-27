@@ -335,14 +335,14 @@
   const grat = root.append("path").datum(d3.geoGraticule10()).attr("class", "graticule");
   const countryPaths = root.append("g").selectAll("path").data(features).join("path")
     .attr("class", f => "country" + (f.iso ? " clickable" : ""))
-    .on("click", (e, f) => f.iso && select(f.iso))
+    .on("click", (e, f) => f.iso && select(f.iso, { fly: k < 60 }))
     .on("mousemove", (e, f) => showTip(e, f))
     .on("mouseleave", hideTip);
   // States / provinces of the selected country (Natural Earth admin-1, loaded on demand).
   const provLayer = root.append("g").attr("class", "prov-layer");
   const markerSel = root.append("g").selectAll("circle").data(markers).join("circle")
     .attr("class", "marker")
-    .on("click", (e, m) => select(m.c.iso3))
+    .on("click", (e, m) => select(m.c.iso3, { fly: k < 60 }))
     .on("mousemove", (e, m) => showTip(e, { iso: m.c.iso3 }))
     .on("mouseleave", hideTip);
   const deployLayer = root.append("g").attr("class", "deploy-layer");
@@ -1876,6 +1876,29 @@
     if (tab === "campaign") render();
   }
   svg.call(zoom).on("dblclick.zoom", null);
+  // ── Instant street level ──
+  // Double-click anywhere on the map (not on a unit) to jump straight there at street level, where
+  // the satellite photos and road map show streets, buildings and parked vehicles; double-click
+  // again to go one step closer, shift-double-click to step back out. The 🔍 button does the same
+  // for the middle of the view.
+  const STREET_K = 16000; // about map-tile level 16: individual roads and buildings
+  function streetJump(x, y, out) {
+    const t0 = d3.zoomTransform(svg.node()), [px, py] = t0.invert([x, y]), w = wrap.clientWidth, h = wrap.clientHeight;
+    const kk = out ? Math.max(1, t0.k / 8) : Math.min(30000, t0.k < STREET_K * 0.9 ? STREET_K : t0.k * 1.8);
+    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(kk).translate(-px, -py);
+    prefetchView(t);
+    svg.interrupt();
+    svg.call(zoom.transform, t);
+  }
+  svg.on("dblclick.street", e => {
+    if (selection()) return; // picking a destination: a double-click is two clicks there
+    e.preventDefault();
+    const r = wrap.getBoundingClientRect();
+    streetJump(e.clientX - r.left, e.clientY - r.top, e.shiftKey);
+  });
+  $("#zstreet").onclick = () => streetJump(wrap.clientWidth / 2, wrap.clientHeight / 2, false);
+  // Wheel and trackpad zoom about twice as fast as d3's default.
+  zoom.wheelDelta(e => -e.deltaY * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002) * 2);
 
   function layout() {
     const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -2086,11 +2109,13 @@
     if (s.player) {
       if (s.owner[iso] === s.player) return iso === s.player ? COL.brass : d3.interpolateLab(COL.brass, COL.land)(0.35);
       if (s.owner[iso] !== iso) return d3.interpolateLab("#a05fd0", COL.land)(0.45); // taken by another AI country
+      if (G.isAlly(iso)) return ALLY_COL;
       if (G.isLocked(iso)) return "url(#hatch)";
       return COL.land;
     }
     return G.isLocked(iso) ? "url(#hatch)" : COL.teal;
   }
+  const ALLY_COL = "#4f9fd6";
   let deepZoom = false, streetZoom = false;
   function fillFor(iso) {
     if (!iso) return "#161f21";
@@ -2108,7 +2133,7 @@
     if (!iso) return 0.15;
     if (mode !== "campaign") return 0.62;
     const s = G.state;
-    if (s.player) return s.owner[iso] === s.player ? 0.55 : s.owner[iso] !== iso ? 0.5 : G.isLocked(iso) ? 0.35 : 0.1;
+    if (s.player) return s.owner[iso] === s.player ? 0.55 : s.owner[iso] !== iso ? 0.5 : G.isAlly(iso) ? 0.45 : G.isLocked(iso) ? 0.35 : 0.1;
     return G.isLocked(iso) ? 0.35 : 0.45;
   }
   function paint() {
@@ -2123,7 +2148,7 @@
     if (mode === "campaign") {
       const s = G.state;
       const rows = s.player
-        ? [[COL.brass, `Your nation (${BY[s.player].name})`], [d3.interpolateLab(COL.brass, COL.land)(0.35), "Conquered / annexed"], [COL.land, "Independent"], ["hatch", "Locked independent"]]
+        ? [[COL.brass, `Your nation (${BY[s.player].name})`], [d3.interpolateLab(COL.brass, COL.land)(0.35), "Conquered / annexed"], [ALLY_COL, `Allies (${G.allies().length})`], [COL.land, "Independent"], ["hatch", "Locked independent"]]
         : [[COL.teal, `Playable (${s.unlocked.length})`], ["hatch", "Locked"]];
       L.innerHTML = `<div class="title">Campaign · Turn ${s.turn}</div>` + rows.map(([c, t]) =>
         `<div class="row"><span class="sw" style="${c === "hatch" ? `background:repeating-linear-gradient(45deg,${COL.locked} 0 3px,#33403f 3px 5px);border:1px dashed ${COL.muted}` : `background:${c}`}"></span>${esc(t)}</div>`).join("");
@@ -2388,6 +2413,14 @@
       <p class="hint">Price is its national value in coins (1 coin = $1)${prem}.${short ? ` You have ${G.fmtCoins(s.coins)}.` : ""}</p>`;
   }
 
+  // Alliance with an AI country: the terms it weighs (fixed, no dice) and the button.
+  function allianceHtml(c) {
+    if (G.isAlly(c.iso3)) return `<p class="hint">🤝 <b>Your ally.</b> It sends 15% of its forces to defend any of your nations it can reach, joins your invasions with 10% of them, and never attacks you.</p><button class="btn ghost" data-act="unally">End alliance</button>`;
+    const t = G.allianceTerms(c.iso3);
+    if (t.why) return `<p class="hint">Alliance: ${esc(t.why)}</p>`;
+    return `<button class="btn diplo" data-act="ally" ${t.ok ? "" : "disabled"}>Form alliance <small>support ${t.score}/${t.need}</small></button>
+      <p class="hint">${t.parts.map(([l, v]) => `${esc(l)} ${v >= 0 ? "+" : ""}${v}`).join(" · ")}. ${t.ok ? `${esc(c.name)} will sign.` : `${esc(c.name)} signs at ${t.need}.`}</p>`;
+  }
   function actionsHtml(c) {
     const s = G.state;
     if (!s.player) {
@@ -2396,9 +2429,9 @@
     }
     if (s.over) return `<p class="hint">Campaign finished. Start a new one from the Campaign tab.</p>`;
     if (G.owns(c.iso3)) return `<p class="hint">Part of your empire. Order at ${pct(s.garrison[c.iso3])}${G.inRevolt(c.iso3) ? ", in revolt" : ""}.</p>`;
-    const d = G.diplomacyOdds(c.iso3), tried = s.courted[c.iso3] === s.turn;
-    return `<button class="btn diplo" data-act="influence" ${d.p <= 0 || tried ? "disabled" : ""}>Diplomatic union <small>${tried ? "tried this turn" : d.p > 0 ? pct(d.p) + " odds" : "impossible"}</small></button>
-      ${d.p <= 0 && d.why ? `<p class="hint">${esc(d.why)}</p>` : ""}
+    const d = G.diplomacyOdds(c.iso3), tried = s.courted[c.iso3] === s.turn, inf = (s.influenceAt || {})[c.iso3] || 0;
+    return `${allianceHtml(c)}<button class="btn diplo" data-act="influence" ${d.p <= 0 || tried ? "disabled" : ""}>Diplomatic union <small>${tried ? "courted today" : d.p > 0 ? `influence ${pct(inf)} · +${pct(d.p)} a day` : "impossible"}</small></button>
+      ${d.p <= 0 && d.why ? `<p class="hint">${esc(d.why)}</p>` : d.p > 0 ? `<p class="hint">Courting adds ${pct(d.p)} influence a day (once a day). ${esc(c.name)} joins your empire peacefully at 100%: ${Math.ceil((1 - inf) / d.p - 1e-9)} more day(s) of courting. Influence also counts toward an alliance (up to +30 support).</p>` : ""}
       ${buyHtml(c)}`;
   }
 
@@ -2440,7 +2473,8 @@
     if (!G.owns(c.iso3)) {
       const D = G.defenceOf(c.iso3);
       const de = G.estimate(D.total, c.iso3);
-      vs = ` Army strength ${p.power.toFixed(0)} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
+      const help = (p.allies || []).reduce((x, h) => x + h.power, 0);
+      vs = ` Army strength ${p.power.toFixed(0)}${help ? ` + ${help.toFixed(0)} from your allies (${p.allies.map(h => BY[h.iso].name).join(", ")})` : ""} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
     out.innerHTML = `${esc(Math.round(r.km).toLocaleString("en-US"))} km ${esc(by)}: arrives in ${G.fmtDur(r.hours)} of game time (${G.clockLabel((G.state.clock || 0) + r.hours)}), about ${realMin(r.hours)} real.${esc(lift)}${esc(vs)}${r.ok ? "" : ` <b class="bad">No way to get these ground units there: not enough sealift, and no airlift that can carry them.</b>`}`;
@@ -2500,7 +2534,7 @@
         <p class="hint">Rebels are ${Math.round(rv.progress)}% of the way to independence. Loyal strength ${L.toFixed(0)} vs rebels ${R.toFixed(0)} (${esc(G.unitList(rv.units))}). Crush 85% of the rebels to end it, or send more forces.</p></div>`;
     } else if (!G.owns(c.iso3) && s.player) {
       const D = G.defenceOf(c.iso3);
-      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(estUnits(c.iso3) || "none")}.${c.nukes ? " ☢️ Nuclear power: it may strike your armies before it falls." : ""}</p>`;
+      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(estUnits(c.iso3) || "none")}.${c.nukes ? ` ☢️ Nuclear power (${num(c.nukes)} warheads): it will strike your armies once before it falls unless your arsenal deters it (at least ${num(Math.ceil(c.nukes / 2))} warheads).` : ""}</p>`;
     }
     const foes = s.enemies.filter(e => e.to === c.iso3 && (!e.vsPlayer || e.detected));
     if (foes.length && G.owns(c.iso3)) {
@@ -2511,7 +2545,7 @@
         ${foes.map(e => `<p class="hint"><b>${esc(BY[e.nat].name)}</b>: about ${esc(G.unitList(G.fuzzUnits(e.units, e.nat)))}${G.arrived(e) ? " (fighting)" : `, arrives in ${G.etaLeft(e)}`}.</p>`).join("")}
         <p class="hint">Your defence: ${G.homeDefence(c.iso3).toFixed(0)} (this nation's unlocked forces, order and any armies stationed here). Send armies here or unlock weapons to hold it.</p></div>`;
     }
-    if (!G.owns(c.iso3) && G.isHostile(c.iso3)) front += `<p class="hint">⚠️ ${esc(c.name)} is hostile and may attack your nations.</p>`;
+    if (!G.owns(c.iso3) && G.isHostile(c.iso3)) front += `<p class="hint">⚠️ ${esc(c.name)} is hostile: it strikes back at your nations whenever it can muster a force, every 4 days at most.</p>`;
     const invaders = s.enemies.filter(e => e.to === c.iso3 && !e.vsPlayer), outgoing = s.enemies.filter(e => e.nat === c.iso3 && !e.vsPlayer);
     if (invaders.length) front += `<div class="front aiwar"><h4>🌍 Invaded by ${esc([...new Set(invaders.map(e => BY[e.nat].name))].join(", "))}</h4>
       ${invaders.map(e => `<p class="hint">${esc(G.unitList(e.units))}${G.arrived(e) ? " (fighting)" : `, arrives in ${G.etaLeft(e)}`}.</p>`).join("")}
@@ -2642,10 +2676,12 @@
         </dl>
         ${sp.priv.length ? `<p class="hint">Private constellations (join the national effort in wartime): ${sp.priv.map(([n, k, t]) => `${esc(n)} ${num(k)} (${t})`).join(" · ")}.</p>` : ""}
         <p class="hint">Satellites sharpen reconnaissance, communications and navigation: up to about +25% combat strength. Private satellites count for 30% in peacetime and in full once the country is at war.</p></div>`;
-    const intelHtml = `<div class="section"><h3>Intelligence <small>score ${ip.score}/10</small></h3>
+    const intelRank = 1 + C.filter(x => x.intelProfile.score > ip.score).length, im = window.intelMult(c);
+    const intelHtml = `<div class="section"><h3>Intelligence &amp; spy agencies <small>score ${ip.score}/10 · #${intelRank} of ${C.length}</small></h3>
+        <p class="intelfx">🕵️ Combat effect: <b class="${im >= 1 ? "good" : "bad"}">×${im.toFixed(2)}</b> on everything ${esc(c.name)} fights with, attacking or defending (targeting, early warning, sabotage and cyber attacks).</p>
         <div class="meters">${meter("Human (HUMINT)", Math.round(ip.humint))}${meter("Signals (SIGINT)", Math.round(ip.sigint))}${meter("Imagery (IMINT)", Math.round(ip.imint))}${meter("Cyber", Math.round(ip.cyber))}${meter("Counter-intel", Math.round(ip.counter))}</div>
         ${ip.agencies ? `<p class="hint"><b>Agencies:</b> ${esc(ip.agencies)}.</p>` : ""}${ip.alliance ? `<p class="hint"><b>Sharing:</b> ${esc(ip.alliance)}.</p>` : ""}
-        <p class="hint">${G.owns(c.iso3) ? "Your best intelligence score sets how precisely you see enemy strength and whether you spot attacks when they launch." :
+        <p class="hint">${G.owns(c.iso3) ? `Your best intelligence score (${G.myIntel().toFixed(1)}) sets how precisely you see enemy strength. You spot an attack the moment it launches if your score is at least 3.3 + 0.53 × the attacker's counter-intelligence; otherwise you only see it when it lands.` :
           G.state.player ? `Your estimates of ${esc(c.name)}'s forces are off by up to ±${Math.round(G.intelError(c.iso3) * 100)}% (your intelligence ${G.myIntel().toFixed(1)} against its counter-intelligence ${ip.counter}).` : ""}</p></div>`;
     const equipHtml = `<div class="section"><h3>Equipment <span class="tag">${c.equipSource === "researched" ? "researched" : esc(c.equipSource.replace("_", " ")) + " template"}</span></h3>
         <div class="bc-models">${modelLines(c, G.baseForces(c))}</div>
@@ -2765,7 +2801,7 @@
   }
 
   function act(kind, iso) {
-    const err = kind === "choose" ? G.choose(iso) : kind === "buy" ? G.buy(iso) : G.influence(iso);
+    const err = kind === "choose" ? G.choose(iso) : kind === "buy" ? G.buy(iso) : kind === "ally" ? G.proposeAlliance(iso) : kind === "unally" ? G.leaveAlliance(iso) : G.influence(iso);
     if (err) return toast(err);
     const last = G.state.log[0];
     if (last) toast(last.msg);
@@ -2957,9 +2993,13 @@
     G.resetAll(); selected = null; unpickZone(); drawDeploy(); setTab("campaign"); refresh();
     toast("Everything was reset: new campaign, 300 coins, fresh random nations, promo codes usable again.");
   };
-  function select(iso) {
+  // Select a country and fly to it. Clicks on the map while zoomed in past country level select
+  // without flying back out, so you can click around at street level.
+  function select(iso, opts) {
     if (iso !== selected) { unpickZone(); province = null; }
-    selected = iso; paint(); drawDeploy(); drawShips(); drawSats(); drawProvinces(); zoomTo(iso); setTab("dossier"); $("#pane-dossier").scrollTop = 0;
+    selected = iso; paint(); drawDeploy(); drawShips(); drawSats(); drawProvinces();
+    if (!opts || opts.fly !== false) zoomTo(iso);
+    setTab("dossier"); $("#pane-dossier").scrollTop = 0;
     loadAdmin1(iso, () => { if (selected === iso) { drawProvinces(); if (tab === "dossier") dossier(); } });
   }
 
@@ -3046,7 +3086,9 @@
   function pick(iso) { q.value = ""; hits = []; drawHits(); select(iso); }
   q.oninput = () => {
     const v = q.value.trim().toLowerCase();
-    hits = v ? C.filter(c => c.name.toLowerCase().includes(v) || c.iso3.toLowerCase() === v).slice(0, 12) : [];
+    // Best matches first: exact name or code, then names starting with it, then the rest ("Oman" before "Romania").
+    const rank = c => { const n = c.name.toLowerCase(); return n === v || c.iso3.toLowerCase() === v ? 0 : n.startsWith(v) ? 1 : n.split(/[\s-]/).some(w => w.startsWith(v)) ? 2 : 3; };
+    hits = v ? C.filter(c => c.name.toLowerCase().includes(v) || c.iso3.toLowerCase() === v).sort((a, b) => rank(a) - rank(b)).slice(0, 12) : [];
     active = 0; drawHits();
   };
   q.onkeydown = e => {

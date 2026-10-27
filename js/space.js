@@ -86,6 +86,49 @@ window.INTEL_AGENCIES = {
   BLR: "KGB of Belarus",
 };
 
+// More services, so nearly every country's spies have a name.
+Object.assign(window.INTEL_AGENCIES, {
+  DZA: "DGDSE (external), DGSI (internal), military security (DCSA)", AGO: "SINSE (internal), SIE (external), SIM (military)",
+  BWA: "Directorate of Intelligence and Security (DIS)", BFA: "Agence nationale de renseignement (ANR)", BDI: "Service national de renseignement (SNR)",
+  CMR: "DGRE (external intelligence)", TCD: "Agence nationale de sécurité (ANS)", COD: "ANR (national intelligence), DEMIAP (military)",
+  DJI: "Service de documentation et de sécurité (SDS)", ERI: "National Security Office", ETH: "National Intelligence and Security Service (NISS)",
+  GHA: "National Intelligence Bureau, Research Department", KEN: "National Intelligence Service (NIS)", LBY: "Rival eastern and western intelligence services",
+  MAR: "DGED (external), DGST (internal)", MOZ: "SISE (State Information and Security Service)", NGA: "NIA (foreign), DSS (domestic), Defence Intelligence Agency",
+  RWA: "National Intelligence and Security Services (NISS)", SOM: "National Intelligence and Security Agency (NISA)", ZAF: "State Security Agency, Defence Intelligence",
+  SSD: "National Security Service (NSS)", SDN: "General Intelligence Service (GIS)", TZA: "Tanzania Intelligence and Security Service (TISS)",
+  UGA: "ISO (internal), ESO (external), CMI (military)", ZMB: "Zambia Security Intelligence Service", ZWE: "Central Intelligence Organisation (CIO)",
+  ALB: "State Intelligence Service (SHISH)", AUT: "DSN (state protection), Heeresnachrichtenamt (military)", BEL: "VSSE (State Security), ADIV/SGRS (military)",
+  BIH: "Intelligence-Security Agency (OSA-OBA)", BGR: "DANS, National Intelligence Service", HRV: "SOA, VSOA (military)", CYP: "Cyprus Intelligence Service (KYP)",
+  CZE: "BIS, ÚZSI, Military Intelligence", DNK: "PET, Danish Defence Intelligence Service (FE)", EST: "Foreign Intelligence Service, KAPO",
+  FIN: "Supo, Finnish Defence Intelligence Agency", GRC: "National Intelligence Service (EYP)", HUN: "Information Office (IH), AH, Military National Security Service",
+  IRL: "Directorate of Military Intelligence (G2), Garda Crime and Security", LVA: "Constitution Protection Bureau, VDD, MIDD", LTU: "State Security Department (VSD), AOTD (military)",
+  LUX: "Service de renseignement de l'État (SRE)", MLT: "Malta Security Service", MDA: "Information and Security Service (SIS)", MNE: "National Security Agency (ANB)",
+  MKD: "National Security Agency, Intelligence Agency", NOR: "Norwegian Intelligence Service (E-tjenesten), PST", PRT: "SIED (external), SIS (internal)",
+  ROU: "SRI (domestic), SIE (foreign), DGIA (military)", SRB: "BIA, VBA, VOA (military)", SVK: "Slovak Information Service (SIS), Military Intelligence",
+  SVN: "SOVA", SWE: "MUST (military), FRA (signals), Säpo", CHE: "Federal Intelligence Service (FIS), Military Intelligence Service",
+  AFG: "General Directorate of Intelligence (GDI)", ARM: "National Security Service, Foreign Intelligence Service", AZE: "State Security Service, Foreign Intelligence Service",
+  BHR: "National Security Agency", BGD: "DGFI (military), National Security Intelligence (NSI)", GEO: "Georgian Intelligence Service, State Security Service",
+  IDN: "BIN (State Intelligence Agency), BAIS TNI (military)", IRQ: "Iraqi National Intelligence Service, military intelligence", JOR: "General Intelligence Directorate (GID)",
+  KAZ: "National Security Committee (KNB), Syrbar (foreign)", KWT: "Kuwait State Security", KGZ: "State Committee for National Security (GKNB)",
+  LBN: "General Security, Army Intelligence Directorate; Hezbollah's own network", MYS: "Malaysian External Intelligence Organisation, Special Branch",
+  MMR: "Office of the Chief of Military Security Affairs (OCMSA)", MNG: "General Intelligence Agency (GIA)", NPL: "National Investigation Department",
+  OMN: "Internal Security Service, Palace Office", PSE: "Palestinian General Intelligence Service; Hamas security apparatus", PHL: "NICA, ISAFP (military)",
+  QAT: "State Security Bureau", LKA: "State Intelligence Service, Directorate of Military Intelligence", SYR: "General Intelligence Directorate (rebuilt after 2024)",
+  TJK: "State Committee for National Security (GKNB)", THA: "National Intelligence Agency, Armed Forces Security Center", TKM: "Ministry of National Security",
+  UZB: "State Security Service (SGB)", YEM: "National Security Bureau; Houthi intelligence in the north", KHM: "General Department of Intelligence (military)",
+  MEX: "Centro Nacional de Inteligencia (CNI), military intelligence", COL: "Dirección Nacional de Inteligencia (DNI)", BRA: "ABIN (Brazilian Intelligence Agency)",
+  ARG: "SIDE (Secretaría de Inteligencia de Estado)", CHL: "Agencia Nacional de Inteligencia (ANI)", PER: "Dirección Nacional de Inteligencia (DINI)",
+  VEN: "SEBIN, DGCIM (military counter-intelligence); Cuban advisers", ECU: "Centro de Inteligencia Estratégica (CIES)", GTM: "Secretaría de Inteligencia Estratégica",
+  DOM: "Dirección Nacional de Inteligencia", PAN: "SENIS (National Intelligence and Security Service)", CRI: "Dirección de Inteligencia y Seguridad (DIS)",
+  SLV: "Organismo de Inteligencia del Estado (OIE)", NIC: "Military intelligence and police intelligence (Russian-trained)", BOL: "Police and military intelligence",
+  URY: "Secretaría de Inteligencia Estratégica de Estado", PRY: "Secretaría Nacional de Inteligencia", HND: "Dirección Nacional de Investigación e Inteligencia",
+  BLZ: "Joint Intelligence Coordinating Centre", JAM: "Jamaica Defence Force intelligence, Constabulary Special Branch", TTO: "Strategic Services Agency",
+  BRN: "Internal Security Department", LAO: "Ministry of Public Security", TLS: "National Intelligence Service (SNI)", MDV: "National Security Service intelligence",
+  BTN: "Royal Bhutan Army intelligence", PNG: "National Intelligence Organisation", FJI: "Fiji Military Forces intelligence", ISL: "No intelligence service (relies on NATO allies)",
+  VAT: "No foreign intelligence service: Gendarmerie and a worldwide diplomatic network", SEN: "Direction générale du renseignement", CIV: "Conseil national de sécurité intelligence",
+  MLI: "Agence nationale de la sécurité d'État (ANSE)", NER: "Direction générale de la documentation et de la sécurité extérieure", TUN: "Intelligence services of the Interior and Defence ministries",
+});
+
 (function () {
   const C = window.COUNTRIES;
   const FIVE_EYES = ["USA", "GBR", "CAN", "AUS", "NZL"];
@@ -110,10 +153,15 @@ window.INTEL_AGENCIES = {
     };
     // Overall score: what this country can know about others (allies share some of their picture).
     intel.score = cl((intel.humint + intel.sigint + intel.imint + intel.cyber) / 4 + intel.shared * 0.6);
-    intel.agencies = window.INTEL_AGENCIES[c.iso3] || "";
+    intel.agencies = window.INTEL_AGENCIES[c.iso3] || (intel.score >= 4 ? "National intelligence and military intelligence services" : "A small security service; relies on partners for foreign intelligence");
     intel.alliance = fiveEyes ? "Five Eyes" : nato ? "NATO intelligence sharing" : "";
     c.intelProfile = intel;
   });
+  // How much a country's spy agencies add to its fighting power: targeting and battle damage
+  // assessment, early warning, sabotage behind the lines and cyber attacks on command networks.
+  // Each point of intelligence score above 5 adds 3% (a 9.5/10 service like the CIA/NSA or
+  // Mossad/Unit 8200 about +13%), each point below takes 3% off, within −12% and +15%.
+  window.intelMult = c => Math.max(0.88, Math.min(1.15, 1 + 0.03 * (c.intelProfile.score - 5)));
   // Space multiplier for combat: reconnaissance, communications and navigation, plus private
   // constellations in full once the country is at war (otherwise 30%).
   window.spaceMult = (c, atWar) => {
