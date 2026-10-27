@@ -40,7 +40,15 @@ The same pictures appear in unit tooltips and next to every model in base cards 
 
 Vehicles are painted woodland olive, or desert tan for Middle Eastern and North African armies. Ships are haze grey and aircraft air-superiority grey. Each shape is drawn to the model's real length, and ground vehicles are exaggerated a little so they read clearly.
 
-Vehicles park side by side in motor-pool rows. Warships moor in rows at true scale by the piers. Each navy's named carriers (`js/fleet.js`) are their home base's carriers and sit at their real piers, to scale and labelled: Norfolk shows USS George H.W. Bush and Harry S. Truman at their berths. Hover any unit for its model, specs and combat value. Further out, a base's units stay grouped into one marker. Each base's parked units are pre-drawn into one image, so panning over thousands of them stays smooth.
+**Bases are spread out like real installations.** Units aren't packed into one block. Each battalion has its own area across the site, with roads and open ground between them (gaps of roughly 70–250 m):
+- **Infantry:** barracks blocks of about 1,500 soldiers with their squads on a parade ground in front.
+- **Vehicles:** motor pools of about two companies (28 tanks, 30 armoured vehicles or 18 guns), with maintenance sheds along the top and vehicles side by side in rows.
+- **Helicopters:** pads in clusters of eight.
+- **Aircraft:** fighters in flights of four at dispersal spots, or two to a hardened shelter where the base is fortified (5+), with transports, tankers and AEW planes on their own aprons. No runway is drawn, since the satellite imagery shows the real one.
+
+The areas are mixed rather than sorted by kind, and each base's layout is fixed (seeded by its name), so it looks the same every visit. Fort Cavazos now spreads its motor pools and barracks over several kilometres.
+
+Warships moor in rows at true scale by the piers. Each navy's named carriers (`js/fleet.js`) are their home base's carriers and sit at their real piers, to scale and labelled: Norfolk shows USS George H.W. Bush and Harry S. Truman at their berths. Hover any unit for its model, specs and combat value. Further out, a base's units stay grouped into one marker. Each base's parked units are pre-drawn into one image, so panning over thousands of them stays smooth.
 
 **Carriers: every one, with its air wing.** Each navy's carrier count (`js/data.js`) is matched to its named ships (`js/fleet.js`):
 - **What counts:** every carrier in commission, whether in service or in the yard. Ships still fitting out, like the USS John F. Kennedy, don't count yet. Where a navy counts big-deck amphibious ships as carriers, they're used too: Italy's Trieste, Spain's Juan Carlos I and South Korea's Dokdo and Marado.
@@ -62,6 +70,17 @@ Vehicles park side by side in motor-pool rows. Warships moor in rows at true sca
 4. **To split a selection over several places,** press **+ Another destination** and click the next one. Each destination has a box for each kind of unit selected (soldiers, tanks, AFVs, artillery, aircraft and so on). Type how many go there. Whatever you don't assign stays at the base, and the bar can't hand out more than you selected. Each order shows its own route and arrival time. **Confirm** sends them all at once, and each takes its share of the selected models. × removes a destination. For example, send 1,000 soldiers to another base and the rest to invade a neighbour.
 
 Dragging units, or a whole base marker, also works, with a mouse or by touch, and stops at the same confirm step. Before you start a campaign, clicking units explains that commanding needs one, with a *Play as* button when that nation is playable.
+
+**Fortified borders.** Every land border is rated from 1 (open) to 10 (the Korean DMZ) from what's really built there in 2025 (`js/borders.js`):
+- **9–10:** the DMZ (4 km of minefields, fences and tank traps) and the Ukrainian front's belts of trenches, minefields and dragon's teeth.
+- **7–9:** Israel's walls and barriers, the India–Pakistan Line of Control fence, Poland's steel wall and East Shield, the Baltic Defence Line, Finland's eastern fence, Turkey's 830 km Syria wall, Saudi Arabia's Iraq and Yemen barriers, the closed Morocco–Algeria border, Pakistan's Durand Line fence, and Kuwait's barrier with Iraq.
+- **5–6:** the US–Mexico barrier (about 1,100 of 3,145 km) and others.
+- **Everything else:** borders not listed get each side's general border control, usually 2 (ordinary border posts).
+
+An army invading overland across a border of level L fights at 1 / (1 + 0.03 × (L − 2)) of its strength, so the DMZ costs an attacker about 19%. Attackers cross at the weakest border they can reach, and forces arriving by sea or air don't cross a border at all. This applies to your invasions, to enemy attacks on you and to wars between AI countries. It stacks with base fortification and home advantage.
+- **On the map:** borders of 5 and up are drawn everywhere, and every border of the selected country is drawn too, coloured amber (4–5), orange (6–7) or red (8–10). Hover one for what's there.
+- **In the dossier:** each country's borders are listed strongest first.
+- **In the send preview:** the preview says which border your army crosses and what it costs.
 
 **Fixed base fortification.** Every base has a fortification rating from 1 to 10 that can't be upgraded. It follows what the site really is:
 - **National baseline:** North Korea's tunnelled hills 8, Switzerland's mountain forts 8, Israel and Taiwan 7, South Korea, Ukraine, Finland and Iran 6, most others 3–5.

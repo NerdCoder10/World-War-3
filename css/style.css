@@ -494,3 +494,13 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .tooltip .tipnote.wrap, .tooltip .k.wrap { white-space: normal; max-width: 360px; }
 .tooltip { max-width: 440px; } .tooltip .k { white-space: normal; }
 .intelfx { font-size: 12.5px; margin: 4px 0 6px; } .intelfx .good { color: var(--teal); } .intelfx .bad { color: var(--danger); }
+/* Fortified borders: dark casing, coloured "teeth" by level, a wide invisible strip for hovering. */
+.fort-layer path { fill: none; vector-effect: non-scaling-stroke; }
+.fort-layer .fort-case { stroke: #0c1316cc; stroke-linecap: round; pointer-events: none; }
+.fort-layer .fort-line { stroke-linecap: butt; pointer-events: none; }
+.fort-layer .fort-hit { stroke: transparent; stroke-width: 10px; pointer-events: stroke; }
+.blist { list-style: none; margin: 2px 0 8px; padding: 0; font-size: 12px; }
+.blist li { margin: 2px 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.blist .bl { display: inline-block; min-width: 20px; text-align: center; border-radius: 3px; font-weight: 700; color: #06201c; background: #c9d3cf; }
+.blist .bl.lv1 { background: #f0c66a; } .blist .bl.lv2 { background: #ff8a3d; } .blist .bl.lv3 { background: #ff4d3d; color: #fff; }
+.blist small { color: var(--muted); }

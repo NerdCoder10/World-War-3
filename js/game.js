@@ -247,6 +247,18 @@
   // agencies (js/space.js intelMult: targeting, early warning, sabotage and cyber).
   const isr = iso => space(iso) * window.intelMult(BY[iso]);
   const armyPower = a => rawPower(a.units, a.nat, a.models) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * isr(a.nat);
+  // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
+  // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
+  const borderMult = (to, from) => (from && window.borderFort ? 1 + 0.03 * Math.max(0, window.borderFort(to, from).level - 2) : 1);
+  // The border an overland attack on `to` crosses: straight from its origin if they touch, otherwise
+  // the weakest border with the attacker's side (attackers pick the easiest way in).
+  function crossing(to, from, side) {
+    const nb = window.NEIGHBORS[to] || [];
+    if (nb.includes(from)) return from;
+    const cands = nb.filter(side);
+    return cands.length ? cands.reduce((a, b) => (window.borderFort(to, a).level <= window.borderFort(to, b).level ? a : b)) : null;
+  }
+  const yourCrossing = (to, from) => crossing(to, from, n => owns(n));
   const total = units => UNITS.reduce((s, u) => s + (units[u.key] || 0), 0);
   function scaleUnits(units, f) {
     UNITS.forEach(u => {
@@ -409,8 +421,9 @@
     if (src.at === to) return { err: `Those units are already in ${BY[to].name}.` };
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat, src.pt);
-    const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * isr(src.nat);
-    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true) };
+    const cross = r.sea || owns(to) || G.state.owner[to] === src.nat ? null : crossing(to, src.at, n => n === src.at || owns(n) || G.state.owner[n] === src.nat), bm = borderMult(to, cross);
+    const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * isr(src.nat) / bm;
+    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true), border: cross ? { from: cross, ...window.borderFort(to, cross), mult: bm } : null };
   }
 
   // ── Actions ─────────────────────────────────────────────────
@@ -604,7 +617,8 @@
   function warRound(iso) {
     const s = G.state, t = BY[iso], armies = armiesAt(iso);
     const war = (s.wars[iso] = s.wars[iso] || { start: s.turn, p0: rawPower(forces(iso), iso), nuked: false });
-    const help = allyHelp(iso, true), A = armies.reduce((x, a) => x + armyPower(a), 0) + allyTotal(help), D = defenceOf(iso).total;
+    const help = allyHelp(iso, true), D = defenceOf(iso).total;
+    const A = armies.reduce((x, a) => x + armyPower(a) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help);
     const r = A / (A + D);
     scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r));
     const al = Math.min(0.6, 0.3 * (1 - r));
@@ -700,7 +714,8 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => rawPower(e.units, e.nat, e.models) * ms(e.nat).skill * reach(e.nat, e.sea) * isr(e.nat);
+  const enemyPower = e => rawPower(e.units, e.nat, e.models) * ms(e.nat).skill * reach(e.nat, e.sea) * isr(e.nat) /
+    (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
     const d = {};
@@ -1120,6 +1135,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
