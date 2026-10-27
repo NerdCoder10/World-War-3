@@ -493,3 +493,4 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .tooltip svg.soldierpic, svg.soldierpic { width: 52px; height: 52px; background: #0c1316; border: 1px solid #ffffff22; }
 .tooltip .tipnote.wrap, .tooltip .k.wrap { white-space: normal; max-width: 360px; }
 .tooltip { max-width: 440px; } .tooltip .k { white-space: normal; }
+.intelfx { font-size: 12.5px; margin: 4px 0 6px; } .intelfx .good { color: var(--teal); } .intelfx .bad { color: var(--danger); }

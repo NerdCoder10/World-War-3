@@ -156,6 +156,70 @@
     return { strength: s, blocs };
   }
 
+  // ── Your alliances with AI countries ────────────────────────
+  // An ally stays independent but fights on your side: it sends 15% of its forces to defend any
+  // of your nations it can reach, joins your invasions with 10% (it loses men alongside yours),
+  // never attacks you, and can't be invaded while the alliance stands. Whether a country agrees
+  // is decided by fixed terms, not dice (allianceTerms).
+  const isAlly = iso => (G.state.allies || []).includes(iso) && G.state.owner[iso] === iso && !owns(iso);
+  const allies = () => (G.state.allies || []).filter(isAlly);
+  // Can an ally's forces get to a country: over land, by sea with a real navy, or nearby.
+  const allyReaches = (a, T) => (window.NEIGHBORS[a] || []).includes(T) || ((forces(a).ships || 0) + (forces(a).carriers || 0) * 10 >= 15) || distKm(a, T) < 2500;
+  const allyForce = (a, share) => share * rawPower(forces(a), a) * ms(a).skill * isr(a);
+  // Help your allies send: to defend one of your nations, or to join your attack on a country
+  // (not against their own treaty partners).
+  function allyHelp(T, attack) {
+    return allies().filter(a => a !== T && allyReaches(a, T) && !(attack && (window.ALLIES_OF[a] || []).some(({ members }) => members.includes(T))))
+      .map(a => ({ iso: a, power: allyForce(a, attack ? 0.1 : 0.15) }));
+  }
+  const allyTotal = list => list.reduce((x, h) => x + h.power, 0);
+  function allianceTerms(iso) {
+    const s = G.state, t = BY[iso];
+    if (!s.player) return { why: "Start a campaign first." };
+    if (owns(iso)) return { why: `${t.name} is already part of your empire.` };
+    if (s.owner[iso] !== iso) return { why: `${t.name} is occupied by ${BY[s.owner[iso]].name}.` };
+    if (isAlly(iso)) return { why: `${t.name} is already your ally.` };
+    if (s.wars[iso] || s.armies.some(a => a.to === iso)) return { why: `You are at war with ${t.name}.` };
+    if (isHostile(iso)) return { why: `${t.name} is hostile after recent fighting with you (${HOSTILE_TURNS - (s.turn - s.hostile[iso])} more days).` };
+    const mine = empire().map(c => c.iso3), rival = mine.find(m => (RIVAL.get(iso) || []).includes(m));
+    if (rival) return { why: `${t.name} is a sworn rival of ${BY[rival].name}.` };
+    const S = empireSoft(), A = empireStrength(), D = Math.max(1, t.truePower * 1.25);
+    const blocs = window.ALLIES_OF[iso] || [];
+    const bloc = blocs.find(({ members }) => members.some(m => mine.includes(m)));
+    const foes = blocs.find(({ members }) => members.some(m => m !== iso && (s.wars[m] || isHostile(m))));
+    const common = (RIVAL.get(iso) || []).find(r => s.wars[r] || isHostile(r));
+    const parts = [
+      ["Your soft power and appeal", Math.round((30 * S) / (S + t.soft))],
+      ["Protection you offer (your strength vs theirs)", Math.round((30 * A) / (A + D))],
+    ];
+    if (bloc) parts.push([`Treaty partners already (${bloc.bloc})`, 35]);
+    if (bordersEmpire(iso)) parts.push(["Shares a border with your empire", 10]);
+    if (common) parts.push([`Common enemy: ${BY[common].name}`, 15]);
+    const inf = (s.influenceAt || {})[iso] || 0;
+    if (inf > 0) parts.push([`Your diplomatic influence there (${Math.round(inf * 100)}%)`, Math.round(30 * inf)]);
+    if (foes) parts.push([`Its ${foes.bloc} partners are fighting you`, -30]);
+    const score = parts.reduce((x, p2) => x + p2[1], 0);
+    return { score, need: 50, parts, ok: score >= 50 };
+  }
+  function proposeAlliance(iso) {
+    const err = ready(); if (err) return err;
+    const t = allianceTerms(iso), c = BY[iso];
+    if (t.why) return t.why;
+    if (!t.ok) return `${c.name} declines: support ${t.score} of the 50 needed. Court it to build influence (Diplomatic union, once a day), raise your soft power, grow stronger, or share a common enemy.`;
+    (G.state.allies = G.state.allies || []).push(iso);
+    log(`🤝 ${c.name} signed an alliance with you (support ${t.score}/50). It will defend your nations and join your wars.`, "good");
+    save();
+    return null;
+  }
+  function leaveAlliance(iso) {
+    const s = G.state;
+    if (!(s.allies || []).includes(iso)) return "You have no alliance with that country.";
+    s.allies = s.allies.filter(x => x !== iso);
+    log(`📜 You ended your alliance with ${BY[iso].name}.`, "info");
+    save();
+    return null;
+  }
+
   // ── Units, armies and power ─────────────────────────────────
   const baseForces = c => ({
     troops: c.active, tanks: c.tanks, afv: c.afv, arty: c.arty, aircraft: Math.max(0, c.aircraft - c.fighters),
@@ -179,7 +243,10 @@
     return !!(s.wars[iso] || (s.aiWars || {})[iso] || s.enemies.some(e => e.nat === iso || e.to === iso));
   }
   const space = iso => window.spaceMult(BY[iso], atWar(iso));
-  const armyPower = a => rawPower(a.units, a.nat, a.models) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * space(a.nat);
+  // Intelligence, surveillance and reconnaissance: satellites (space) times the country's spy
+  // agencies (js/space.js intelMult: targeting, early warning, sabotage and cyber).
+  const isr = iso => space(iso) * window.intelMult(BY[iso]);
+  const armyPower = a => rawPower(a.units, a.nat, a.models) * (1 + bonus("atk")) * ms(a.nat).skill * reach(a.nat, a.sea) * isr(a.nat);
   const total = units => UNITS.reduce((s, u) => s + (units[u.key] || 0), 0);
   function scaleUnits(units, f) {
     UNITS.forEach(u => {
@@ -193,7 +260,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * space(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -342,8 +409,8 @@
     if (src.at === to) return { err: `Those units are already in ${BY[to].name}.` };
     const u = clean(units, src.avail);
     const r = route(src.at, to, u, src.nat, src.pt);
-    const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * space(src.nat);
-    return { src, units: u, route: r, power, empty: total(u) === 0 };
+    const power = rawPower(u, src.nat, models) * (1 + bonus("atk")) * ms(src.nat).skill * reach(src.nat, r.sea) * isr(src.nat);
+    return { src, units: u, route: r, power, empty: total(u) === 0, allies: owns(to) ? [] : allyHelp(to, true) };
   }
 
   // ── Actions ─────────────────────────────────────────────────
@@ -364,6 +431,7 @@
     const s = G.state, p = preview(srcKey, to, units, models);
     if (p.err) return p.err;
     if (p.empty) return "Pick at least one unit to send.";
+    if (isAlly(to)) return `${BY[to].name} is your ally. End the alliance first (in its dossier) to attack it.`;
     if (!p.route.ok) {
       const a2 = p.route.air || {};
       return `These ground units can't get there: overland is blocked, your ships give ${Math.floor(p.route.cap)} of the ${Math.ceil(p.route.need)} sealift needed, and ${a2.H || a2.T ? `${BY[p.src.nat].name}'s ${a2.H} heavy and ${a2.T} tactical transports available ${a2.H < 1 && (p.units.tanks || p.units.afv || p.units.arty) ? "can't lift vehicles (that needs heavy lifters like the C-17 or Il-76)" : "would need too many sorties"}` : `${BY[p.src.nat].name} has no transport aircraft for an airlift`}. Add ships or carriers, or send fewer ground units.`;
@@ -486,6 +554,8 @@
     return null;
   }
 
+  // Diplomatic union: each turn you court a country adds its pull (0–90%) to your influence
+  // there; it joins once your influence reaches 100%. No dice.
   function diplomacyOdds(iso) {
     const t = BY[iso];
     if (t.nukes > 0) return { p: 0, why: "Nuclear powers cannot be absorbed diplomatically." };
@@ -507,12 +577,15 @@
     const d = diplomacyOdds(iso);
     if (d.p <= 0) return d.why;
     s.courted[iso] = s.turn;
-    if (Math.random() < d.p) {
+    const inf = (s.influenceAt = s.influenceAt || {});
+    inf[iso] = Math.min(1, (inf[iso] || 0) + d.p);
+    if (inf[iso] >= 1 - 1e-9) {
+      delete inf[iso];
       annex(iso, 0.9);
       s.coins += loot(t);
-      log(`🤝 ${t.name} joined your union peacefully (${Math.round(d.p * 100)}% odds). +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins.`, "good");
+      log(`🤝 ${t.name} joined your union peacefully. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins.`, "good");
     } else {
-      log(`📜 ${t.name} rejected your diplomatic overtures (${Math.round(d.p * 100)}% odds).`, "info");
+      log(`📜 Your influence in ${t.name} is now ${Math.round(inf[iso] * 100)}% (+${Math.round(d.p * 100)}% this turn). It joins at 100%.`, "info");
     }
     save();
     return null;
@@ -526,17 +599,17 @@
   }
 
   // ── Turn resolution ─────────────────────────────────────────
-  const noise = () => 0.75 + 0.5 * Math.random();
 
   // One round of fighting in a country you are invading.
   function warRound(iso) {
     const s = G.state, t = BY[iso], armies = armiesAt(iso);
     const war = (s.wars[iso] = s.wars[iso] || { start: s.turn, p0: rawPower(forces(iso), iso), nuked: false });
-    const A = armies.reduce((x, a) => x + armyPower(a), 0), D = defenceOf(iso).total;
+    const help = allyHelp(iso, true), A = armies.reduce((x, a) => x + armyPower(a), 0) + allyTotal(help), D = defenceOf(iso).total;
     const r = A / (A + D);
-    scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r * noise()));
-    const al = Math.min(0.6, 0.3 * (1 - r) * noise());
+    scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r));
+    const al = Math.min(0.6, 0.3 * (1 - r));
     armies.forEach(a => scaleUnits(a.units, 1 - al));
+    help.forEach(h => scaleUnits(forces(h.iso), 1 - al * 0.1)); // allies' contingents (10% of their forces) take losses too
     s.armies = s.armies.filter(a => total(a.units) >= 0.05);
     const left = armiesAt(iso);
     const prog = warProgress(iso);
@@ -546,8 +619,10 @@
       return;
     }
     if (prog >= 1) {
-      // Nuclear-armed defenders may escalate rather than lose (once per war).
-      if (t.nukes > 0 && !war.nuked && Math.random() < (empireNukes() > 0 ? 0.3 : 0.6)) {
+      // Nuclear-armed defenders escalate rather than lose (once per war).
+      // Nuclear doctrine, not dice: a nuclear power facing conquest strikes once, unless your
+      // arsenal deters it (at least half as many warheads as it has).
+      if (t.nukes > 0 && !war.nuked && empireNukes() < t.nukes * 0.5) {
         war.nuked = true;
         left.forEach(a => scaleUnits(a.units, 0.4));
         empire().forEach(c => { scaleUnits(forces(c.iso3), 0.75); s.garrison[c.iso3] *= 0.7; });
@@ -571,7 +646,7 @@
   // Loyal side in a revolt: the territory's own accessible forces plus your armies stationed there.
   function loyalPower(iso) {
     const u = homeShare(iso);
-    return rawPower(u, iso) * ms(iso).skill * ms(iso).defend * space(iso) * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
+    return rawPower(u, iso) * ms(iso).skill * ms(iso).defend * isr(iso) * (0.5 + 0.5 * G.state.garrison[iso]) + armiesAt(iso).reduce((x, a) => x + armyPower(a), 0);
   }
 
   function startRevolt(c) {
@@ -586,12 +661,12 @@
     const s = G.state, c = BY[iso], rv = s.revolts[iso];
     const L = loyalPower(iso), R = rawPower(rv.units, iso) * 1.1 + 5;
     const r = L / (L + R);
-    scaleUnits(rv.units, 1 - Math.min(0.6, 0.35 * r * noise()));
-    const ll = Math.min(0.6, 0.3 * (1 - r) * noise());
+    scaleUnits(rv.units, 1 - Math.min(0.6, 0.35 * r));
+    const ll = Math.min(0.6, 0.3 * (1 - r));
     scaleUnits(forces(iso), 1 - ll * 0.5);
     armiesAt(iso).forEach(a => scaleUnits(a.units, 1 - ll));
     s.armies = s.armies.filter(a => total(a.units) >= 0.05);
-    rv.progress = Math.max(0, rv.progress + 50 * (0.5 - r) * noise());
+    rv.progress = Math.max(0, rv.progress + 50 * (0.5 - r));
     if (rawPower(rv.units, iso) <= 0.15 * rv.r0) {
       delete s.revolts[iso];
       s.garrison[iso] = Math.max(s.garrison[iso], 0.6);
@@ -625,27 +700,27 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => rawPower(e.units, e.nat, e.models) * ms(e.nat).skill * reach(e.nat, e.sea) * space(e.nat);
+  const enemyPower = e => rawPower(e.units, e.nat, e.models) * ms(e.nat).skill * reach(e.nat, e.sea) * isr(e.nat);
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
   const enemyDeployed = iso => {
     const d = {};
     G.state.enemies.filter(e => e.nat === iso).forEach(e => UNITS.forEach(u => (d[u.key] = (d[u.key] || 0) + (e.units[u.key] || 0))));
     return d;
   };
-  // Your side when one of your nations is attacked: its own accessible forces, order, trait and stationed armies.
+  // Your side when one of your nations is attacked: its own accessible forces, order, trait, stationed armies and allies.
   function homeDefence(iso) {
     const u = homeShare(iso);
-    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * space(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
-      armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + 10;
+    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+      armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
 
   // Defence of any target: yours (homeDefence) or an AI country's (defenceOf).
   const targetDefence = T => (owns(T) ? homeDefence(T) : defenceOf(T).total);
   function launchEnemy(A, T) {
     const s = G.state, f = forces(A), land = (window.NEIGHBORS[A] || []).includes(T), vsPlayer = owns(T);
-    // Send roughly 0.9–2× what defends the target, within a share of the army that grows with hostility.
+    // Send about 1.45× what defends the target, within a share of the army that grows with hostility.
     const cap = !vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3;
-    const want = targetDefence(T) * (0.9 + 1.1 * Math.random()) / Math.max(1, rawPower(f, A) * ms(A).skill);
+    const want = targetDefence(T) * 1.45 / Math.max(1, rawPower(f, A) * ms(A).skill);
     const share = Math.max(0.03, Math.min(cap, want));
     const units = {};
     UNITS.forEach(u => { if (u.kind !== "naval" || !land) units[u.key] = (f[u.key] || 0) * share; });
@@ -660,7 +735,8 @@
     UNITS.forEach(u => (f[u.key] -= units[u.key] || 0));
     const r = route(A, T, units, A), hours = r.ok ? r.hours : (r.km * 1.3) / 30 + 48, { eta, etaH } = etaOf(hours);
     // Your intelligence decides whether you see the attack coming or only when it lands.
-    const detected = !vsPlayer || Math.random() < Math.max(0.1, Math.min(0.97, 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter));
+    // Seen if your intelligence beats its counter-intelligence: intel ≥ 3.3 + 0.53 × its counter-intel.
+    const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter >= 0.5;
     const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: !land, vsPlayer, detected };
     s.enemies.push(e);
     if (vsPlayer) {
@@ -697,7 +773,7 @@
     const mine = empire().map(c => c.iso3);
     C.forEach(c => {
       const A = c.iso3;
-      if (s.owner[A] !== A || owns(A) || s.enemies.some(e => e.nat === A)) return;
+      if (s.owner[A] !== A || owns(A) || isAlly(A) || s.enemies.some(e => e.nat === A)) return;
       const hostile = isHostile(A);
       if (!hostile && s.turn < 10) return;
       const pa = rawPower(forces(A), A);
@@ -708,17 +784,25 @@
       if (!targets.length) return;
       const T = targets.reduce((best, t) => (homeDefence(t) < homeDefence(best) ? t : best));
       const ratio = pa * 0.4 / homeDefence(T);
-      const p = hostile ? 0.25 * Math.min(1.5, Math.max(0.4, ratio)) : ratio > 2 ? Math.min(0.03, 0.005 * ratio) : 0;
-      if (Math.random() < p) launchEnemy(A, T);
+      // No dice: a hostile country strikes back whenever it can muster a real force, then regroups
+      // for 4 days. An unprovoked neighbour builds tension each day your border looks weak (it
+      // outguns it more than 2×) and attacks once that boils over.
+      const ten = (s.tension = s.tension || {}), last = (s.lastStrike = s.lastStrike || {});
+      if (hostile) { if (ratio >= 0.4 && s.turn - (last[A] ?? -99) >= 4) { last[A] = s.turn; launchEnemy(A, T); } return; }
+      ten[A] = ratio > 2 ? (ten[A] || 0) + Math.min(0.03, 0.005 * ratio) : Math.max(0, (ten[A] || 0) - 0.05);
+      if (ten[A] >= 1) { ten[A] = 0; last[A] = s.turn; launchEnemy(A, T); }
     });
     aiWorldTurn();
   }
 
   // ── Wars between AI countries ───────────────────────────────
-  // Long-running rivalries flare up now and then; elsewhere a much stronger neighbour may pick
-  // on a weak one. At most six such wars run at once.
-  const RIVALS = [["RUS", "UKR"], ["IND", "PAK"], ["ARM", "AZE"], ["ETH", "ERI"], ["SDN", "SSD"], ["KOR", "PRK"], ["CHN", "TWN"],
-    ["ISR", "IRN"], ["SAU", "YEM"], ["GRC", "TUR"], ["COD", "RWA"], ["VEN", "GUY"], ["MAR", "DZA"], ["AFG", "PAK"], ["CHN", "IND"], ["THA", "KHM"], ["EGY", "ETH"]];
+  // Long-running rivalries flare up when their tension boils over. Tension builds every day at a
+  // rate set by how hot the rivalry really is (Russia–Ukraine is an ongoing war; Greece–Turkey
+  // rarely more than a stand-off), and the stronger side attacks. No dice, and no random
+  // opportunistic invasions. At most six such wars run at once.
+  const RIVALS = [["RUS", "UKR", 0.5], ["ISR", "IRN", 0.08], ["RWA", "COD", 0.04], ["PAK", "AFG", 0.04], ["SAU", "YEM", 0.03], ["THA", "KHM", 0.03],
+    ["IND", "PAK", 0.02], ["AZE", "ARM", 0.02], ["ETH", "ERI", 0.02], ["SDN", "SSD", 0.02], ["CHN", "TWN", 0.012], ["PRK", "KOR", 0.01], ["VEN", "GUY", 0.01],
+    ["MAR", "DZA", 0.008], ["CHN", "IND", 0.008], ["EGY", "ETH", 0.008], ["TUR", "GRC", 0.005]];
   const RIVAL = new Map();
   RIVALS.forEach(([a, b]) => { RIVAL.set(a, (RIVAL.get(a) || []).concat(b)); RIVAL.set(b, (RIVAL.get(b) || []).concat(a)); });
   const aiFree = iso => !owns(iso) && G.state.owner[iso] === iso;
@@ -726,24 +810,17 @@
     const s = G.state;
     if (s.turn < 3) return;
     let active = s.enemies.filter(e => !e.vsPlayer).length;
-    C.forEach(c => {
-      const A = c.iso3;
-      if (active >= 6 || !aiFree(A) || s.enemies.some(e => e.nat === A)) return;
-      const pa = rawPower(forces(A), A) * ms(A).skill;
-      if (pa < 80) return;
-      const nb = window.NEIGHBORS[A] || [];
-      const rivals = (RIVAL.get(A) || []).filter(T => !owns(T) && s.owner[T] !== A);
-      // Opportunism skips treaty allies and pairs of stable, well-liked countries (no France–Luxembourg wars).
-      const allied = T => (window.ALLIES_OF[A] || []).some(({ members }) => members.includes(T));
-      const weak = nb.filter(T => !owns(T) && s.owner[T] !== A && T !== A && !allied(T) && !(c.soft >= 45 && BY[T].soft >= 35) &&
-        pa * 0.4 > 2 * defenceOf(T).total);
-      let T = null;
-      if (rivals.length && Math.random() < 0.025) T = rivals[Math.floor(Math.random() * rivals.length)];
-      else if (weak.length && Math.random() < 0.004) T = weak[Math.floor(Math.random() * weak.length)];
-      if (!T) return;
+    const ten = (s.rivalTension = s.rivalTension || {});
+    RIVALS.forEach(([x, y, heat]) => {
+      if (!aiFree(x) || !aiFree(y)) return;
+      const px = rawPower(forces(x), x) * ms(x).skill, py = rawPower(forces(y), y) * ms(y).skill;
+      const [A, T, pa] = px >= py ? [x, y, px] : [y, x, py], key = x + "-" + y;
+      if (s.enemies.some(e => e.nat === A || e.nat === T)) return; // already fighting
+      ten[key] = Math.min(1, (ten[key] || 0) + heat);
+      if (ten[key] < 1 || active >= 6 || pa < 80) return;
       const before = s.enemies.length;
       launchEnemy(A, T);
-      if (s.enemies.length > before) active++;
+      if (s.enemies.length > before) { active++; ten[key] = 0; }
     });
   }
 
@@ -752,8 +829,8 @@
     const s = G.state, c = BY[T], foes = enemiesAt(T);
     const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
     const E = foes.reduce((x, e) => x + enemyPower(e), 0), D = defenceOf(T).total, r = E / (E + D);
-    foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r) * noise())));
-    scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r * noise()));
+    foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
+    scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
     const left = enemiesAt(T), by = BY[w.by].name;
     if (!left.length) {
@@ -775,14 +852,14 @@
     const inv = (s.invasions = s.invasions || {})[iso] || (s.invasions[iso] = { start: s.turn, progress: 0, e0: foes.reduce((x, e) => x + enemyPower(e), 0) });
     const E = foes.reduce((x, e) => x + enemyPower(e), 0), D = homeDefence(iso);
     const r = E / (E + D);
-    const el = Math.min(0.6, 0.3 * (1 - r) * noise());
+    const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
-    const dl = Math.min(0.6, 0.3 * r * noise());
+    const dl = Math.min(0.6, 0.3 * r);
     scaleUnits(forces(iso), 1 - dl);
     armiesAt(iso).forEach(a => scaleUnits(a.units, 1 - dl));
     s.armies = s.armies.filter(a => total(a.units) >= 0.05);
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
-    inv.progress = Math.max(0, inv.progress + 50 * (r - 0.5) * noise());
+    inv.progress = Math.max(0, inv.progress + 50 * (r - 0.5));
     const by = [...new Set(foes.map(e => BY[e.nat].name))].join(" and ");
     const left = enemiesAt(iso);
     if (!left.length || left.reduce((x, e) => x + enemyPower(e), 0) <= 0.1 * inv.e0) {
@@ -846,6 +923,7 @@
   // Advance the clock by `ms` real milliseconds (30 real seconds = 1 game hour). At midnight the
   // day's fighting resolves (endTurn). Returns { arrived, newDay }.
   const REAL_MS_PER_HOUR = 30000; // a game day lasts 12 real minutes
+  let tickN = 0;
   function tick(ms) {
     const s = G.state;
     if (!s.player || s.over || s.paused) return { arrived: 0, newDay: false };
@@ -853,7 +931,7 @@
     let arrivedN = arrivals(), newDay = false;
     while (!s.over && s.clock >= s.turn * 24) { endTurn(); newDay = true; }
     if (arrivedN || newDay) save();
-    else if (Math.random() < 0.1) save(); // keep the clock saved without writing every second
+    else if (++tickN % 10 === 0) save(); // keep the clock saved without writing every second
     return { arrived: arrivedN, newDay };
   }
   function setPaused(p) { G.state.paused = !!p; save(); }
@@ -890,12 +968,15 @@
       if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TFULL.production * techShare(iso, "production")), deployedFrom(iso));
       else regrow(c, 0.05 + fx(iso, "rec"), enemyDeployed(iso));
     });
-    // Occupied territories may rise up when weakly held; your armies stationed there calm them.
+    // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
       if (iso === s.player || inRevolt(iso) || (s.purchased || []).includes(iso)) return;
       const calm = (1 - fx(iso, "stab")) * (1 - TFULL.governance * Math.min(1, techShare(iso, "governance"))) * (armiesAt(iso).length ? 0.3 : 1);
-      if (Math.random() < (0.06 * (1 - s.garrison[iso]) + 0.01) * calm) startRevolt(c);
+      // Unrest builds each day a territory is weakly held; it rises up when unrest reaches 100%.
+      const un = (s.unrest = s.unrest || {});
+      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm;
+      if (un[iso] >= 1) { un[iso] = 0; startRevolt(c); }
     });
     if (!s.over) aiTurn();
     s.coins += income();
@@ -1039,6 +1120,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireNukes, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

@@ -245,6 +245,7 @@ window.EQUIPMENT = {
     helis: [["AH-64E / Tiger", 0.15], ["UH-60M / MH-60R", 0.45], ["CH-47F", 0.1], ["Others", 0.3]],
     ships: [["Hobart destroyers", 0.07], ["Anzac frigates", 0.17], ["Canberra LHDs", 0.04], ["Patrol & support", 0.72]],
     subs: [["Collins-class", 1]],
+    carriers: [["Canberra-class LHD", 1]],
   },
   BRA: {
     small: "IA2 and FAL rifles, MAG and Minimi, Carl Gustaf and MSS-1.2 anti-tank",

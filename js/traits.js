@@ -4,22 +4,22 @@
 // Each row: [name, description, effects]. Effect keys:
 //  Your empire (every nation you control adds its bonus; empire totals are capped):
 //   atk   +x invasion strength            (cap +100%)
-//   dip   +x diplomatic-union odds        (cap +80%)
+//   dip   +x diplomatic-union pull        (cap +80%)
 //   loot  +x coins from conquests/unions  (cap +200%)
 //   proj  +x sealift capacity for armies  (cap +200%)
 //   inc   +n coins every turn
 //  That nation only:
 //   def   +x defence when it is invaded
-//   res   −x odds of absorbing it by diplomacy
+//   res   −x pull of absorbing it by diplomacy
 //   rec   +x garrison recovery and unit regrowth per turn
-//   stab  −x chance of it revolting
+//   stab  −x unrest build-up (revolts)
 //   arms  −x cost to unlock its weapons
 window.TRAIT_CAPS = { atk: 1, dip: 0.8, loot: 2, proj: 2 };
 window.TRAIT_EFFECTS = {
-  atk: ["Invasion strength", "pct"], dip: ["Union odds", "pct"], loot: ["Conquest coins", "pct"],
+  atk: ["Invasion strength", "pct"], dip: ["Union influence", "pct"], loot: ["Conquest coins", "pct"],
   proj: ["Sealift capacity", "pct"], inc: ["Coins per turn", "coins"],
-  def: ["Defence when invaded", "pct"], res: ["Union odds against it", "neg"], rec: ["Garrison recovery", "pts"],
-  stab: ["Revolt risk", "neg"], arms: ["Weapon unlock cost", "neg"],
+  def: ["Defence when invaded", "pct"], res: ["Union influence against it", "neg"], rec: ["Garrison recovery", "pts"],
+  stab: ["Unrest build-up", "neg"], arms: ["Weapon unlock cost", "neg"],
 };
 
 window.TRAITS = {
