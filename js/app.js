@@ -164,6 +164,22 @@
     });
     zones.forEach(z => (z.kit.troops = Math.max(0, ((totals.troops || 0) + sent("troops")) * z.groundPct - outOf(z, "troops"))));
     fitTo(zones, "troops", totals.troops || 0);
+    // Carrier air wings: the bases where carriers are homeported hold their embarked aircraft,
+    // moved there from the nation's other bases (national totals don't change).
+    const need = zones.map(z => {
+      const nd = {}, nCar = Math.round(z.kit.carriers || 0);
+      if (nCar) namedAt(iso, z.name).slice(0, nCar).filter(sh => sh.active).forEach(sh => wingOf(sh, iso).forEach(([key, , n]) => (nd[key] = (nd[key] || 0) + n)));
+      return nd;
+    });
+    zones.forEach((z, i) => Object.entries(need[i]).forEach(([key, n]) => {
+      let short = n - (z.kit[key] || 0);
+      for (const j of zones.map((_, j2) => j2).sort((a, b) => (zones[b].kit[key] || 0) - (zones[a].kit[key] || 0))) {
+        if (short <= 0) break;
+        if (j === i) continue;
+        const o = zones[j], give = Math.min(short, Math.max(0, (o.kit[key] || 0) - (need[j][key] || 0)));
+        if (give > 0) { o.kit[key] -= give; z.kit[key] = (z.kit[key] || 0) + give; short -= give; }
+      }
+    }));
     return zones;
   }
   // If losses left fewer units than the bases hold, take the difference from the fullest bases.
@@ -618,17 +634,29 @@
   const inMaint = (j, down) => down > 0.001 && ((Math.imul(j + 1, 2654435761) >>> 0) % 1000) / 1000 < down;
   // Units at one base: [{id, key, model, n, iso, base, ox, oy}] with ox/oy in metres from the base.
   function entitiesOf(z) {
-    const sig = z.iso + "|" + z.name + "|" + ENT_ORDER.map(k2 => Math.round((z.kit[k2] || 0) * (k2 === "troops" ? 10 : 1))).join(",");
+    const nCar = Math.round(z.kit.carriers || 0), named = nCar ? namedAt(z.iso, z.name).slice(0, nCar) : [];
+    const sig = z.iso + "|" + z.name + "|" + ENT_ORDER.map(k2 => Math.round((z.kit[k2] || 0) * (k2 === "troops" ? 10 : 1))).join(",") + "|" + named.map(sh => sh.hull).join(",");
     if (entCache.has(sig)) return entCache.get(sig);
-    const c = BY[z.iso], groups = [];
-    let total = 0;
+    const c = BY[z.iso];
+    let groups = [], total = 0;
     ENT_ORDER.forEach(key => {
       const n = key === "troops" ? Math.round((z.kit.troops || 0) / PLATOON) : Math.round(z.kit[key] || 0);
       if (n < 1) return;
-      const models = key === "troops" ? [["Infantry squad", n]] : window.splitModels(c, key, n);
+      const models = key === "troops" ? [["Infantry squad", n]] : window.splitModels(c, key, n).map(m => [m[0], m[1]]);
       groups.push({ key, models, n });
       total += n;
     });
+    // Carriers' air wings are aboard (their aircraft come out of the base's own) and sail with them.
+    const wings = named.filter(sh => sh.active).map(sh => ({ sh, list: wingOf(sh, z.iso).map(([key, model, n]) => {
+      const g = groups.find(x => x.key === key), take = Math.min(n, g ? g.n : 0);
+      if (!take) return null;
+      g.n -= take;
+      let left = take;
+      g.models.sort((a, b) => b[1] - a[1]).forEach(m => { const v = Math.min(m[1], left); m[1] -= v; left -= v; });
+      g.models = g.models.filter(m => m[1] > 0);
+      return [key, model, take];
+    }).filter(Boolean) }));
+    groups = groups.filter(g => g.n >= 1);
     // Very large bases: one icon stands for a few units so a base never exceeds ENT_CAP icons.
     const per = Math.max(1, Math.ceil(total / ENT_CAP));
     const list = [], infra = [], fort = fortOf(z.iso, z);
@@ -676,21 +704,41 @@
     if (W > 0) infra.unshift({ type: "perimeter", x: -W / 2 - 70, y: -H / 2 - 70, w: W + 140, h: H + 140, fort });
     // Ships moor side by side in rows along the waterfront, at true scale, around the piers where
     // the base's named carriers are (js/fleet.js), or the base itself if it has none.
-    const named = shipsAtBase(z.iso, z.name);
-    const anchor = named.length ? [d3.mean(named, sh => sh.at[0]), d3.mean(named, sh => sh.at[1])] : z.at;
+    const homes = shipsAtBase(z.iso, z.name), atPier = named.filter(sh => homes.includes(sh));
+    const anchor = homes.length ? [d3.mean(homes, sh => sh.at[0]), d3.mean(homes, sh => sh.at[1])] : z.at;
     const fleet = [];
     groups.filter(g => NAVAL.has(g.key)).forEach(g => g.models.forEach(([model, cnt]) => {
       const down = 1 - window.mcRate(c, g.key, model);
       for (let i = 0; i < Math.ceil(cnt / per); i++) fleet.push({ id: `${z.iso}|${z.name}|${g.key}|${model}|${i}`, key: g.key, model, n: Math.min(per, cnt - i * per), iso: z.iso, base: z.name, sp: ENT_SP[g.key], naval: anchor, maint: g.key !== "carriers" && inMaint(i, down) });
     }));
-    // The named carriers sit at their own real positions and carry their names.
-    fleet.filter(e => e.key === "carriers").forEach((e, i) => { const sh = named[i]; if (sh) { e.geo = sh.at; e.ship = sh; e.model = sh.cls + "-class carrier"; e.label = sh.name; } });
+    // The named carriers sit at their own real positions (ships that came from elsewhere moor in
+    // the rows) and carry their names; carriers in the yard can't sail.
+    fleet.filter(e => e.key === "carriers").forEach((e, i) => {
+      const sh = named[i];
+      if (!sh) return;
+      if (atPier.includes(sh)) e.geo = sh.at;
+      Object.assign(e, { ship: sh, model: sh.cls + "-class carrier", label: sh.name, maint: !sh.active });
+    });
     const rowsOf = fleet.filter(e => !e.geo), cols = 10;
-    rowsOf.forEach((e, i) => { e.ox = (i % cols) * 42 - (cols - 1) * 21 + (named.length ? 0 : 0); e.oy = Math.floor(i / cols) * 240 + (named.length ? 420 : 0); });
+    rowsOf.forEach((e, i) => { e.ox = (i % cols) * 42 - (cols - 1) * 21; e.oy = Math.floor(i / cols) * 240 + (homes.length ? 420 : 0); });
     list.push(...fleet);
     // Piers for the moored rows.
-    const piers = fleet.filter(e => !e.geo);
-    if (piers.length) { const rowsN = Math.ceil(piers.length / 10); for (let r2 = 0; r2 < rowsN; r2++) infra.push({ type: "pier", naval: anchor, x: -230, y: r2 * 240 + (named.length ? 420 : 0) + 125, w: 460, h: 14 }); }
+    if (rowsOf.length) { const rowsN = Math.ceil(rowsOf.length / 10); for (let r2 = 0; r2 < rowsN; r2++) infra.push({ type: "pier", naval: anchor, x: -230, y: r2 * 240 + (homes.length ? 420 : 0) + 125, w: 460, h: 14 }); }
+    // Air wings: parked on deck in rows, the rest in the hangar (not drawn), each tied to its ship.
+    wings.forEach(({ sh, list: wl }) => {
+      const ce = fleet.find(e => e.ship === sh);
+      if (!ce) return;
+      const slots = deckSlots(window.unitShape("carriers", ce.model));
+      ce.wing = [];
+      let j = 0;
+      // Helicopters and support aircraft park first (near the island), then the fighters.
+      wl.slice().sort((a, b) => (a[0] === "fighters") - (b[0] === "fighters")).forEach(([key, model, n]) => {
+        for (let i = 0; i < n; i++, j++) {
+          const a = { id: `${ce.id}|${key}|${model}|${i}`, key, model, n: 1, iso: z.iso, base: z.name, on: ce, deck: slots[j] || null, sp: ENT_SP[key] };
+          ce.wing.push(a); list.push(a);
+        }
+      });
+    });
     list.infra = infra;
     list.forEach(e => { e.shape = window.unitShape(e.key, e.model); e.pal = e.maint ? "maint" : window.unitPalette(e.iso, e.key); });
     list.per = per;
@@ -698,19 +746,89 @@
     entCache.set(sig, list);
     return list;
   }
-  // Active named carriers, each assigned to its nation's nearest base (where it's homeported).
-  let carrierHome = null;
+  // ── Carriers ──
+  // Each navy's carriers as js/data.js counts them, by name (js/fleet.js): every carrier in
+  // commission, in service or in the yard (in-yard ones can't sail), then big-deck amphibious
+  // ships where the navy counts those as carriers (Italy's Trieste, Spain's Juan Carlos I, South
+  // Korea's Dokdo class). Ships still fitting out aren't counted yet.
+  const countedCache = {};
+  function countedShips(iso) {
+    if (countedCache[iso]) return countedCache[iso];
+    const fl = (window.FLEET || []).filter(sh => sh.nat === iso && !/fitting out/i.test(sh.status));
+    const list = fl.filter(sh => sh.kind === "carrier").sort((a, b) => b.active - a.active).concat(fl.filter(sh => sh.kind === "amphib"))
+      .slice(0, Math.max(0, Math.round((BY[iso] && BY[iso].carriers) || 0)));
+    list.forEach(sh => (sh.counted = true));
+    return (countedCache[iso] = list);
+  }
+  // Each counted carrier is homeported at its nation's nearest base.
+  let carrierHome = null, homeOf = {};
   function shipsAtBase(iso, name) {
     if (!carrierHome) {
       carrierHome = {};
-      (window.FLEET || []).filter(sh => sh.kind === "carrier" && sh.active).forEach(sh => {
-        const zs = deploymentFor(sh.nat);
+      C.forEach(c => countedShips(c.iso3).forEach(sh => {
+        const all = deploymentFor(sh.nat), navalZs = all.filter(z => z.navalPct > 0), zs = navalZs.length ? navalZs : all;
         let best = null, bd = Infinity;
         zs.forEach(z => { const d = d3.geoDistance(z.at, sh.at); if (d < bd) { bd = d; best = z; } });
-        if (best) (carrierHome[sh.nat + "|" + best.name] = carrierHome[sh.nat + "|" + best.name] || []).push(sh);
-      });
+        if (best) { (carrierHome[sh.nat + "|" + best.name] = carrierHome[sh.nat + "|" + best.name] || []).push(sh); homeOf[sh.hull] = best.name; }
+      }));
     }
     return carrierHome[iso + "|" + name] || [];
+  }
+  // The named carriers at a base now: those homeported there that haven't been sent away, plus any
+  // ordered there that have arrived. Ships able to sail first.
+  function namedAt(iso, name) {
+    const s = G.state, moved = s.shipBase || {};
+    const home = shipsAtBase(iso, name).filter(sh => !moved[sh.hull]);
+    const came = countedShips(iso).filter(sh => { const m = moved[sh.hull]; return m && m.base === name && !(s.moves || []).some(x => x.id === m.move); });
+    return home.concat(came).sort((a, b) => b.active - a.active);
+  }
+  // A carrier's air wing, from its real aircraft capacity (js/fleet.js) and the kind of ship:
+  // a US carrier air wing is about two-thirds strike fighters (Super Hornets and F-35Cs, Growlers
+  // counted with them), a few E-2D Hawkeyes and C-2s, and MH-60 helicopters; ski-jump carriers fly
+  // J-15s, MiG-29Ks or F-35Bs and helicopters; helicopter carriers carry only helicopters. Models
+  // come from the nation's own inventory (js/equipment.js). [[kind, model, count]]
+  const WING_MIX = [
+    [/Nimitz|Ford/, { fighters: 0.68, aircraft: 0.08 }, [["F/A-18E/F Super Hornet", 0.78], ["F-35A/B/C Lightning II", 0.22]]],
+    [/Queen Elizabeth/, { fighters: 0.6 }], [/Charles de Gaulle/, { fighters: 0.75, aircraft: 0.05 }],
+    [/Type 00|Kuznetsov|Kiev|Vikrant/, { fighters: 0.62, aircraft: 0.04 }], [/Cavour|Juan Carlos|Trieste|America|Wasp/, { fighters: 0.4 }],
+    [/Izumo/, { fighters: 0.2 }], [/Anadolu/, { aircraft: 0.6 }], [/./, {}],
+  ];
+  const NAVAL_AIR = {
+    fighters: /F\/A-18|Super Hornet|F-35|Rafale|J-15|J-35|MiG-29(UPG \/ )?K|Su-33|Harrier|AV-8B/,
+    aircraft: /E-2|Hawkeye|KJ-600|Bayraktar|TB2|TB3/,
+    helis: /Seahawk|MH-60|SH-60|Ka-2[789]|Ka-31|Merlin|AW101|NH90|Lynx|Wildcat|Z-9|Z-18|Z-8|naval|Naval|Dhruv|AW159|Seasprite|AS532|AS565|Cougar|Super Puma|S-70B/,
+  };
+  const wingCache = {};
+  function wingOf(sh, iso) {
+    const ck = sh.hull + "|" + iso;
+    if (wingCache[ck]) return wingCache[ck];
+    const c = BY[iso], [, mix, pick] = WING_MIX.find(w => w[0].test(sh.cls)), out = [];
+    let used = 0;
+    const place = (key, n) => {
+      const inv = (c.equipment && c.equipment[key]) || [];
+      let models = pick && key === "fighters" ? pick.filter(([m]) => inv.some(x => x[0] === m)) : inv.filter(([m]) => NAVAL_AIR[key].test(m));
+      if (!models.length && key === "helis" && inv.length) models = [inv[0]];
+      if (!models.length || n < 1) return;
+      const tot = models.reduce((a, m) => a + m[1], 0);
+      let left = n;
+      models.forEach(([m, share], i) => { const v = i === models.length - 1 ? left : Math.round((n * share) / tot); if (v > 0) out.push([key, m, v]); left -= v; });
+    };
+    ["fighters", "aircraft"].forEach(key => { if (mix[key]) { place(key, Math.round(sh.air * mix[key])); used += mix[key]; } });
+    place("helis", Math.round(sh.air * (1 - used)));
+    return (wingCache[ck] = out);
+  }
+  // Parking spots on deck, in drawing units (the ship is 10 long, bow up): rows along the
+  // starboard side and the bow, clear of the island and the angled landing deck. The rest of
+  // the air wing is in the hangar below.
+  function deckSlots(shape) {
+    const out = [], cols = shape === "carrier" ? [0.45, 1.05, 1.55] : [-1.0, -0.3, 0.4];
+    for (let y = -4.3; y <= 4.5; y += 0.62) cols.forEach(x => {
+      if (shape === "carrier" && x > 1 && y > 0.2 && y < 2.4) return;                 // island
+      if (shape !== "carrier" && x > 0.3 && y > -0.9 && y < 2.3) return;
+      if (shape === "carrier" && x > 1.3 && y < -3.6) return;                         // narrow bow
+      out.push([x, y]);
+    });
+    return out;
   }
   window.shipsAtBase = (iso, name) => shipsAtBase(iso, name);
   // Screen pixels per metre at a base (true scale, or spread out so icons stay at least ~10 px apart).
@@ -724,6 +842,12 @@
   // other warships moored in rows at true scale, everything else parked around the base.
   const groundLen = (e, g) => Math.min(e.sp * g * 0.95, Math.max(8, window.shapeLength(e.shape) * g * 2.2));
   function entPos(b, e, t) {
+    // Aircraft on a carrier's deck: placed and scaled with their ship; L = 0 when too small to see or in the hangar.
+    if (e.on) {
+      const c0 = entPos(b, e.on, t), L = (window.shapeLength(e.shape) * c0.L) / window.shapeLength(e.on.shape);
+      if (!e.deck || L < 4) return { sx: c0.sx, sy: c0.sy, L: 0 };
+      return { sx: c0.sx + (e.deck[0] * c0.L) / 10, sy: c0.sy + (e.deck[1] * c0.L) / 10, L };
+    }
     if (e.geo) { const p = projection(e.geo); return { sx: t.applyX(p[0]), sy: t.applyY(p[1]), L: Math.max(16, window.shapeLength(e.shape) * b.gTrue) }; }
     if (e.naval) { const gN = Math.max(b.gTrue, 0.12), p = projection(e.naval); return { sx: t.applyX(p[0]) + e.ox * gN, sy: t.applyY(p[1]) + e.oy * gN, L: Math.max(10, window.shapeLength(e.shape) * gN) }; }
     return { sx: b.sx + e.ox * b.g, sy: b.sy + e.oy * b.g, L: groundLen(e, b.g) };
@@ -742,7 +866,7 @@
       return old;
     }
     // Infantry squads aren't baked in: they're drawn each frame so they can march (drawEntities).
-    const ground = ents.filter(e => !e.geo && !e.naval && e.key !== "troops"), infra = (ents.infra || []).filter(b => !b.naval);
+    const ground = ents.filter(e => !e.geo && !e.naval && !e.on && e.key !== "troops"), infra = (ents.infra || []).filter(b => !b.naval);
     if (!ground.length && !infra.length) return null;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     ground.forEach(e => { const L = groundLen(e, g) * 0.75 + 4; x0 = Math.min(x0, e.ox * g - L); y0 = Math.min(y0, e.oy * g - L); x1 = Math.max(x1, e.ox * g + L); y1 = Math.max(y1, e.oy * g + L); });
@@ -804,6 +928,14 @@
     const near = otherBases.concat(myBases).map(z => ({ z, sx: t.applyX(z.xy[0]), sy: t.applyY(z.xy[1]) }))
       .filter(b => b.sx > -w && b.sx < 2 * w && b.sy > -h && b.sy < 2 * h)
       .sort((a, b) => Math.hypot(a.sx - cx, a.sy - cy) - Math.hypot(b.sx - cx, b.sy - cy)).slice(0, 8);
+    // Carriers away from their home base (deployed at sea, or across a harbour) still show up close.
+    (window.FLEET || []).forEach(sh => {
+      if (!sh.counted || !homeOf[sh.hull] || (G.state.shipBase || {})[sh.hull]) return;
+      const p = projection(sh.at), sx = t.applyX(p[0]), sy = t.applyY(p[1]);
+      if (sx < -200 || sx > w + 200 || sy < -200 || sy > h + 200 || near.some(x => x.z.iso === sh.nat && x.z.name === homeOf[sh.hull])) return;
+      const z = otherBases.concat(myBases).find(x => x.iso === sh.nat && x.name === homeOf[sh.hull]);
+      if (z) near.push({ z, sx: t.applyX(z.xy[0]), sy: t.applyY(z.xy[1]) });
+    });
     for (const b of near) {
       const ents = entitiesOf(b.z), own = G.owns(b.z.iso);
       Object.assign(b, { ents, g: pxPerMetre(b.z), gTrue: b.z.ppm * k });
@@ -819,8 +951,9 @@
         ctx.fillStyle = "rgba(190,186,176,0.85)"; ctx.fillRect(X, Y, p2.w * gN, Math.max(2, p2.h * gN));
       });
       for (const e of ents) {
-        if (layer && !e.geo && !e.naval && e.key !== "troops") continue;
+        if (layer && !e.geo && !e.naval && !e.on && e.key !== "troops") continue;
         const { sx, sy, L } = entPos(b, e, t);
+        if (!L) continue;
         if (sx < -L || sx > w + L || sy < -L || sy > h + L) continue;
         if (e.key === "troops") marching++;
         const sp = window.unitSprite(e.shape, e.pal, L, entSel.has(e.id), DPR, e.key === "troops" ? step : 0);
@@ -839,7 +972,7 @@
   // Units currently on screen with their positions (for hovering, clicking and box-selecting).
   function shownUnits() {
     const t = d3.zoomTransform(svg.node()), out = [];
-    drawnBases.forEach(b => b.ents.forEach(e => { const p = entPos(b, e, t); out.push({ e, sx: p.sx, sy: p.sy, r: Math.max(4, p.L * 0.5) }); }));
+    drawnBases.forEach(b => b.ents.forEach(e => { const p = entPos(b, e, t); if (p.L) out.push({ e, sx: p.sx, sy: p.sy, r: Math.max(4, p.L * 0.5) }); }));
     return out;
   }
   function entityAt(e) {
@@ -849,6 +982,7 @@
     let hit = null;
     for (const b of drawnBases) for (const en of b.ents) {
       const p = entPos(b, en, t), r = Math.max(4, p.L * 0.5);
+      if (!p.L) continue;
       if (Math.abs(p.sx - x) <= r && Math.abs(p.sy - y) <= r && Math.hypot(p.sx - x, p.sy - y) <= r) hit = en;
     }
     return hit;
@@ -871,6 +1005,17 @@
   }
   // The marching soldier icon, larger, for tooltips.
   const soldierPic = iso => `<svg class="tipimg soldierpic ${iconClass(iso)}" viewBox="0 0 24 24" width="52" height="52" aria-hidden="true"><use href="${iconHref("soldier", iso)}"/></svg>`;
+  // A carrier's embarked air wing, or the ship an aircraft is embarked on.
+  function wingLine(e) {
+    if (e.on) return `<div class="k wrap">⚓ Embarked on ${esc(e.on.label || e.on.model)}${e.deck ? ", parked on deck" : ", in the hangar"}: sails with it</div>`;
+    if (!e.wing || !e.wing.length) return "";
+    return `<div class="tipnote wrap">✈️ <b>Air wing aboard (${e.wing.length})</b>: ${esc(wingSummary(e))}. Selecting the carrier selects its air wing too.</div>`;
+  }
+  function wingSummary(e) {
+    const by = {}, deck = e.wing.filter(a => a.deck).length;
+    e.wing.forEach(a => (by[a.model] = (by[a.model] || 0) + 1));
+    return `${Object.entries(by).map(([m, n]) => `${n} × ${m}`).join(", ")}; ${deck} on deck, ${e.wing.length - deck} in the hangar`;
+  }
   const specLine = (k2, v) => (v ? `<div class="k">${k2}: ${esc(v)}</div>` : "");
   function entTip(ev, e) {
     const c = BY[e.iso];
@@ -880,8 +1025,8 @@
     }
     const m = window.modelSpec(e.key, e.model), sp = m.specs, mc = window.mcRate(c, e.key, e.ship ? null : e.model);
     tip.innerHTML = `${unitPic(e.shape, window.unitPalette(e.iso, e.key))}<b>${esc(e.label ? `${e.label} (${e.ship.hull})` : e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
-      ${e.maint ? `<div class="k bad">🔧 In maintenance: not mission-capable right now</div>` : ""}
-      <div class="k">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · ${Math.round(mc * 100)}% of ${esc(c.name)}'s fleet of these mission-capable · readiness ${Math.round(c.tech.ready * 100)}%</div>
+      ${e.maint ? `<div class="k bad">🔧 ${e.ship ? `${esc(e.ship.status)}: can't sail` : "In maintenance: not mission-capable right now"}</div>` : ""}${wingLine(e)}
+      <div class="k wrap">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · ${Math.round(mc * 100)}% of ${esc(c.name)}'s fleet of these mission-capable · readiness ${Math.round(c.tech.ready * 100)}%</div>
       <div class="tipnote">${specLine("Weapons", sp.arm)}${specLine("Speed", sp.speed)}${specLine("Range", sp.range)}${specLine("Protection", sp.protect)}${specLine("Crew", sp.crew)}</div>
       ${unitHint(e)}`;
     placeTip(ev);
@@ -908,6 +1053,12 @@
     return { units, models, iso: list[0].iso, base: list[0].base, list };
   }
   function setSelection(units) {
+    // Units in maintenance can't take orders. Picking a carrier brings its air wing along
+    // (deselect aircraft afterwards to leave them behind).
+    const before = entSel, add = [];
+    units = units.filter(e => !e.maint);
+    units.forEach(e => { if (e.wing && !before.has(e.id)) add.push(...e.wing); });
+    if (add.length) { const ids = new Set(units.map(e => e.id)); units = units.concat(add.filter(a => !ids.has(a.id))); }
     entSel = new Map(units.map(e => [e.id, e]));
     selVersion++;
     pending = null;
@@ -1034,12 +1185,14 @@
     if (!sel || !pd || pd.legs.some(l => l.quote.err)) return;
     pending = null;
     const pool = JSON.parse(JSON.stringify(sel.models)), msgs = [];
+    // Named carriers go with the orders that take carriers, in the order they were picked.
+    const hulls = sel.list.filter(e => e.key === "carriers" && e.ship).map(e => e.ship.hull);
     for (const l of pd.legs) {
       const units = {};
       Object.keys(l.amt).forEach(k2 => { if (l.amt[k2] > 0) units[k2] = l.amt[k2]; });
       if (!Object.keys(units).length) continue;
-      const models = legModels(pool, units);
-      const err = l.target.base ? G.moveUnits(sel.iso, sel.base, l.target.base.name, units) : G.dispatch("b:" + sel.iso + "|" + sel.base, l.target.country, units, models);
+      const models = legModels(pool, units), ships = hulls.splice(0, Math.round(units.carriers || 0));
+      const err = l.target.base ? G.moveUnits(sel.iso, sel.base, l.target.base.name, units, ships) : G.dispatch("b:" + sel.iso + "|" + sel.base, l.target.country, units, models, ships);
       if (err) { toast(err); break; }
       msgs.push(G.state.log[0].msg);
     }
@@ -1113,6 +1266,7 @@
     if (u) {
       e.stopPropagation();
       if (!G.canCommand(u.iso)) return commandNotice(u.iso);
+      if (u.maint) { entTip(e, u); return toast(`${u.label || u.model} is in maintenance and can't take orders until it's mission-capable again.`); }
       const cur = selection();
       if (e.shiftKey && cur && cur.base === u.base && cur.iso === u.iso) setSelection(entSel.has(u.id) ? selEntities().filter(x => x.id !== u.id) : selEntities().concat([u]));
       else setSelection([u]);
@@ -1165,7 +1319,7 @@
   function ownUnitAt(e) {
     if (k < ENT_K || targeting) return null;
     const pt = e.touches ? e.touches[0] : e, u = entityAt(pt);
-    return u && G.canCommand(u.iso) ? u : null;
+    return u && G.canCommand(u.iso) && !u.maint ? u : null;
   }
   // A unit, or (at any zoom) a whole base marker, of a nation you command, under the pointer.
   function ownGrabAt(e) {
@@ -2110,7 +2264,7 @@
     ctx.font = fleetFont;
     ctx.textAlign = "center";
     // Ships at the same port (within a marker's width on screen) are stacked in a column, names to the right.
-    const pos = (window.FLEET || []).map(sh => { const p = projection(sh.at); return { sh, sx: t.applyX(p[0]), sy: t.applyY(p[1]) }; })
+    const pos = (window.FLEET || []).filter(sh => !(G.state.shipBase || {})[sh.hull]).map(sh => { const p = projection(sh.at); return { sh, sx: t.applyX(p[0]), sy: t.applyY(p[1]) }; })
       .filter(o => o.sx > -60 && o.sx < w + 60 && o.sy > -60 && o.sy < h + 60);
     const groups = [];
     pos.forEach(o => { const g = groups.find(gr => Math.hypot(gr[0].sx - o.sx, gr[0].sy - o.sy) < r * 2); g ? g.push(o) : groups.push([o]); });
@@ -2119,7 +2273,7 @@
       const mine = sh.nat === selected;
       // Up close, ships are drawn to scale from above; active carriers come with their base's units.
       if (k >= ENT_K) {
-        if (sh.kind === "carrier" && sh.active) continue;
+        if (sh.counted) continue; // drawn with their base's units (js entitiesOf), air wing on deck
         const a = projection(sh.at), b = projection([sh.at[0], sh.at[1] + 0.01]), ppm = Math.hypot(b[0] - a[0], b[1] - a[1]) / 1113.2 * k;
         const shape = sh.kind === "carrier" ? "carrier" : sh.kind === "amphib" ? "amphib" : "destroyer", L = Math.max(16, window.shapeLength(shape) * ppm);
         const sp = window.unitSprite(shape, "navy", L, false, DPR);
@@ -2163,6 +2317,25 @@
   function shipStats(sh) {
     return [["Displacement", `${num(sh.disp)} t`], ["Length", `${sh.len} m`], ["Speed", `${sh.kn} kn`], ["Aircraft", sh.air], ["Crew", num(sh.crew)], [sh.active ? "Commissioned" : "Expected", sh.year]];
   }
+  // The unit standing for a named carrier at its base (with its air wing), if it's still there.
+  function shipUnit(sh) {
+    const name = homeOf[sh.hull];
+    if (!sh.counted || !name || (G.state.shipBase || {})[sh.hull]) return null;
+    const z = otherBases.concat(myBases).find(x => x.iso === sh.nat && x.name === name) || (computeDeployment(sh.nat).find(x => x.name === name));
+    if (!z) return null;
+    if (!z.iso) z.iso = sh.nat;
+    return entitiesOf(z).find(e => e.ship === sh) || null;
+  }
+  // Ordering a carrier from its card: select it (and its air wing), then pick a destination.
+  function shipOrders(sh) {
+    if (!sh.counted) return "";
+    const u = shipUnit(sh), wing = u && u.wing ? u.wing.length : 0;
+    const air = wing ? `<p class="hint">✈️ Air wing aboard (${wing}): ${esc(wingSummary(u))}.</p>` : "";
+    if (!G.canCommand(sh.nat)) return air + `<p class="hint">${G.state.player ? `Conquer or buy ${esc(BY[sh.nat].name)} to command this ship.` : "Start a campaign to command ships."}</p>`;
+    if (!u) return `<p class="hint">This ship has been sent away from its base.</p>`;
+    if (u.maint) return air + `<p class="hint">🔧 ${esc(sh.status)}: it can't sail until it's back in service.</p>`;
+    return air + `<button class="bc-selship">Select ship${wing ? ` + ${wing} aircraft` : ""} to move or fight</button> `;
+  }
   // Ship card: class, status, location and approximate capabilities; flies to its pier or sea area.
   function pickShip(sh, fly) {
     unpickZone();
@@ -2172,9 +2345,11 @@
       <dl>${shipStats(sh).map(([t, v]) => `<div><dd>${esc(String(v))}</dd><dt>${esc(t)}</dt></div>`).join("")}</dl>
       <p><b>${esc(sh.power)}</b>. ${esc(sh.note)}</p>
       <p class="hint">${esc(sh.where)}. Positions at sea are approximate.</p>
-      <button class="bc-fly">Zoom to ship</button>`;
+      ${shipOrders(sh)}<button class="bc-fly">Zoom to ship</button>`;
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
+    const selB = baseCard.querySelector(".bc-selship");
+    if (selB) selB.onclick = () => { const u = shipUnit(sh); if (!u) return; unpickZone(); setSelection([u]); toast(`${sh.name} and its air wing are selected: click a destination (a base or any country), then Confirm.`); };
     // In port the satellite view can show the pier; at sea a wider view makes more sense.
     const kk = /deployed|sea|ocean/i.test(sh.where) && !/port|base|yard|naval station/i.test(sh.where) ? 300 : 9000;
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(sh.at, kk);
