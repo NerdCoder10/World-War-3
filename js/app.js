@@ -470,6 +470,11 @@
   });
   // Icon for each kind of unit.
   const KIT_ICON = { troops: "soldier", tanks: "tank", afv: "afv", arty: "arty", fighters: "jet", aircraft: "transport", helis: "heli", ships: "ship", subs: "sub", carriers: "carrier" };
+  // The marching soldier animates only where there are few of it (tooltips, the dossier, a base's
+  // unit rings up close). Map markers use a still copy: thousands of animated icons would make the
+  // browser repaint the whole map every frame.
+  ICONS.soldierMarch = ICONS.soldier;
+  ICONS.soldier = Object.fromEntries(Object.entries(ICONS.soldierMarch).map(([tier, body]) => [tier, body.replace(/<animateTransform[^>]*\/>/g, "")]));
   Object.entries(ICONS).forEach(([type, tiers]) => Object.entries(tiers).forEach(([tier, body]) =>
     defs.append("symbol").attr("id", `ic-${type}-${tier}`).attr("viewBox", "0 0 24 24").html(body)));
 
@@ -572,7 +577,7 @@
       x.append("text");
       return x;
     });
-    kg.select("use").attr("href", d => iconHref(KIT_ICON[d.key], z.iso)).attr("class", iconClass(z.iso));
+    kg.select("use").attr("href", d => iconHref(d.key === "troops" ? "soldierMarch" : KIT_ICON[d.key], z.iso)).attr("class", iconClass(z.iso));
     kg.select("text").text(d => (d.key === "troops" ? kPers(d.n) : num(d.n)));
     kg.on("mousemove", (e, d) => { const ms = window.splitModels(c, d.key, Math.round(d.n));
       tip.innerHTML = `<b>${esc(d.key === "troops" ? kPers(d.n) + " troops" : num(d.n) + " " + d.label.toLowerCase())}</b><div class="k">${esc(z.name)} · ${esc(c.name)}</div>${d.key === "troops" ? `<div class="tipnote">${esc(c.equipment.small)}</div>` : ms.length ? `<div class="tipnote">${ms.map(m => `${num(m[1])} × ${esc(m[0])}`).join("<br>")}</div>` : ""}`; placeTip(e); })
@@ -1117,7 +1122,7 @@
     return `<img class="${cls || "tipimg"}" src="${picCache.get(key)}" width="${px}" height="${px}" alt="">`;
   }
   // The marching soldier icon, larger, for tooltips.
-  const soldierPic = iso => `<svg class="tipimg soldierpic ${iconClass(iso)}" viewBox="0 0 24 24" width="52" height="52" aria-hidden="true"><use href="${iconHref("soldier", iso)}"/></svg>`;
+  const soldierPic = iso => `<svg class="tipimg soldierpic ${iconClass(iso)}" viewBox="0 0 24 24" width="52" height="52" aria-hidden="true"><use href="${iconHref("soldierMarch", iso)}"/></svg>`;
   // A carrier's embarked air wing, or the ship an aircraft is embarked on.
   function wingLine(e) {
     if (e.on) return `<div class="k wrap">⚓ Embarked on ${esc(e.on.label || e.on.model)}${e.deck ? ", parked on deck" : ", in the hangar"}: sails with it</div>`;
@@ -2327,7 +2332,7 @@
   // Weapon models behind a set of unit counts, one line per kind, with its icon.
   function modelLines(c, units) {
     return window.UNITS.filter(u => (u.key === "troops" ? units.troops >= 0.05 : units[u.key] >= 1)).map(u => {
-      const icon = `<svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-${KIT_ICON[u.key]}-${window.techTier(effGen(c.iso3))}"/></svg>`;
+      const icon = `<svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-${u.key === "troops" ? "soldierMarch" : KIT_ICON[u.key]}-${window.techTier(effGen(c.iso3))}"/></svg>`;
       const body = u.key === "troops" ? `${kPers(units.troops)} troops: ${esc(c.equipment.small)}` :
         `${esc(u.label)}: ${window.splitModels(c, u.key, Math.round(units[u.key])).map(m => `${unitPic(window.unitShape(u.key, m[0]), window.unitPalette(c.iso3, u.key), 24, "mpic")}${num(m[1])} ${esc(m[0])} <small title="Combat value per unit vs a typical ${esc(u.label.toLowerCase())}">×${window.modelSpec(u.key, m[0]).mult}</small>`).join(", ") || num(units[u.key])}`;
       return `<div class="mline">${icon}<span>${body}</span></div>`;
