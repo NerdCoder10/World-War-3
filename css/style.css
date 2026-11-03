@@ -522,3 +522,7 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .acct-close { position: absolute; top: 4px; right: 6px; background: none; border: 0; color: inherit; font-size: 18px; }
 .acct-note { color: var(--danger) !important; }
 .update-bar { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 100; background: var(--brass); color: #0c1316; font-weight: 700; padding: 8px 14px; border-radius: 6px; box-shadow: 0 6px 20px #0008; font-size: 13px; }
+.wetable { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0 8px; }
+.wetable th { text-align: left; color: var(--muted); font-weight: 500; }
+.wetable td, .wetable th { padding: 2px 4px; border-bottom: 1px solid #ffffff12; }
+.tbar-row { white-space: nowrap; }

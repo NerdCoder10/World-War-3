@@ -693,10 +693,19 @@
   }
 
   function annex(iso, garrison) {
-    const s = G.state;
+    const s = G.state, before = s.player ? empireEcon() : null;
     s.owner[iso] = s.player;
     s.garrison[iso] = garrison;
     delete s.wars[iso];
+    if (before) seizeLog(iso, before);
+  }
+  // A country joining your empire hands over its resources at once (pooled into your war economy)
+  // and half of its factories.
+  function seizeLog(iso, before) {
+    const after = empireEcon(), pct = x => Math.round(x * 100) + "%";
+    const changed = Object.keys(after.inputs).filter(k => after.inputs[k] - before.inputs[k] >= 0.02)
+      .map(k => `${{ energy: "energy", steel: "steel", chips: "electronics", minerals: "critical minerals", food: "food" }[k]} ${pct(before.inputs[k])} → ${pct(after.inputs[k])}`);
+    log(`📦 Seized ${BY[iso].name}'s resources and factories: war output $${Math.round(before.capacity)}bn → $${Math.round(after.capacity)}bn a year${changed.length ? `; self-sufficiency in ${changed.join(", ")}` : ""}.`, "good");
   }
 
   // ── Turn resolution ─────────────────────────────────────────
@@ -777,13 +786,64 @@
     }
   }
 
-  // Units regrow toward their pre-war size: 5% a turn for independent countries not at war,
-  // 3% for your nations (less whatever is deployed in armies), plus trait and logistics bonuses.
-  function regrow(c, rate, deployed) {
-    const f = forces(c.iso3), b = baseForces(c);
+  // ── War production (js/wareconomy.js) ───────────────────────
+  // Losses are replaced only by what factories build and recruits trained, with no trade between
+  // countries. Each country mobilises while it fights: from 5% of its total-war output in peacetime
+  // up to 100% after about a month at war, falling back slowly in peace. Your empire produces as
+  // one economy with pooled resources, including everything seized from conquered countries.
+  const mobOf = iso => ((G.state.mob = G.state.mob || {})[iso] ?? 0.05);
+  const econCache = new Map();
+  function econFor(isos, core) {
+    const key = core + ":" + isos.join(",");
+    if (!econCache.has(key)) { if (econCache.size > 400) econCache.clear(); econCache.set(key, window.warEconomy(isos, core)); }
+    return econCache.get(key);
+  }
+  const empireEcon = () => econFor(empire().map(c => c.iso3).sort(), G.state.player);
+  const countryEcon = iso => econFor([iso], iso);
+  // Add one day's output to a set of nations' forces, filling the biggest gaps first; at war forces
+  // may grow to 130% of their pre-war size.
+  function addOutput(isos, perDay, mob, boost, deployedOf) {
     UNITS.forEach(u => {
-      const cap = Math.max(0, b[u.key] - ((deployed && deployed[u.key]) || 0));
-      if (f[u.key] < cap) f[u.key] = Math.min(cap, f[u.key] + b[u.key] * rate * (1 + surge(c.iso3, u.key)));
+      let add = (u.key === "troops" ? perDay.troops + perDay.reserve : perDay[u.key] || 0) * mob * (typeof boost === "function" ? boost(u.key) : boost);
+      if (add <= 0) return;
+      const room = isos.map(iso => {
+        const b = baseForces(BY[iso])[u.key] * (atWar(iso) ? 1.3 : 1), dep = (deployedOf(iso)[u.key] || 0);
+        return Math.max(0, b - dep - (forces(iso)[u.key] || 0));
+      });
+      const tot = room.reduce((a, x) => a + x, 0);
+      if (!tot) return;
+      isos.forEach((iso, i) => { if (room[i] > 0) forces(iso)[u.key] = (forces(iso)[u.key] || 0) + Math.min(room[i], (add * room[i]) / tot); });
+    });
+  }
+  function produce() {
+    const s = G.state, mob = (s.mob = s.mob || {});
+    C.forEach(c => { const iso = c.iso3; mob[iso] = atWar(iso) ? Math.min(1, mobOf(iso) + 0.03) : Math.max(0.05, mobOf(iso) - 0.01); });
+    // Independent countries.
+    C.forEach(c => {
+      const iso = c.iso3;
+      if (s.owner[iso] !== iso || owns(iso) || inRevolt(iso)) return;
+      const e = countryEcon(iso);
+      addOutput([iso], e.perDay, mob[iso], 1 + fx(iso, "rec"), enemyDeployed);
+      stockMissiles([iso], e.perDay.missiles * mob[iso]);
+    });
+    // Your empire, as one war economy; the Arms production track speeds it up.
+    if (s.player && !s.over) {
+      const isos = empire().map(c => c.iso3).filter(i => !inRevolt(i)), e = empireEcon();
+      const m = Math.max(...isos.map(i => mob[i])), boost = (1 + TFULL.production * techShare(s.player, "production")) * (1 + fx(s.player, "rec"));
+      addOutput(isos, e.perDay, m, k => boost * (1 + surge(s.player, k)), deployedFrom); // surge levels (91–100) speed up each kind
+      stockMissiles(isos, e.perDay.missiles * m * boost);
+    }
+  }
+  // New missiles go to the nations' arsenals (ballistic and cruise in their usual mix), up to 150%
+  // of the pre-war stock.
+  function stockMissiles(isos, n) {
+    const cap = isos.map(iso => { const m = BY[iso].missiles, st = missileStock(iso); return Math.max(0, (m.bm + m.cm) * 1.5 - st.bm - st.cm); });
+    const tot = cap.reduce((a, x) => a + x, 0);
+    if (!tot || n <= 0) return;
+    isos.forEach((iso, i) => {
+      if (!cap[i]) return;
+      const m = BY[iso].missiles, st = missileStock(iso), add = Math.min(cap[i], (n * cap[i]) / tot), bmShare = m.bm + m.cm ? m.bm / (m.bm + m.cm) : 0.5;
+      st.bm += add * bmShare; st.cm += add * (1 - bmShare);
     });
   }
 
@@ -1061,12 +1121,8 @@
     C.forEach(c => {
       const iso = c.iso3, cap = owns(iso) && iso !== s.player ? 0.85 : 1;
       if (!inRevolt(iso)) s.garrison[iso] = Math.min(cap, s.garrison[iso] + (cap === 1 ? 0.08 : 0.05) + fx(iso, "rec") + 0.05 * techShare(iso, "governance"));
-      if (!s.forces[iso] || inRevolt(iso) || s.wars[iso] || (s.aiWars || {})[iso]) return;
-      if (owns(iso)) regrow(c, (0.03 + fx(iso, "rec")) * (1 + TFULL.production * techShare(iso, "production")), deployedFrom(iso));
-      else regrow(c, 0.05 + fx(iso, "rec"), enemyDeployed(iso));
     });
-    // Missile production rebuilds 0.5% of each arsenal a day.
-    Object.entries(s.missiles || {}).forEach(([iso, st]) => { const m = BY[iso].missiles; st.bm = Math.min(m.bm, st.bm + Math.ceil(m.bm * 0.005)); st.cm = Math.min(m.cm, st.cm + Math.ceil(m.cm * 0.005)); });
+    produce();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
@@ -1219,6 +1275,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, mobOf, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
