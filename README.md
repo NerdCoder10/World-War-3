@@ -118,38 +118,42 @@ Up close, the boats in an area are spread out at sea. Like any base, you can sel
 
 In battle, a defender's submarines hunt any force crossing the sea to attack it, whether an invasion convoy or a fleet. The invader keeps 1 − 0.3 × S / (S + ASW) of its strength, where S is the defender's submarine power and ASW what its own warships, submarines, carriers and helicopters bring to hunt them. A thinly escorted troop convoy suffers most, and a strong escort keeps the loss to a few percent. The send preview shows the effect.
 
-**War economy: total war, no trade.** Losses are no longer refilled by a flat 3–5% a day. Every country replaces them only with what its own factories build and recruits it trains, and **all trade between countries is cut off**: no imports of fuel, steel, chips, minerals, food or weapons (`js/wareconomy.js`).
-- **Industrial capacity:** each country can turn at most 35% of its GDP to arms. That is capped at 60% of its manufacturing (its share of world manufacturing: China ~29%, the US ~16%, Japan 6.5%, Germany 5.3%…), of which 60% converts, scaled by how complete its arms industry is.
-- **Resources under embargo:** output is then held back by the scarcest inputs, as a weighted mix of self-sufficiency in five areas:
-  - energy (Japan imports ~88%, Saudi Arabia, Russia and Norway are exporters);
-  - steel and metals;
-  - electronics and chips (Taiwan, South Korea, the US and Japan lead);
-  - critical minerals (China dominates rare earths);
-  - food.
+**War economy: total war, no trade.** Losses are replaced only by what a country's own factories build and the recruits it trains. **All trade between countries is cut off**: no country can buy fuel, steel, metals, chips or weapons from any other (`js/wareconomy.js`).
+- **Real resources:** every country produces its own amount of each strategic resource a year (2023–24, rounded). About 90 countries have real figures; the rest have little or none.
 
-  Japan keeps only a third of its output and Taiwan less, while China and the US keep over 80%.
-- **What it can build:** every country has a rating for each weapon type its defence industry actually makes:
-  - tanks, armoured vehicles and artillery;
-  - fighters, other aircraft and drones;
-  - helicopters;
-  - warships, submarines and carriers;
-  - missiles.
+  | Resource | Unit | Notable facts |
+  |---|---|---|
+  | Oil | million barrels a day, against its consumption | Japan, South Korea and Taiwan produce none |
+  | Steel | million tonnes | China 1,019, India 140 |
+  | Aluminium | million tonnes, smelted plus recycled | |
+  | Titanium | thousand tonnes | Only China, Japan, Russia, Kazakhstan and Saudi Arabia make sponge; the US runs on scrap |
+  | Rare earths | thousand tonnes separated | China ~90%, then Malaysia's Lynas and Estonia's Silmet |
+  | Military chips | thousand weapon sets | Taiwan, China, South Korea, the US and Japan lead |
 
-  Most small countries make none of these, and with trade gone they can't buy any.
-- **Totals at full mobilisation:**
+- **Hard requirements:** each weapon needs real materials:
+  - a fighter: titanium, aluminium, rare-earth magnets and a set of chips;
+  - a helicopter: titanium and aluminium;
+  - a submarine or carrier: titanium and rare earths;
+  - a tank, warship or missile: steel and electronics;
+  - drones: aluminium and chips, no titanium.
 
-  | Country | Arms output a year | Tanks a year | Fighters a year |
-  |---|---|---|---|
-  | United States | $698bn | ~10,000 | ~1,700 |
-  | China | $1.37trn | ~21,500 | ~2,900 |
-  | Russia | $60bn | ~1,170 (near its real output) | |
-  | Japan | $76bn | | |
-  | Ukraine, without foreign aid | $2bn | ~50 | |
+  **A country that lacks a resource can't build anything that needs it, at all.** It goes without, or takes it by force. For example:
+  - South Korea, with no titanium, can build no fighters, helicopters or submarines;
+  - the UK, with no rare earths, can build no fighters or submarines;
+  - the US is held to about 80% of its fighter and submarine output by rare earths;
+  - Iran builds missiles and drones but no aircraft.
+- **A different output for every country:** each country spends what its factories can turn to arms on what its defence industry actually makes and its doctrine favours, then cut to the materials on hand. Russia pushes artillery and tanks, Iran and Ukraine missiles and drones, Turkey drones, Korea and Japan ships, the US fighters, carriers and submarines. Factory capacity also depends on energy: Japan's runs at 18% of normal without imported energy.
+- **Fuel:** a country at war first burns its strategic oil reserves (Japan ~240 days, South Korea 200, the US 130, IEA members 90, most others 20–60). Once they run out, a country that can't produce the oil a rationed war economy needs fights at 50–100% strength and its factories slow down.
+- **Taking resources:** conquering, uniting with or buying a country seizes its resources at once and half of its factories. The log says what was seized and which weapons you can now build.
+- **AI resource wars:** AI countries do the same. With no trade, a country short of oil or of a material its factories need builds up tension against a weaker neighbour that has it. With a navy, any coastal country within 3,000 km counts. It invades once the tension boils over, and your nations can be the target. AI conquerors pool the resources of everything they take. In testing, oil-poor Spain, Italy, Poland and Turkey went for Libya, and Pakistan for Turkmenistan.
+- **Mobilisation:** countries produce 5% of their total-war output in peacetime. At war they mobilise 3 points a day up to 100% (about a month). At war, forces may grow to 130% of their pre-war size, and missile stocks to 150%.
+- **Where to see it:** each dossier's *War economy* section shows:
+  - each resource: available for arms, what the arms plan needs, and how much of it is covered;
+  - every weapon's yearly output and what limits it;
+  - oil and reserve days;
+  - what the country lacks, with the largest producers to take it from.
 
-  Troops come from recruits (0.6% of the population a year) and reservists called up (2% of the reserve a day).
-- **Mobilisation:** countries produce 5% of their total-war output in peacetime. At war they mobilise 3 points a day up to 100% (about a month), then wind down slowly in peace. At war, forces may grow to 130% of their pre-war size, and missile stocks to 150%.
-- **Seizing resources:** your empire produces as one economy with pooled resources. Conquering, uniting with or buying a country seizes its resources at once and half of its factories, so taking the oil, steel or chip makers you lack lifts your whole empire's output. The log reports what each conquest added. The Arms production track and surge levels speed up your output.
-- **Where to see it:** each dossier's *War economy* section shows the resource bars, mobilisation, yearly output by weapon type, and how long it would take to rebuild today's force. For your nations it shows the whole empire's pooled figures. Rankings add *War production*.
+  Rankings add *War production*.
 
 **Logistics.** A country's logistics rating (0–10) decides how well its armies are supplied and how fast they move. The US is the only 10: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent. The UK and France are 8, China 7, Russia 6, and most others lower.
 - **Supply:** an invading army loses strength with distance from home, in proportion to how far its logistics fall short of 10. The loss reaches up to 35% at 2,500 km overland and 50% at 9,000 km by sea. Harsh terrain at the destination makes it worse (×1 to ×1.6).

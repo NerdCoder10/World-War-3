@@ -2552,22 +2552,30 @@
     return `<div class="borders"><p class="hint">🧱 <b>Border fortification</b> (strongest ${top.level}/10): an army invading overland across a border of level L fights at 1 / (1 + 0.03 × (L − 2)) of its strength.</p>
       <ul class="blist">${list.map(b => `<li><span class="bl lv${b.level >= 8 ? 3 : b.level >= 6 ? 2 : b.level >= 4 ? 1 : 0}">${b.level}</span><b>${esc(BY[b.n].name)}</b> <small>${esc(b.note)}</small></li>`).join("")}</ul></div>`;
   }
-  // War economy: what this country (or your whole empire, resources pooled) could build at total
-  // war with every country's trade cut off (js/wareconomy.js, js/game.js produce).
+  // War economy: what this country's group (it and its conquests, or your whole empire) could build
+  // at total war with no trade at all: real resource output, what each weapon needs, what it lacks.
   function warEconHtml(c) {
-    const mine = G.owns(c.iso3), e = mine ? G.empireEcon() : G.countryEcon(c.iso3), p = window.warProfile(c.iso3), mob = G.mobOf(mine ? G.state.player : c.iso3);
-    const pctv = x => Math.round(Math.min(1, x) * 100);
-    const bar = (label, v, own) => `<div class="tbar-row"><span class="tbar"><i style="width:${pctv(v)}%;background:${v >= 0.9 ? "var(--teal)" : v >= 0.5 ? "var(--brass)" : "var(--danger)"}"></i></span>${label} <b>${pctv(v)}%</b>${own != null && Math.abs(own - v) > 0.02 ? ` <small>(${esc(c.name)} alone ${pctv(own)}%)</small>` : ""}</div>`;
-    const yr = k => e.perDay[k] * 365, fmtN = v => (v >= 100 ? num(Math.round(v)) : v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : "none");
-    const rows = [["Tanks", "tanks"], ["Armoured vehicles", "afv"], ["Artillery", "arty"], ["Fighters", "fighters"], ["Other aircraft & drones", "aircraft"], ["Helicopters", "helis"], ["Warships", "ships"], ["Submarines", "subs"], ["Carriers", "carriers"], ["Missiles", "missiles"]];
-    const base = G.baseForces(c);
-    return `<div class="section"><h3>War economy <small>${mine && e.nations > 1 ? `your empire, ${e.nations} nations pooled` : "if it went to total war"} · no trade</small></h3>
-      <p class="intelfx">🏭 Arms output at full mobilisation: <b>$${num(Math.round(e.capacity))}bn a year</b> · mobilised now <b>${Math.round(mob * 100)}%</b>${mob < 0.99 ? " (rises about 3 points a day at war)" : ""} · with every country's trade cut off, output is held to <b>${Math.round(e.embargo * 100)}%</b> by its scarcest inputs.</p>
-      <div class="tbars">${bar("Energy", e.inputs.energy, mine ? Math.min(1, p.energy) : null)}${bar("Steel & metals", e.inputs.steel, mine ? Math.min(1, p.steel) : null)}${bar("Electronics & chips", e.inputs.chips, mine ? p.chips : null)}${bar("Critical minerals", e.inputs.minerals, mine ? p.minerals : null)}${bar("Food", e.inputs.food, mine ? Math.min(1, p.food) : null)}</div>
-      <table class="wetable"><tr><th></th><th>a year at total war</th><th>to rebuild today's force</th></tr>
-      ${rows.map(([l, k]) => { const v = yr(k), have = k === "missiles" ? c.missileTotal : base[k] || 0; return `<tr><td>${l}</td><td>${fmtN(v)}</td><td>${v > 0 && have > 0 ? (have / v < 1 ? `${Math.max(1, Math.round((have / v) * 12))} months` : `${(have / v).toFixed(1)} years`) : have > 0 ? "can't build" : "—"}</td></tr>`; }).join("")}
-      <tr><td>Troops</td><td>${kPers((e.perDay.troops + e.perDay.reserve) * 365)}</td><td>${num(Math.round(e.perDay.troops * 365))}k recruits + reserves</td></tr></table>
-      <p class="hint">${p.estimated ? "Estimated from its economy and natural resources. " : ""}Losses are replaced only by what its factories build: no country can buy weapons abroad, and most small countries build none at all. Conquering or uniting with a country seizes its resources at once and half of its factories, so taking the oil, steel or chip makers you lack lifts your whole empire's output.</p></div>`;
+    const mine = G.owns(c.iso3), owner = G.state.owner[c.iso3], e = mine ? G.empireEcon() : G.econOf(c.iso3), mob = G.mobOf(mine ? G.state.player : owner);
+    const L = window.WAR_RES_LABEL, group = e.nations > 1 ? (mine ? `your empire, ${e.nations} nations pooled` : `${esc(BY[owner].name)} and its conquests`) : "if it went to total war";
+    const fmtN = v => (v >= 100 ? num(Math.round(v)) : v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : "0");
+    const unitOf = { steel: "kt", alu: "kt", ti: "t", ree: "t", chips: "sets" }, scale = { steel: 1, alu: 1, ti: 1000, ree: 1000, chips: 1000 };
+    const resRows = ["steel", "alu", "ti", "ree", "chips"].map(r => {
+      const f = e.fill[r], need = e.demand[r];
+      return `<tr><td>${L[r]}</td><td>${fmtN(e.avail[r] * scale[r])} ${unitOf[r]}</td><td>${need > 0 ? fmtN(need * scale[r]) + " " + unitOf[r] : "—"}</td><td class="${f >= 0.99 ? "ok" : f > 0 ? "warn" : "bad"}">${need > 0 ? (f >= 0.99 ? "enough" : f > 0 ? Math.round(f * 100) + "%" : "none") : "—"}</td></tr>`;
+    }).join("");
+    const rows = [["Tanks", "tanks"], ["Armoured vehicles", "afv"], ["Artillery", "arty"], ["Fighters", "fighters"], ["Drones & other aircraft", "aircraft"], ["Helicopters", "helis"], ["Warships", "ships"], ["Submarines", "subs"], ["Carriers", "carriers"], ["Missiles", "missiles"]];
+    const base = G.baseForces(c), daysLeft = Math.max(0, Math.round(e.reserveDays - G.warDaysOf(c.iso3)));
+    const why = k => { const l = e.limit[k]; if (!e.make[{ tanks: "land", afv: "land", arty: "land" }[k] || k]) return "no factories"; if (!l.by) return ""; return l.f > 0 ? `${L[l.by].toLowerCase()} covers ${Math.round(l.f * 100)}%` : `no ${L[l.by].toLowerCase()}`; };
+    const lack = e.short.map(r => `<b>${L[r].toLowerCase()}</b> (largest producers: ${window.warTopProducers(r === "oil" ? "oil" : r, 4).map(([i]) => esc(BY[i].name)).join(", ")})`);
+    return `<div class="section"><h3>War economy <small>${group} · no trade</small></h3>
+      <p class="intelfx">🏭 Factories: <b>$${num(Math.round(e.capacity))}bn a year</b> at full mobilisation (energy runs ${Math.round(e.energy * 100)}% of industry) · mobilised now <b>${Math.round(mob * 100)}%</b>.<br>
+      ⛽ Oil: produces ${e.res.oil.toFixed(2)} of the ${(e.res.oilUse * 0.5).toFixed(2)} million barrels a day a rationed war economy burns (${Math.round(e.fuelRatio * 100)}%). Strategic reserves: ${Math.round(e.reserveDays)} days of war${G.warDaysOf(c.iso3) ? `, ${daysLeft} left` : ""}; after that its forces fight at ${Math.round((0.5 + 0.5 * e.fuelRatio) * 100)}%.</p>
+      <table class="wetable"><tr><th>For arms a year</th><th>available</th><th>its plan needs</th><th></th></tr>${resRows}</table>
+      <table class="wetable"><tr><th></th><th>a year at total war</th><th>limited by</th><th>to rebuild today's force</th></tr>
+      ${rows.map(([lb, k]) => { const v = e.perYear[k], have = k === "missiles" ? c.missileTotal : base[k] || 0; return `<tr><td>${lb}</td><td>${fmtN(v)}</td><td class="${e.limit[k].by && e.limit[k].f === 0 ? "bad" : ""}">${why(k)}</td><td>${v > 0 && have > 0 ? (have / v < 1 ? `${Math.max(1, Math.round((have / v) * 12))} months` : `${(have / v).toFixed(1)} years`) : have > 0 ? "can't replace" : "—"}</td></tr>`; }).join("")}
+      <tr><td>Troops</td><td>${kPers((e.perDay.troops + e.perDay.reserve) * 365)}</td><td>${e.food < 0.95 ? `food ${Math.round(e.food * 100)}%` : ""}</td><td>recruits + reserves</td></tr></table>
+      ${lack.length ? `<p class="hint">⚠️ Short of ${lack.join("; ")}. Nobody will sell it: ${mine ? "conquer, unite with or buy a producer to get it" : "it goes without, or invades a weaker neighbour that has it"}.</p>` : ""}
+      <p class="hint">Each weapon needs real materials: a fighter titanium, aluminium, rare-earth magnets and a set of chips; a submarine titanium and rare earths; a tank steel and electronics. Anything that needs a resource the country lacks can't be built at all. Conquering, uniting with or buying a country seizes its resources at once and half of its factories.</p></div>`;
   }
   // Alliance with an AI country: the terms it weighs (fixed, no dice) and the button.
   function allianceHtml(c) {
