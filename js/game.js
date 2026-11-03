@@ -50,12 +50,29 @@
     };
   }
 
+  // Load the saved campaign. Saves always carry over to new versions of the game: countries added
+  // since the save start out independent, ones no longer in the game are dropped, and the previous
+  // save is kept as a backup before any migration runs.
   function load() {
     try {
-      const s = JSON.parse(localStorage.getItem(STORE));
-      if (s && s.owner && Object.keys(s.owner).length === C.length) return migrate(Object.assign(EXTRA(), s));
-    } catch (e) { /* storage unavailable */ }
+      const raw = localStorage.getItem(STORE);
+      const s = raw && JSON.parse(raw);
+      if (s && s.owner) {
+        try { localStorage.setItem(STORE + "-backup", raw); } catch (e) { /* full */ }
+        return adopt(s);
+      }
+    } catch (e) { /* storage unavailable or unreadable */ }
     return fresh();
+  }
+  // Fit a saved state (from this browser, a file or the cloud) to the current game.
+  function adopt(s) {
+    const known = new Set(C.map(c => c.iso3));
+    C.forEach(c => { if (!(c.iso3 in s.owner)) s.owner[c.iso3] = c.iso3; if (!((s.garrison || {})[c.iso3] >= 0)) (s.garrison = s.garrison || {})[c.iso3] = 1; });
+    Object.keys(s.owner).forEach(k => { if (!known.has(k)) { delete s.owner[k]; if (s.garrison) delete s.garrison[k]; } });
+    Object.entries(s.owner).forEach(([k, o]) => { if (!known.has(o)) s.owner[k] = k; });
+    if (s.player && !known.has(s.player)) s.player = null;
+    s.unlocked = (s.unlocked || []).filter(k => known.has(k));
+    return migrate(Object.assign(EXTRA(), s));
   }
   // Saves from before real-time travel: arrival turns become hours on the new clock.
   function migrateClock(s) {
@@ -89,7 +106,22 @@
     s.tiers = 2;
     return s;
   }
-  function save() { try { localStorage.setItem(STORE, JSON.stringify(G.state)); } catch (e) { /* ignore */ } }
+  // Save to this browser, stamped with the time, and tell the account sync (js/account.js) about it.
+  function save() {
+    G.state.savedAt = Date.now();
+    try { localStorage.setItem(STORE, JSON.stringify(G.state)); } catch (e) { /* ignore */ }
+    try { window.dispatchEvent(new Event("ww3-saved")); } catch (e) { /* no window events */ }
+  }
+  // Replace the campaign with another save (a downloaded file or the cloud copy of your account).
+  function replaceState(obj) {
+    if (!obj || !obj.owner) return "That isn't a World War 3 save.";
+    try { localStorage.setItem(STORE + "-backup", JSON.stringify(G.state)); } catch (e) { /* full */ }
+    const keepTime = obj.savedAt;
+    G.state = adopt(JSON.parse(JSON.stringify(obj)));
+    save();
+    if (keepTime) { G.state.savedAt = keepTime; try { localStorage.setItem(STORE, JSON.stringify(G.state)); } catch (e) { /* ignore */ } }
+    return null;
+  }
 
   // ── Strength helpers ─────────────────────────────────────────
   const empire = () => C.filter(c => G.state.owner[c.iso3] === G.state.player);
@@ -457,7 +489,9 @@
     return { key, label: `${name} (${BY[iso].name})`, at: iso, nat: iso, base: name, avail, pt: window.basePoint && window.basePoint(iso, name) };
   }
   // You can command any country's units while you lead a campaign.
-  const canCommand = () => !!G.state.player && !G.state.over;
+  // You command only the country you chose to lead, plus the countries it conquers, unites with
+  // or buys: never another country's forces.
+  const canCommand = iso => !!G.state.player && !G.state.over && owns(iso);
   const findSource = (key, to) => (key.startsWith("b:") ? baseSource(key) : sources(to).find(s => s.key === key));
 
   function clean(units, avail) {
@@ -553,7 +587,7 @@
   // Distance and travel time of a base-to-base move (no state change). { err } if it can't happen.
   function moveQuote(iso, from, to, units) {
     const err = ready(); if (err) return { err };
-    if (!canCommand(iso)) return { err: "Start a campaign to command units." };
+    if (!canCommand(iso)) return { err: G.state.player ? `${BY[iso].name}'s forces aren't yours to command.` : "Start a campaign to command units." };
     if (from === to) return { err: "Those units are already at that base." };
     const kit = window.baseKit && window.baseKit(iso, from);
     if (!kit || !window.baseKit(iso, to)) return { err: "Unknown base." };
@@ -1183,7 +1217,7 @@
   const G = (window.GAME = {
     state: load(),
     isLocked: iso => !G.state.unlocked.includes(iso),
-    baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
+    save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
     inRevolt, liftMult, unitList, borderMult, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });

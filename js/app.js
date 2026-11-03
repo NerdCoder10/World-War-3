@@ -473,8 +473,12 @@
   // The marching soldier animates only where there are few of it (tooltips, the dossier, a base's
   // unit rings up close). Map markers use a still copy: thousands of animated icons would make the
   // browser repaint the whole map every frame.
-  ICONS.soldierMarch = ICONS.soldier;
-  ICONS.soldier = Object.fromEntries(Object.entries(ICONS.soldierMarch).map(([tier, body]) => [tier, body.replace(/<animateTransform[^>]*\/>/g, "")]));
+  // The animated version lives in its own small SVG outside the map: any SMIL animation inside the
+  // map's SVG makes the browser repaint every map element each frame.
+  const march = ICONS.soldier;
+  ICONS.soldier = Object.fromEntries(Object.entries(march).map(([tier, body]) => [tier, body.replace(/<animateTransform[^>]*\/>/g, "")]));
+  d3.select("body").append("svg").attr("class", "icon-defs").attr("aria-hidden", "true").attr("width", 0).attr("height", 0).style("position", "absolute")
+    .append("defs").selectAll("symbol").data(Object.entries(march)).join("symbol").attr("id", ([tier]) => `ic-soldierMarch-${tier}`).attr("viewBox", "0 0 24 24").html(([, body]) => body);
   Object.entries(ICONS).forEach(([type, tiers]) => Object.entries(tiers).forEach(([tier, body]) =>
     defs.append("symbol").attr("id", `ic-${type}-${tier}`).attr("viewBox", "0 0 24 24").html(body)));
 
@@ -577,7 +581,7 @@
       x.append("text");
       return x;
     });
-    kg.select("use").attr("href", d => iconHref(d.key === "troops" ? "soldierMarch" : KIT_ICON[d.key], z.iso)).attr("class", iconClass(z.iso));
+    kg.select("use").attr("href", d => iconHref(KIT_ICON[d.key], z.iso)).attr("class", iconClass(z.iso));
     kg.select("text").text(d => (d.key === "troops" ? kPers(d.n) : num(d.n)));
     kg.on("mousemove", (e, d) => { const ms = window.splitModels(c, d.key, Math.round(d.n));
       tip.innerHTML = `<b>${esc(d.key === "troops" ? kPers(d.n) + " troops" : num(d.n) + " " + d.label.toLowerCase())}</b><div class="k">${esc(z.name)} · ${esc(c.name)}</div>${d.key === "troops" ? `<div class="tipnote">${esc(c.equipment.small)}</div>` : ms.length ? `<div class="tipnote">${ms.map(m => `${num(m[1])} × ${esc(m[0])}`).join("<br>")}</div>` : ""}`; placeTip(e); })
@@ -1107,7 +1111,7 @@
   }
   // How to command a unit, or why you can't.
   function unitHint(e) {
-    if (G.canCommand(e.iso)) return `<div class="k">${G.owns(e.iso) ? "" : `Commanding ${esc(BY[e.iso].name)}'s forces · `}${entSel.has(e.id) ? "Selected · drag to move" : "Drag to move · click to select · shift-click to add · double-click: all of this model"}</div>`;
+    if (G.canCommand(e.iso)) return `<div class="k">${entSel.has(e.id) ? "Selected · drag to move" : "Drag to move · click to select · shift-click to add · double-click: all of this model"}</div>`;
     return `<div class="k">${G.state.player ? `Conquer or buy ${esc(BY[e.iso].name)} to command these units.` : `Start a campaign as ${esc(BY[e.iso].name)} (or buy it) to command these units.`}</div>`;
   }
   // A unit's top-down picture as a small image, for tooltips and lists.
@@ -1329,7 +1333,8 @@
     const c = BY[iso], s = G.state;
     const playable = !s.player && !G.isLocked(iso);
     cmdbar.hidden = false;
-    cmdbar.innerHTML = `<div><b>Start a campaign to command units.</b><div class="hint">${s.over ? "This campaign is over: start a new one from the Campaign tab." : `Once you lead a nation you can move any country's units, ${esc(c.name)}'s included. ${playable ? `Play as ${esc(c.name)}, or pick` : `Pick`} one of the ${s.unlocked.length} playable nations.`}</div></div>
+    cmdbar.innerHTML = s.player && !s.over ? `<div><b>These are ${esc(c.name)}'s forces, not yours.</b><div class="hint">You lead ${esc(BY[s.player].name)} and command only its forces and the countries it conquers, unites with or buys.</div></div><button class="btn ghost" data-cmd="close">OK</button>` :
+      `<div><b>Start a campaign to command units.</b><div class="hint">${s.over ? "This campaign is over: start a new one from the Campaign tab." : `You lead one country and command its forces. ${playable ? `Play as ${esc(c.name)}, or pick` : `Pick`} one of the ${s.unlocked.length} playable nations.`}</div></div>
       ${playable ? `<button class="btn" data-cmd="play">Play as ${esc(c.name)}</button>` : ""}<button class="btn ghost" data-cmd="close">OK</button>`;
     cmdbar.querySelectorAll("[data-cmd]").forEach(b => (b.onclick = ev => {
       ev.stopPropagation();
@@ -2351,7 +2356,7 @@
       <p>${esc(z.note)}</p>
       <p class="fortline">🛡️ Fortification <b>${fortOf(c.iso3, z)}/10</b> · ${esc(window.fortLabel(fortOf(c.iso3, z)))} <small>(fixed)</small></p>
       <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
-      ${G.canCommand(c.iso3) ? `<p class="hint">${G.owns(c.iso3) ? "" : `You can command ${esc(c.name)}'s forces too: moves inside ${esc(c.name)} redeploy them, sending them abroad makes ${esc(c.name)} attack. `}Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
+      ${G.canCommand(c.iso3) ? `<p class="hint">Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
     baseCard.hidden = false;
     baseCard.querySelector(".bc-close").onclick = unpickZone;
     // Bases zoom in past the country and province views.
