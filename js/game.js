@@ -325,7 +325,7 @@
   const space = iso => window.spaceMult(BY[iso], atWar(iso));
   // Intelligence, surveillance and reconnaissance: satellites (space) times the country's spy
   // agencies (js/space.js intelMult: targeting, early warning, sabotage and cyber).
-  const isr = iso => space(iso) * window.intelMult(BY[iso]);
+  const isr = iso => space(iso) * window.intelMult(BY[iso]) * fuel(iso);
   // An army's strength where it is: in its own or your territory it fights as a defender (no
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
@@ -696,17 +696,21 @@
     const s = G.state, before = s.player ? empireEcon() : null;
     s.owner[iso] = s.player;
     s.garrison[iso] = garrison;
+    invalidateGroups();
     delete s.wars[iso];
     if (before) seizeLog(iso, before);
   }
   // A country joining your empire hands over its resources at once (pooled into your war economy)
   // and half of its factories.
   function seizeLog(iso, before) {
-    const after = empireEcon(), pct = x => Math.round(x * 100) + "%";
-    const changed = Object.keys(after.inputs).filter(k => after.inputs[k] - before.inputs[k] >= 0.02)
-      .map(k => `${{ energy: "energy", steel: "steel", chips: "electronics", minerals: "critical minerals", food: "food" }[k]} ${pct(before.inputs[k])} → ${pct(after.inputs[k])}`);
-    log(`📦 Seized ${BY[iso].name}'s resources and factories: war output $${Math.round(before.capacity)}bn → $${Math.round(after.capacity)}bn a year${changed.length ? `; self-sufficiency in ${changed.join(", ")}` : ""}.`, "good");
+    const after = empireEcon(), L = window.WAR_RES_LABEL, gained = [];
+    const p = window.warProfile(iso).res;
+    if (p.oil >= 0.05) gained.push(`${p.oil.toFixed(2)} million barrels a day of oil`);
+    ["steel", "alu", "ti", "ree", "chips"].forEach(r => { if (p[r] > 0 && after.fill[r] > before.fill[r] + 0.01) gained.push(L[r].toLowerCase()); });
+    const unlocked = Object.keys(after.perYear).filter(k => before.perYear[k] < 0.01 && after.perYear[k] >= 0.5);
+    log(`📦 Seized ${BY[iso].name}'s resources and factories${gained.length ? ` (${gained.join(", ")})` : ""}: war output $${Math.round(before.capacity)}bn → $${Math.round(after.capacity)}bn a year, oil ${Math.round(before.fuelRatio * 100)}% → ${Math.round(after.fuelRatio * 100)}% of needs${unlocked.length ? `; you can now build ${unlocked.join(", ")}` : ""}.`, "good");
   }
+
 
   // ── Turn resolution ─────────────────────────────────────────
 
@@ -776,7 +780,7 @@
       log(`✅ The revolt in ${c.name} was crushed after ${s.turn - rv.start + 1} turn(s).`, "good");
     } else if (rv.progress >= 100) {
       delete s.revolts[iso];
-      s.owner[iso] = iso; s.garrison[iso] = 0.6;
+      s.owner[iso] = iso; s.garrison[iso] = 0.6; invalidateGroups();
       const f = forces(iso);
       UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) * 0.5 + (rv.units[u.key] || 0)));
       s.armies.filter(a => a.to === iso).forEach(a => recall(a.id));
@@ -800,6 +804,27 @@
   }
   const empireEcon = () => econFor(empire().map(c => c.iso3).sort(), G.state.player);
   const countryEcon = iso => econFor([iso], iso);
+  // Each owner's nations (an AI country with its conquests, or your empire), cached for a moment.
+  let groups = null, groupsAt = 0;
+  function groupOf(iso) {
+    if (!groups || Date.now() - groupsAt > 1000) {
+      groups = {}; groupsAt = Date.now();
+      C.forEach(c => (groups[G.state.owner[c.iso3]] = groups[G.state.owner[c.iso3]] || []).push(c.iso3));
+    }
+    return groups[G.state.owner[iso]] || [iso];
+  }
+  const invalidateGroups = () => (groups = null);
+  // The war economy a country fights with: its owner's whole group, resources pooled.
+  const econOf = iso => { const o = G.state.owner[iso]; return econFor(groupOf(iso).slice().sort(), o); };
+  // Fuel: a country at war burns its strategic oil reserves first; once they run out, a group that
+  // can't produce the oil it needs (with no trade, nobody sells it any) fights at 50–100% and its
+  // factories slow down. Japan's ~240 days of stocks last longest.
+  const warDaysOf = iso => ((G.state.warDays || {})[G.state.owner[iso]] || 0);
+  function fuel(iso) {
+    if (!G.state.owner || !window.warEconomy) return 1;
+    const e = econOf(iso);
+    return warDaysOf(iso) <= e.reserveDays ? 1 : 0.5 + 0.5 * e.fuelRatio;
+  }
   // Add one day's output to a set of nations' forces, filling the biggest gaps first; at war forces
   // may grow to 130% of their pre-war size.
   function addOutput(isos, perDay, mob, boost, deployedOf) {
@@ -816,20 +841,25 @@
     });
   }
   function produce() {
-    const s = G.state, mob = (s.mob = s.mob || {});
+    const s = G.state, mob = (s.mob = s.mob || {}), wd = (s.warDays = s.warDays || {});
+    invalidateGroups();
     C.forEach(c => { const iso = c.iso3; mob[iso] = atWar(iso) ? Math.min(1, mobOf(iso) + 0.03) : Math.max(0.05, mobOf(iso) - 0.01); });
-    // Independent countries.
-    C.forEach(c => {
-      const iso = c.iso3;
-      if (s.owner[iso] !== iso || owns(iso) || inRevolt(iso)) return;
-      const e = countryEcon(iso);
-      addOutput([iso], e.perDay, mob[iso], 1 + fx(iso, "rec"), enemyDeployed);
-      stockMissiles([iso], e.perDay.missiles * mob[iso]);
+    // Oil reserves: a day of war burns a day of stocks; in peace they refill at a third of that.
+    const owners = [...new Set(C.map(c => s.owner[c.iso3]))];
+    owners.forEach(o => { wd[o] = groupOf(o).some(i => atWar(i)) ? (wd[o] || 0) + 1 : Math.max(0, (wd[o] || 0) - 1 / 3); });
+    const fuelProd = iso => (warDaysOf(iso) <= econOf(iso).reserveDays ? 1 : 0.3 + 0.7 * econOf(iso).fuelRatio);
+    // AI countries, each with the nations it has conquered as one economy.
+    owners.forEach(o => {
+      if (o === s.player || !BY[o]) return;
+      const isos = groupOf(o).filter(i => !inRevolt(i)), e = econOf(o), m = mob[o] * fuelProd(o);
+      if (!isos.length) return;
+      addOutput(isos, e.perDay, m, 1 + fx(o, "rec"), enemyDeployed);
+      stockMissiles(isos, e.perDay.missiles * m);
     });
     // Your empire, as one war economy; the Arms production track speeds it up.
     if (s.player && !s.over) {
       const isos = empire().map(c => c.iso3).filter(i => !inRevolt(i)), e = empireEcon();
-      const m = Math.max(...isos.map(i => mob[i])), boost = (1 + TFULL.production * techShare(s.player, "production")) * (1 + fx(s.player, "rec"));
+      const m = Math.max(...isos.map(i => mob[i])) * fuelProd(s.player), boost = (1 + TFULL.production * techShare(s.player, "production")) * (1 + fx(s.player, "rec"));
       addOutput(isos, e.perDay, m, k => boost * (1 + surge(s.player, k)), deployedFrom); // surge levels (91–100) speed up each kind
       stockMissiles(isos, e.perDay.missiles * m * boost);
     }
@@ -962,6 +992,9 @@
   const RIVAL = new Map();
   RIVALS.forEach(([a, b]) => { RIVAL.set(a, (RIVAL.get(a) || []).concat(b)); RIVAL.set(b, (RIVAL.get(b) || []).concat(a)); });
   const aiFree = iso => !owns(iso) && G.state.owner[iso] === iso;
+  // Countries with no sea coast (or only the Caspian): reachable overland only.
+  const LANDLOCKED = new Set(["AFG", "AND", "ARM", "AUT", "AZE", "BLR", "BTN", "BOL", "BWA", "BFA", "BDI", "CAF", "TCD", "CZE", "ETH", "HUN", "KAZ", "KGZ",
+    "LAO", "LSO", "LIE", "LUX", "MWI", "MLI", "MDA", "MNG", "NPL", "NER", "MKD", "PRY", "RWA", "SMR", "SRB", "SVK", "SSD", "CHE", "TJK", "TKM", "UGA", "UZB", "VAT", "ZMB", "ZWE"]);
   function aiWorldTurn() {
     const s = G.state;
     if (s.turn < 3) return;
@@ -977,6 +1010,34 @@
       const before = s.enemies.length;
       launchEnemy(A, T);
       if (s.enemies.length > before) { active++; ten[key] = 0; }
+    });
+    // Resource wars. With no trade, a country whose factories or fuel tanks run short of a resource
+    // (oil, steel, aluminium, titanium, rare earths, chips) can only go without or take it. Tension
+    // builds each day it lacks something a weaker neighbour (or, with a navy, a country within
+    // 3,000 km) has; when it boils over, it invades for it. Your nations can be targets too.
+    const rt = (s.resTension = s.resTension || {});
+    C.forEach(c => {
+      const A = c.iso3;
+      if (!aiFree(A) || isAlly(A) || s.enemies.some(e => e.nat === A) || active >= 8) return;
+      const e = econOf(A);
+      if (!e.short.length || e.capacity < 3) return;
+      const pa = rawPower(forces(A), A) * ms(A).skill;
+      if (pa < 80) return;
+      const nb = window.NEIGHBORS[A] || [], navy = (forces(A).ships || 0) + (forces(A).carriers || 0) * 10 >= 15;
+      const treaty = T => (window.ALLIES_OF[A] || []).some(({ members }) => members.includes(T));
+      const has = (T, r) => { const p = window.warProfile(T).res; return r === "oil" ? p.oil > p.oilUse * 1.1 : p[r] > 0; };
+      const cands = C.map(x => x.iso3).filter(T => T !== A && s.owner[T] !== A && (nb.includes(T) || (navy && !LANDLOCKED.has(T) && distKm(A, T) < 3000)) && !treaty(T) &&
+        e.short.some(r => has(T, r)) && pa * 0.4 > targetDefence(T) * 1.2);
+      if (!cands.length) { rt[A] = Math.max(0, (rt[A] || 0) - 0.02); return; }
+      rt[A] = (rt[A] || 0) + 0.02 * e.short.length;
+      if (rt[A] < 1) return;
+      const T = cands.reduce((a, b) => (targetDefence(a) <= targetDefence(b) ? a : b)), wants = e.short.filter(r => has(T, r)).map(r => window.WAR_RES_LABEL[r].toLowerCase());
+      const before = s.enemies.length;
+      launchEnemy(A, T);
+      if (s.enemies.length > before) {
+        active++; rt[A] = 0;
+        log(`⛽ With all trade cut off, ${BY[A].name} has run short of ${wants.join(", ")}: it is invading ${BY[T].name} to take ${wants.length > 1 ? "them" : "it"}.`, owns(T) ? "bad" : "world");
+      }
     });
   }
 
@@ -996,7 +1057,7 @@
       const f = forces(T);
       UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) * 0.3 + left.reduce((x, e) => x + (e.units[u.key] || 0), 0)));
       s.enemies = s.enemies.filter(e => !left.includes(e));
-      s.owner[T] = s.owner[w.by] || w.by; s.garrison[T] = 0.6;
+      s.owner[T] = s.owner[w.by] || w.by; s.garrison[T] = 0.6; invalidateGroups();
       delete s.aiWars[T];
       log(`🌍 ${by} conquered ${c.name} after ${s.turn - w.start + 1} turn(s) of war.`, "world");
     }
@@ -1039,7 +1100,7 @@
     delete s.revolts[iso];
     UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) * 0.3 + foes.reduce((x, e) => x + (e.units[u.key] || 0), 0)));
     s.enemies = s.enemies.filter(e => !foes.includes(e));
-    s.owner[iso] = by; s.garrison[iso] = 0.6;
+    s.owner[iso] = by; s.garrison[iso] = 0.6; invalidateGroups();
     log(`💥 ${BY[by].name} captured ${c.name} from you.`, "bad");
     if (iso !== s.player) return;
     const rest = empire().sort((a, b) => b.gdp - a.gdp);
@@ -1275,6 +1336,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, mobOf, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
