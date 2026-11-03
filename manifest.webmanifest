@@ -1,0 +1,15 @@
+{
+  "name": "World War 3 — Theatre Command",
+  "short_name": "World War 3",
+  "description": "A real-time grand-strategy war game on a satellite map of every country's real forces.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0c1316",
+  "theme_color": "#0c1316",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

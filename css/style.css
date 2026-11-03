@@ -507,3 +507,18 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .tbars { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 3px 10px; font-size: 11.5px; color: var(--muted); margin: 2px 0 8px; }
 .tbar { display: inline-block; width: 46px; height: 6px; background: #ffffff1a; border-radius: 3px; margin-right: 6px; vertical-align: middle; overflow: hidden; }
 .tbar i { display: block; height: 100%; background: var(--brass); }
+/* Account panel and update banner */
+.acct-btn { margin-left: 6px; }
+.acct { position: absolute; top: 46px; right: 0; z-index: 30; width: min(340px, 92vw); background: var(--panel); border: 1px solid var(--brass); border-radius: 6px; padding: 12px 14px; box-shadow: 0 8px 28px #000a; font-size: 13px; }
+.acct[hidden] { display: none; }
+.acct h4 { margin: 0 0 6px; }
+.acct p { margin: 4px 0 8px; color: var(--muted); }
+.acct input[type=email], .acct input[type=password] { display: block; width: 100%; box-sizing: border-box; margin: 4px 0; padding: 6px; background: #0008; color: inherit; border: 1px solid #ffffff33; border-radius: 3px; }
+.acct button, .acct .acct-file { padding: 5px 10px; font-size: 12.5px; cursor: pointer; }
+.acct-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.acct-file input { display: none; }
+.acct-file { border: 1px solid #ffffff33; border-radius: 3px; }
+.acct-google { width: 100%; margin-bottom: 6px; }
+.acct-close { position: absolute; top: 4px; right: 6px; background: none; border: 0; color: inherit; font-size: 18px; }
+.acct-note { color: var(--danger) !important; }
+.update-bar { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 100; background: var(--brass); color: #0c1316; font-weight: 700; padding: 8px 14px; border-radius: 6px; box-shadow: 0 6px 20px #0008; font-size: 13px; }
