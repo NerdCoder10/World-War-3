@@ -2225,7 +2225,10 @@
     gdp: { label: "GDP", key: "gdp", hi: "#8fd16a", unit: "US$ bn", scale: "log" },
     soft: { label: "Soft power", key: "soft", hi: "#6fb6f0", unit: "score" },
     value: { label: "National value", key: "nationalValue", hi: "#e9c46a", unit: "US$ bn", scale: "log" },
+    weather: { label: "Weather today" },
   };
+  const WX_COL = { clear: "#3d4a3a", frost: "#9fc6e8", rain: "#4f7fa8", storm: "#3b4f86", fog: "#8a8f94", snow: "#dfe9f2", blizzard: "#ffffff", mud: "#8a6a3c",
+    heat: "#e8734f", sandstorm: "#d6b25e", monsoon: "#2f6db0", cyclone: "#b44fd6" };
   for (const m of Object.values(MODES)) if (m.key) Object.assign(m, ramp(m.hi, m.key, m.scale));
 
   function campaignColor(iso) {
@@ -2244,6 +2247,7 @@
   function fillFor(iso) {
     if (!iso) return "#161f21";
     if (mode === "campaign") { const v = campaignColor(iso); return deepZoom && v.startsWith("url") ? COL.locked : v; }
+    if (mode === "weather") return WX_COL[G.weather(iso).type];
     return MODES[mode].color(BY[iso]);
   }
   // With terrain on, country colours are translucent so the land shows through.
@@ -2278,6 +2282,13 @@
         `<div class="row"><span class="sw" style="${c === "hatch" ? `background:repeating-linear-gradient(45deg,${COL.locked} 0 3px,#33403f 3px 5px);border:1px dashed ${COL.muted}` : `background:${c}`}"></span>${esc(t)}</div>`).join("");
       return;
     }
+    if (mode === "weather") {
+      const seen = {};
+      C.forEach(c => { const w = G.weather(c.iso3); seen[w.type] = (seen[w.type] || 0) + 1; });
+      L.innerHTML = `<div class="title">Weather · ${G.dateOf().toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}</div>` +
+        Object.keys(WX_COL).filter(t => seen[t]).map(t => `<div class="row"><span class="sw" style="background:${WX_COL[t]}"></span>${window.WEATHER_TYPES[t].icon} ${esc(window.WEATHER_TYPES[t].label)} (${seen[t]})</div>`).join("");
+      return;
+    }
     const m = MODES[mode];
     const stops = d3.range(0, 1.01, 0.1).map(t => m.interp(t)).join(",");
     const fmt = v => m.key === "gdp" || m.key === "nationalValue" ? money(v) : Math.round(v);
@@ -2297,6 +2308,7 @@
       const metric = mode === "power" ? `Power ${c.power} · #${c.powerRank}` : mode === "hidden" ? `Secret assets ${c.secretIndex} · #${c.secretRank}` :
         mode === "soft" ? `Soft power ${c.soft} · #${c.softRank}` : mode === "gdp" ? `GDP ${money(c.gdp)} · #${c.gdpRank}` :
         mode === "value" ? `Value ${money(c.nationalValue)} · #${c.valueRank}` :
+        mode === "weather" ? (w => `${w.icon} ${w.label}, ${w.temp}°C · ${w.season}`)(G.weather(c.iso3)) :
         G.state.owner[c.iso3] !== c.iso3 ? `Held by ${BY[G.state.owner[c.iso3]].name}` : G.isLocked(c.iso3) ? "Locked" : "Playable";
       html = `${terr}<b>${esc(c.name)}</b><div class="k">${esc(metric)}</div>`;
     }
@@ -2621,6 +2633,23 @@
       ${partsList(H.parts)}
       <p class="hint">Most welcome rulers: ${ls(all.slice(0, 3))} · least welcome: ${ls(all.slice(-3).reverse())}. A peaceful diplomatic union is taken far better than conquest, and resentment fades with time.</p></div>`;
   }
+  // Weather and seasons: today, the week ahead, and how differently forces cope with it.
+  function weatherHtml(c) {
+    const s = G.state, w = G.weather(c.iso3), Z = window.CLIMATE_ZONES[w.zone], tr = window.WEATHER_TRAINING[c.iso3];
+    const fmtD = t => G.dateOf(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", timeZone: "UTC" });
+    const days = d3.range(0, 7).map(i => { const t = s.turn + i, x = G.weather(c.iso3, t); return `<span class="wxd" title="${esc(x.label)}, ${x.temp}°C"><small>${i ? fmtD(t) : "Today"}</small>${x.icon}<small>${x.temp}°</small></span>`; }).join("");
+    const kinds = [["infantry", "troops"], ["tanks", "tanks"], ["jets", "fighters"], ["helicopters", "helis"], ["warships", "ships"]];
+    const row = iso => `<tr><td>${flag(BY[iso].iso2)} ${esc(iso === s.player ? `You (${BY[iso].name})` : BY[iso].name)}</td>${kinds.map(([, k]) => { const v = G.weatherKind(c.iso3, iso, k, w); return `<td class="${v < 0.75 ? "bad" : v < 0.95 ? "warn" : "ok"}">×${v.toFixed(2)}</td>`; }).join("")}</tr>`;
+    const nb = (window.NEIGHBORS[c.iso3] || []).filter(n => BY[n]).sort((a, b) => BY[b].truePower - BY[a].truePower)[0];
+    const sides = [...new Set([c.iso3, s.player, nb, "USA", "RUS", "SAU"].filter(i => i && BY[i]))].slice(0, 5);
+    const ad = cat => Math.round(window.weatherAdapt(c.iso3, cat) * 100);
+    return `<div class="section"><h3>Weather & seasons <small>${esc(w.season)} · ${esc(Z.label)}</small></h3>
+      <p class="hint">Today: <b>${w.icon} ${esc(w.label)}, ${w.temp}°C</b>${w.cyclone ? ` · ${esc(w.cyclone)} season` : ""}.</p>
+      <div class="wxrow">${days}</div>
+      <table class="wetable"><tr><th>Fighting here today</th>${kinds.map(([l]) => `<th>${l}</th>`).join("")}</tr>${sides.map(row).join("")}</table>
+      <p class="hint">Its forces cope with cold ${ad("cold")}% · mud ${ad("mud")}% · heat and dust ${ad("heat")}% · rain and storms ${ad("wet")}% · fog ${ad("fog")}%${tr ? ` (${esc(tr[1])})` : " (from its home climate)"}. All-weather air ${Math.round(G.airAW(c.iso3) * 100)}% (aircraft technology) · heavy-seas navy ${Math.round(G.navAW(c.iso3) * 100)}%.</p>
+      <p class="hint">Weather is fixed by date and place, never rolled, so you can plan around the forecast. Mud seasons stop tanks, blizzards and storms ground helicopters and older jets, heat and sandstorms exhaust infantry, typhoons scatter fleets. Forces used to a climate, or trained for it, lose far less than strangers to it.</p></div>`;
+  }
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
     const t = G.allianceTerms(c.iso3);
@@ -2685,6 +2714,7 @@
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
     if (p.supply != null && !G.owns(c.iso3)) vs += ` 🚚 Supply line: ×${p.supply.toFixed(2)} (${BY[p.src.nat].name}'s logistics ${BY[p.src.nat].milStats.logistics}/10). ⛰️ Terrain (${window.terrainLabel(c.iso3)}): this army fights ×${p.terrain.toFixed(2)} there, and the defenders ×${window.terrainOf(c.iso3).defence.toFixed(2)}.`;
+    if (!G.owns(c.iso3)) { const w = G.weather(c.iso3); if (w.type !== "clear") vs += ` ${w.icon} Weather in ${c.name} today: ${w.label}, ${w.temp}°C: this army fights ×${G.weatherMix(p.units, p.src.nat, c.iso3).toFixed(2)}, its defenders ×${G.weatherMix(G.forces(c.iso3), c.iso3, c.iso3).toFixed(2)}.`; }
     if (p.subs != null && p.subs < 0.995) vs += ` 🌊 ${c.name}'s ${num(G.forces(c.iso3).subs || 0)} submarines hunt your fleet at sea: ×${p.subs.toFixed(2)} (more warships, submarines and helicopters in the army protect it).`;
     if (c.missileTotal && !G.owns(c.iso3)) vs += ` 🚀 It will fire ~${num(Math.round((G.missileStock(c.iso3).bm + G.missileStock(c.iso3).cm) * 0.04))} missiles a day at you.`;
     if (p.border && p.border.level > 2) vs += ` 🧱 Crossing the ${BY[p.border.from].name} border (fortified ${p.border.level}/10: ${p.border.note.toLowerCase()}): the army fights at ${Math.round(100 / p.border.mult)}% there.`;
@@ -2909,6 +2939,7 @@
         ${terrainHtml(c)}
         ${blocLoyaltyHtml(c)}
         ${occupationHtml(c)}
+        ${weatherHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -3207,7 +3238,7 @@
   }
   function clockChip() {
     const s = G.state, h = s.clock || 0, el = $("#clock");
-    el.textContent = `Day ${Math.floor(h / 24) + 1} · ${String(Math.floor(h % 24)).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
+    el.textContent = `Day ${Math.floor(h / 24) + 1} · ${G.dateOf(Math.floor(h / 24) + 1).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })} · ${String(Math.floor(h % 24)).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
     el.classList.toggle("paused", !!s.paused || !s.player);
     $("#pause").setAttribute("aria-pressed", !!s.paused);
     $("#pause").textContent = s.paused ? "▶" : "⏸";
