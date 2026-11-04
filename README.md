@@ -118,7 +118,16 @@ Up close, the boats in an area are spread out at sea. Like any base, you can sel
 
 In battle, a defender's submarines hunt any force crossing the sea to attack it, whether an invasion convoy or a fleet. The invader keeps 1 − 0.3 × S / (S + ASW) of its strength, where S is the defender's submarine power and ASW what its own warships, submarines, carriers and helicopters bring to hunt them. A thinly escorted troop convoy suffers most, and a strong escort keeps the loss to a few percent. The send preview shows the effect.
 
-**Alliances and loyalty: who is really on your side.** The *Alliances* tab ranks every mutual-defence bloc by **reliability**: the share of its military power that would actually fight. The blocs are NATO, the CSTO, the US Pacific treaties, the China–North Korea treaty, the Gulf Peninsula Shield, the 2024 Russia–North Korea treaty and the 2025 Saudi–Pakistan pact (`js/loyalty.js`).
+**Alliances and loyalty: who is really on your side.** The *Alliances* tab ranks every mutual-defence pact by **reliability**: the share of its military power that would actually fight (`js/loyalty.js`). There are 27 real pacts:
+- **Europe and the Atlantic:** NATO, the EU's mutual-assistance clause (Article 42.7), the Anglo-Portuguese Alliance, France–Greece, Greece–Cyprus.
+- **Russia's side:** the CSTO, the Russia–Belarus Union State, the 2024 Russia–North Korea treaty.
+- **US treaties in Asia and the Pacific:** each bilateral treaty on its own (Japan, South Korea, the Philippines, Thailand), ANZUS, and the Compacts of Free Association (Micronesia, Marshall Islands, Palau).
+- **Other Asia-Pacific:** the China–North Korea treaty, the Five Power Defence Arrangements.
+- **Middle East:** the Gulf Peninsula Shield, the Arab League Joint Defence Treaty, the 2025 Saudi–Pakistan pact, Turkey–Azerbaijan (Shusha), France–UAE.
+- **Africa:** France–Djibouti, the ECOWAS defence protocol, the Alliance of Sahel States, the SADC Mutual Defence Pact.
+- **The Americas:** the Rio Treaty, the Eastern Caribbean Regional Security System.
+
+Neutral countries (Austria, Ireland, Malta, Switzerland and others) never send forces. Members of loose pacts that don't care simply stay home rather than quit.
 - **Loyalty, 0–100, for every member:** it starts from how binding the treaty is and the member's real record. For example, Poland and the Baltic states spend 3–5% of GDP on the front line; Hungary blocks aid to Ukraine; Turkey bought Russian S-400s; Armenia froze its CSTO membership; Qatar was blockaded by its Gulf partners. Then the war itself counts:
   - whether the attacker is the threat the bloc exists to deter, or the member's own rival;
   - how close the fighting is;
@@ -130,6 +139,35 @@ In battle, a defender's submarines hunt any force crossing the sea to attack it,
 - **Test any war:** each bloc is shown against the war it exists for (Russia attacking Estonia: 26 of NATO's 31 other members fight, Spain, Iceland, Slovakia and Turkey give limited help, and Hungary sits out; Azerbaijan attacking Armenia: no CSTO member fights). Pick any attacker, you included, and any member. Open a member to see every reason.
 - **In your wars:** when a war starts, the log says how the bloc lines up and who betrayed it, and attack forecasts list which treaty partners fight, sit out or would betray. If your own nation is in a bloc, its partners now defend it by their loyalty.
 - **Your own allies:** each ally's loyalty to you is tracked. It starts from what drew it in and falls with war weariness, invading its neighbours, losing nations, facing a stronger enemy, or allying with its rival. 70+ joins your invasions; 50–69 defends you but joins attacks with half; under 50 it wavers (you get a warning); under 30 it betrays you, tears up the alliance and turns hostile.
+
+**Spare parts: maintenance with no trade.** Every weapon needs parts from the country that makes it (`js/maintenance.js`).
+- **Which kit depends on whom:** each model in each country's arsenal is traced to its maker. Joint programmes (Eurofighter, NH90, A400M) count every partner, and licence-built kit counts as home-made (India's Su-30MKI, Japan's F-15J, Korea's KF-16).
+- **Running down:** at war with all trade cut, kit made abroad keeps going only while spare-part stocks and cannibalised airframes last (about 4 months). After that only the share the country's own depots can keep running stays in service:
+  - Saudi Arabia (20%) sees its US-made tanks and fighters fade to a fifth of their strength;
+  - Iran (70%), with 45 years of practice keeping US F-14s flying, barely suffers;
+  - China and the US (80–90%) make almost everything themselves.
+- **Who still supplies parts:** your own nations, your allies and treaty partners. Conquer or ally with the maker to restore them.
+- **Where to see it:** the dossier's equipment section shows each kind's foreign-parts share, who makes the parts and what's left after 4 months.
+
+**Power projection: nobody walks to Canada.** An army crossing the sea or flying in must start from a staging point within its country's reach of the target (`js/projection.js`).
+- **Staging points:** home, conquered or allied land, treaty partners (basing rights), or its own bases abroad.
+- **Reach:** set by real expeditionary assets. The US 16,000 km (carriers, amphibious ships, airlift, tankers and about 750 bases abroad); the UK and France 9,000; Australia 4,500; China and Russia 3,500; others 400 km plus 250 km per point of logistics.
+- **So:** China can invade Taiwan or Japan but not Canada, unless it first conquers or allies its way across the Pacific.
+- **Aircraft:** fighters need a base within 2,500 km and helicopters within 1,000 km unless a carrier sails with them.
+- **Overland:** armies cross your own, allied and treaty partners' land, never neutral countries'.
+- **The AI is bound by the same rules.** Orders that break them explain why.
+
+**Occupation: how its people would take it.** Every country's people have a happiness score (0–100) for every possible ruler (`js/occupation.js`).
+- **What sets it:** shared culture and language, religion, the history between the two, whether they were allies or rivals, freedom, living standards, national pride, how the land was taken and how long it has been ruled.
+  - History counts both ways: Russia–Ukraine, Japan–China and Korea, Israel–Palestine, India–Pakistan and Turkey–Armenia are bitter; Greece–Cyprus, Romania–Moldova and Turkey–Azerbaijan are kin.
+  - A democracy ruled by an autocracy resents it most.
+  - A diplomatic union is taken far better than conquest (+15 against −15), and resentment fades with time.
+- **Examples:** Greece ruling Cyprus 91, Russia ruling Belarus 75, the US ruling Canada 68, China ruling Taiwan 6, China ruling Canada 0.
+- **What it does:**
+  - Unhappy lands build unrest up to 1.6× as fast, pay as little as half their taxes and raise bigger revolts.
+  - Happy ones pay up to 110% and rarely rise.
+  - Lands conquered by AI countries also resist, and unhappy ones throw the occupier out in time.
+- **Where to see it:** each dossier shows happiness under its current ruler, or under any country you pick, with the most and least welcome rulers. The Campaign tab lists your occupied lands.
 
 **War economy: total war, no trade.** Losses are replaced only by what a country's own factories build and the recruits it trains. **All trade between countries is cut off**: no country can buy fuel, steel, metals, chips or weapons from any other (`js/wareconomy.js`).
 - **Real resources:** every country produces its own amount of each strategic resource a year (2023–24, rounded). About 90 countries have real figures; the rest have little or none.
