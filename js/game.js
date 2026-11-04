@@ -158,7 +158,7 @@
   const inRevolt = iso => !!G.state.revolts[iso];
   // Nations in revolt pay nothing; nations being invaded lose the share the enemy holds.
   const heldShare = iso => 1 - Math.min(1, ((G.state.invasions || {})[iso] || { progress: 0 }).progress / 100);
-  const income = () => Math.round(20 + empire().filter(c => !inRevolt(c.iso3)).reduce((s, c) => s + (c.gdp * 0.02 + industryCoins(c)) * heldShare(c.iso3), 0) + bonus("inc"));
+  const income = () => Math.round(20 + empire().filter(c => !inRevolt(c.iso3)).reduce((s, c) => s + (c.gdp * 0.02 + industryCoins(c)) * heldShare(c.iso3) * (c.iso3 === G.state.player ? 1 : payShare(occupation(c.iso3).score)), 0) + bonus("inc"));
   const loot = t => Math.round((25 + t.gdp * 0.05) * (1 + bonus("loot")));
   function empireSoft() {
     const e = empire();
@@ -201,7 +201,7 @@
       const atk = s.owner[A] || A;
       // Torn loyalties (bound to both sides, a rival of the victim, or a victim that has itself
       // turned its back on the bloc) keep a member out of the war but never make it quit the bloc.
-      if (blocsOf(iso).some(({ members }) => members.some(m => m !== iso && m !== T && s.owner[m] === atk))) torn.push([`Also treaty-bound to ${sideName(atk)}: won't fight a treaty partner`, -40]);
+      if (!(RIVAL.get(iso) || []).includes(atk) && blocsOf(iso).some(({ members }) => members.some(m => m !== iso && m !== T && s.owner[m] === atk))) torn.push([`Also treaty-bound to ${sideName(atk)}: won't fight a treaty partner`, -40]);
       if ((RIVAL.get(iso) || []).includes(T)) torn.push([`Sworn rival of ${BY[T].name}`, -40]);
       const trec = (window.ALLY_RECORD[bloc] || {})[T];
       if (trec && trec[0] <= -20) soft.push([`${BY[T].name} has itself turned its back on the bloc`, -Math.round(-trec[0] * 0.75)]);
@@ -218,8 +218,11 @@
     }
     const core = Math.max(0, Math.min(100, parts.reduce((x, p) => x + p[1], 0)));
     let score = Math.max(0, Math.min(100, core + [...torn, ...soft].reduce((x, p) => x + p[1], 0)));
-    if (core >= 30) score = Math.max(30, score);
+    // Under a loose pact (binding under 0.5) members that don't care simply stay home; only your
+    // influence can turn one into a defector.
+    if (core >= 30 || (info.binding < 0.5 && !parts.some(p => p[0] === "Your diplomatic influence there"))) score = Math.max(30, score);
     if (torn.length) score = Math.min(49, score);
+    if (window.NEUTRAL.has(iso)) { score = Math.min(49, Math.max(30, score)); parts.push(["Neutral by law or policy: never sends forces to fight", 0]); }
     parts.push(...torn, ...soft);
     return { score, parts, stance: window.stanceOf(score) };
   }
@@ -422,7 +425,56 @@
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
   // Each kind of unit counts by its real models (js/models.js) and the country's readiness.
   // `models` ({kind: {model: count}}) gives an army's actual mix; otherwise the national fleet mix is used.
-  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[iso], u.key, models && models[u.key]), 0);
+  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[iso], u.key, models && models[u.key]) * partsFactor(iso, u.key), 0);
+  // ── Spare parts with no trade (js/maintenance.js) ──
+  // Parts still come from the country itself, its owner's other lands, your allies (if it is
+  // yours) and its treaty partners. The rest is cut off: once a country is at war, that share of
+  // its fleet runs down as stocks and cannibalised parts run out over ~4 months, to what its own
+  // depots can keep going (maintSkill).
+  const partsOk = (iso, o) => o === iso || G.state.owner[o] === G.state.owner[iso] ||
+    (G.state.owner[iso] === G.state.player && (G.state.allies || []).includes(o) && G.state.owner[o] === o) ||
+    (G.state.owner[o] === o && blocsOf(iso).some(({ members }) => members.includes(o)));
+  function partsCut(iso, key) {
+    const list = (BY[iso].equipment && BY[iso].equipment[key]) || [], by = {};
+    let tot = 0, cut = 0;
+    if (!Array.isArray(list)) return { share: 0, by };
+    list.forEach(([model, n]) => {
+      const parts = window.modelParts(iso, model);
+      tot += n;
+      if (!parts.length) return;
+      parts.forEach(o => {
+        const origins = Array.isArray(o) ? o : [o];
+        if (origins.some(x => partsOk(iso, x))) return;
+        const w = n / parts.length;
+        cut += w;
+        by[origins[0]] = (by[origins[0]] || 0) + w;
+      });
+    });
+    Object.keys(by).forEach(k => (by[k] /= tot || 1));
+    return { share: tot ? cut / tot : 0, by };
+  }
+  let partsCache = { st: null, turn: -1, v: {} };
+  function partsFactor(iso, key) {
+    if (key === "troops") return 1;
+    const d = warDaysOf(iso);
+    if (!d) return 1;
+    const s = G.state;
+    if (partsCache.st !== s || partsCache.turn !== s.turn) partsCache = { st: s, turn: s.turn, v: {} };
+    const ck = iso + key;
+    if (partsCache.v[ck] == null) {
+      const sk = window.maintSkill(iso), f = sk + (1 - sk) * Math.max(0, 1 - d / window.PARTS_DAYS);
+      partsCache.v[ck] = 1 - partsCut(iso, key).share * (1 - f);
+    }
+    return partsCache.v[ck];
+  }
+  // For the dossier: each kind's dependence on cut-off parts, today and after stocks run out.
+  function partsInfo(iso) {
+    const sk = window.maintSkill(iso);
+    return UNITS.filter(u => u.key !== "troops" && (forces(iso)[u.key] || 0) >= 1).map(u => {
+      const c = partsCut(iso, u.key);
+      return { key: u.key, label: u.label, share: c.share, by: c.by, now: partsFactor(iso, u.key), floor: 1 - c.share * (1 - sk) };
+    });
+  }
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
   // logistics when fighting away from home (near = overland, far = across the sea).
   const ms = iso => BY[iso].milStats;
@@ -445,7 +497,7 @@
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
   // An attacking force's strength in the target's terrain: each kind of unit counts by how well it
   // fights there (tanks bog down in mountains and jungle, aircraft lose targets under canopy).
-  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * window.terrainKind(to, u.key), 0);
+  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * window.terrainKind(to, u.key), 0);
   const terrainDef = iso => (window.terrainOf ? window.terrainOf(iso).defence : 1);
   // Is a country fighting right now? (Private satellites join the national effort only then.)
   function atWar(iso) {
@@ -506,7 +558,8 @@
     while (q.length) {
       const x = q.shift();
       if ((NB[x] || []).includes(to)) return true;
-      (NB[x] || []).forEach(n => { if (!seen.has(n) && owns(n)) { seen.add(n); q.push(n); } });
+      // Armies cross your own lands, your allies' and treaty partners' (they grant transit), never neutral ones.
+      (NB[x] || []).forEach(n => { if (!seen.has(n) && (owns(n) || isAlly(n) || transitOk(n))) { seen.add(n); q.push(n); } });
     }
     return false;
   }
@@ -545,6 +598,32 @@
     if (trips > 60) return { ok: false, H, T, trips };
     return { ok: true, H, T, trips, hours: 12 + (2 * trips - 1) * (km * 1.05) / 600 };
   }
+  // ── Power projection (js/projection.js) ──
+  // An army crossing the sea or flying in must start from a staging point within its country's
+  // reach of the target: home, conquered or allied land, a treaty partner's (basing rights), or one
+  // of its bases abroad. Fighters need a base within 2,500 km (tankers stretch it) and helicopters
+  // within 1,000 km unless a carrier sails with them.
+  const transitOk = n => G.state.player && G.state.owner[n] === n && blocsOf(n).some(({ members }) => members.some(m => owns(m)));
+  const reachOf = nat => { const r = window.REACH_KM[nat]; return (r ? r[0] : 400 + 250 * ms(nat).logistics) * (owns(nat) ? 1 + 0.5 * techShare(nat, "logistics") : 1); };
+  let stageCache = { st: null, turn: -1, v: {} };
+  function stagingPoints(nat) {
+    const s = G.state;
+    if (stageCache.st !== s || stageCache.turn !== s.turn) stageCache = { st: s, turn: s.turn, v: {} };
+    if (stageCache.v[nat]) return stageCache.v[nat];
+    const P = window.CENTROIDS || {}, side = s.owner[nat] || nat, pts = [];
+    const friendly = i => s.owner[i] === side || (side === s.player && isAlly(i)) || (s.owner[i] === i && blocsOf(nat).some(({ members }) => members.includes(i)));
+    C.forEach(c => { if (P[c.iso3] && friendly(c.iso3)) pts.push({ at: P[c.iso3], name: BY[c.iso3].name }); });
+    (window.DEPLOYMENTS[nat] || []).forEach(r => { if (r[7] && (r[7] === "TERR" || friendly(r[7]) || s.owner[r[7]] === r[7])) pts.push({ at: [r[1], r[2]], name: r[0] }); });
+    return (stageCache.v[nat] = pts);
+  }
+  function projection(nat, to, fromPt) {
+    const P = window.CENTROIDS || {}, T = P[to];
+    if (!T) return { km: 0, from: BY[nat].name, reach: reachOf(nat), ok: true };
+    let best = { km: Infinity, from: "" };
+    stagingPoints(nat).concat(fromPt ? [{ at: fromPt, name: "the starting base" }] : []).forEach(p => { const km = d3.geoDistance(p.at, T) * 6371; if (km < best.km) best = { km, from: p.name }; });
+    const reach = reachOf(nat);
+    return { km: best.km, from: best.from, reach, ok: best.km <= reach };
+  }
   // fromPt (optional): the exact starting point, e.g. a base, instead of the source country's centre.
   function route(from, to, units, nat, fromPt) {
     const P = window.CENTROIDS || {};
@@ -553,6 +632,7 @@
     const ground = UNITS.some(u => u.kind === "ground" && has(u));
     const naval = UNITS.some(u => u.kind === "naval" && has(u));
     const land = landLinked(from, to);
+    const proj = land ? null : projection(nat, to, fromPt);
     const need = UNITS.reduce((s, u) => s + (u.lift || 0) * (units[u.key] || 0), 0);
     const cap = UNITS.reduce((s, u) => s + (u.carry || 0) * (units[u.key] || 0), 0) * liftMult(nat);
     const legs = [];
@@ -565,15 +645,23 @@
       const byLand = land ? (km * 1.25) / slowest : Infinity;
       // Ground units overseas ride the army's own ships (sealift), with ~2 days to load and unload.
       const seaSpeed = navalUnits.length ? Math.min(...navalUnits.map(u => SPEED[u.key])) : 30;
-      const bySea = !land && need <= cap ? (km * 1.3) / seaSpeed + 48 : Infinity;
+      const bySea = !land && need <= cap && proj.ok ? (km * 1.3) / seaSpeed + 48 : Infinity;
       air = airlift(nat, units, km);
-      const byAir = air.ok ? air.hours : Infinity;
+      const byAir = air.ok && (land || proj.ok) ? air.hours : Infinity;
       const best = Math.min(byLand, bySea, byAir);
       if (best === Infinity) ok = false;
       else { legs.push(best); mode = best === byAir ? "airlift" : best === bySea ? "sea" : "land"; }
     }
+    // Aircraft need a base in range: fighters 2,500 km, helicopters 1,000 km, unless a carrier comes along.
+    let airRange = null;
+    if (!land && !(units.carriers > 0)) {
+      if ((units.helis || 0) > 0 && proj.km > 1000) airRange = { kind: "helicopters", max: 1000 };
+      else if ((units.fighters || 0) > 0 && proj.km > 2500) airRange = { kind: "fighters", max: 2500 };
+      else if ((units.aircraft || 0) > 0 && !proj.ok) airRange = { kind: "aircraft", max: proj.reach };
+      if (airRange) ok = false;
+    }
     const hours = (legs.length ? Math.max(...legs) : 1) * travelMult(nat);
-    return { km, land, sea: mode === "sea" && ground, mode, need, cap, air, hours: Math.max(0.5, hours), turns: Math.max(1, Math.ceil(hours / 24)), ok };
+    return { km, land, sea: mode === "sea" && ground, mode, need, cap, air, proj, airRange, hours: Math.max(0.5, hours), turns: Math.max(1, Math.ceil(hours / 24)), ok };
   }
   // When an army leaving now with this route arrives: hours on the clock, and the day (turn).
   const etaOf = hours => { const h = (G.state.clock || 0) + hours; return { etaH: h, eta: Math.floor(h / 24) + 1 }; };
@@ -657,6 +745,12 @@
     return null;
   }
 
+  // Why an army can't project that far, in plain words.
+  function reachWhy(nat, to, r) {
+    const pj = r.proj, km = n => Math.round(n).toLocaleString("en-US");
+    if (r.airRange) return `Out of range: the nearest base for your ${r.airRange.kind} (${pj.from}) is ${km(pj.km)} km from ${BY[to].name}, beyond their ${km(r.airRange.max)} km reach. Send a carrier with them, or take or ally with a country closer.`;
+    return `Beyond ${BY[nat].name}'s reach: its nearest staging point (${pj.from}) is ${km(pj.km)} km from ${BY[to].name}, and it can land and supply an army at most ${km(pj.reach)} km away (${(window.REACH_KM[nat] || [0, `logistics ${ms(nat).logistics}/10`])[1]}). Conquer or ally with a country closer to stage from, or raise logistics.`;
+  }
   // Send units from a home pool or an army to any country. Nothing fights until the next End turn.
   // `models` ({kind: {model: count}}) records exactly which models were picked, e.g. at a base.
   function dispatch(srcKey, to, units, models, ships) {
@@ -665,6 +759,7 @@
     if (p.err) return p.err;
     if (p.empty) return "Pick at least one unit to send.";
     if (isAlly(to)) return `${BY[to].name} is your ally. End the alliance first (in its dossier) to attack it.`;
+    if (!p.route.ok && (p.route.airRange || (p.route.proj && !p.route.proj.ok))) return reachWhy(p.src.nat, to, p.route);
     if (!p.route.ok) {
       const a2 = p.route.air || {};
       return `These ground units can't get there: overland is blocked, your ships give ${Math.floor(p.route.cap)} of the ${Math.ceil(p.route.need)} sealift needed, and ${a2.H || a2.T ? `${BY[p.src.nat].name}'s ${a2.H} heavy and ${a2.T} tactical transports available ${a2.H < 1 && (p.units.tanks || p.units.afv || p.units.arty) ? "can't lift vehicles (that needs heavy lifters like the C-17 or Il-76)" : "would need too many sorties"}` : `${BY[p.src.nat].name} has no transport aircraft for an airlift`}. Add ships or carriers, or send fewer ground units.`;
@@ -813,7 +908,7 @@
     inf[iso] = Math.min(1, (inf[iso] || 0) + d.p);
     if (inf[iso] >= 1 - 1e-9) {
       delete inf[iso];
-      annex(iso, 0.9);
+      annex(iso, 0.9, "union");
       s.coins += loot(t);
       log(`🤝 ${t.name} joined your union peacefully. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins.`, "good");
     } else {
@@ -823,8 +918,51 @@
     return null;
   }
 
-  function annex(iso, garrison) {
+  // ── Occupation happiness (js/occupation.js) ──
+  // How the people of `iso` take rule by `by` (0–100), with the reasons. how: "conquest" (default),
+  // "union" or "bought"; since: the day it changed hands (time softens resentment).
+  function happiness(iso, by, how, since) {
+    const s = G.state, t = BY[iso], o = BY[by], parts = [["Baseline: nobody welcomes foreign rule", 40]];
+    const cg = window.CULTURE_OF, rg = window.RELIGION_OF, F = window.RELIGION_FAMILY;
+    if (cg[iso] && cg[iso] === cg[by]) parts.push([`Same culture and language (${cg[iso]})`, 20]);
+    else if (window.CULTURE_KIN.some(([a, b]) => (a === cg[iso] && b === cg[by]) || (b === cg[iso] && a === cg[by]))) parts.push(["Related cultures", 8]);
+    else parts.push(["A foreign culture and language", -5]);
+    const ra = rg[iso], rb = rg[by];
+    if (ra && ra === rb && ra !== "mixed") parts.push(["Same religion", 10]);
+    else if (F[ra] && F[ra] === F[rb]) parts.push(F[ra] === "muslim" ? ["Muslim, but the other branch (Sunni/Shia)", -5] : ["Christian, but a different church", 3]);
+    else if ((F[ra] === "muslim" && ["jewish", "hindu"].includes(rb)) || (["jewish", "hindu"].includes(ra) && F[rb] === "muslim")) parts.push(["Religious conflict", -15]);
+    else if (ra !== "mixed" && rb !== "mixed") parts.push(["A different religion", -5]);
+    const h = (window.OCCUPATION_HIST[by] || {})[iso];
+    if (h && h[0]) parts.push([h[1], h[0]]);
+    if ((RIVAL.get(iso) || []).includes(by) && !(h && h[0] < 0)) parts.push(["Sworn rivals", -20]);
+    if (blocsOf(iso).some(({ members }) => members.includes(by))) parts.push(["Allies before the takeover", 10]);
+    const D = window.DEMOCRACIES;
+    if (D.has(iso) && !D.has(by)) parts.push(["A free society ruled by an autocracy", -15]);
+    else if (!D.has(iso) && D.has(by)) parts.push(["Many hope for more freedom", 5]);
+    const w = Math.max(-10, Math.min(10, Math.round(4 * Math.log2((o.gdpPerCap || 1) / Math.max(1, t.gdpPerCap || 1)))));
+    if (w) parts.push([w > 0 ? "A richer ruler: better living standards" : "A poorer ruler: falling living standards", w]);
+    const pride = Math.round(Math.min(12, 3 * Math.log10(1 + t.pop)));
+    if (pride) parts.push(["National pride", -pride]);
+    const hw = how || "conquest";
+    parts.push(hw === "union" ? ["Joined by diplomatic union", 15] : hw === "bought" ? ["Bought, not conquered", 5] : ["Conquered by force", -15]);
+    if (since != null) { const t2 = Math.min(15, Math.floor((s.turn - since) / 10)); if (t2) parts.push([`${s.turn - since} days under this rule`, t2]); }
+    if (s.revolts && s.revolts[iso]) parts.push(["In revolt", -10]);
+    return { score: Math.max(0, Math.min(100, parts.reduce((x, p) => x + p[1], 0))), parts };
+  }
+  // Happiness of a land held by someone else right now (null if independent).
+  function occupation(iso) {
+    const s = G.state, o = s.owner[iso];
+    if (!o || o === iso) return null;
+    const a = (s.acquired || {})[iso];
+    return happiness(iso, o, a && a.how, a ? a.turn : null);
+  }
+  // Unhappy lands build unrest faster: ×1.6 at 0, ×1 at 50, ×0.4 at 100. They also pay less.
+  const unrestMult = H => 1.6 - 1.2 * H / 100;
+  const payShare = H => 0.5 + 0.6 * H / 100;
+
+  function annex(iso, garrison, how) {
     const s = G.state, before = s.player ? empireEcon() : null;
+    (s.acquired = s.acquired || {})[iso] = { how: how || "conquest", turn: s.turn };
     s.owner[iso] = s.player;
     s.garrison[iso] = garrison;
     invalidateGroups();
@@ -870,7 +1008,7 @@
     }
     if (prog >= 1) {
       // Nuclear-armed defenders escalate rather than lose (once per war).
-      annex(iso, 0.5);
+      annex(iso, 0.5, "conquest");
       scaleUnits(forces(iso), 0.5); // survivors surrender and join you, weapons locked
       s.coins += loot(t);
       log(`⚔️ Conquered ${t.name} after ${s.turn - war.start + 1} turn(s) of fighting. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins. Your armies are now stationed there.`, "good");
@@ -891,7 +1029,7 @@
   }
 
   function startRevolt(c) {
-    const s = G.state, b = baseForces(c), size = 0.15 + 0.35 * (1 - s.garrison[c.iso3]);
+    const s = G.state, b = baseForces(c), size = (0.15 + 0.35 * (1 - s.garrison[c.iso3])) * (1.5 - occupation(c.iso3).score / 100);
     const units = { troops: Math.max(1, b.troops * size), tanks: b.tanks * size * 0.3, afv: b.afv * size * 0.3, arty: b.arty * size * 0.5 };
     UNITS.forEach(u => (units[u.key] = units[u.key] || 0));
     s.revolts[c.iso3] = { start: s.turn, units, r0: rawPower(units, c.iso3), progress: 0 };
@@ -1045,6 +1183,7 @@
     const want = targetDefence(T, A) * 1.45 / Math.max(1, rawPower(f, A) * ms(A).skill);
     const share = Math.max(0.03, Math.min(cap, want));
     const units = {};
+    if (!land && !projection(A, T).ok) return; // can't project that far
     UNITS.forEach(u => { if (u.kind !== "naval" || !land) units[u.key] = (f[u.key] || 0) * share; });
     if (!land) {
       // Overseas: ground units only as far as their ships and transports can carry them.
@@ -1072,7 +1211,7 @@
   // ── Intelligence: what you can see of others ───────────────
   // Your best intelligence score across your nations. Estimates of enemy strength carry an error
   // band that shrinks with your intelligence and widens with their counter-intelligence.
-  const myIntel = () => (G.state.player ? Math.max(...empire().map(c => c.intelProfile.score)) : 5);
+  const myIntel = () => (G.state.player && empire().length ? Math.max(...empire().map(c => c.intelProfile.score)) : 5);
   function intelError(iso) {
     return Math.max(0.05, Math.min(0.6, 0.55 - 0.045 * myIntel() + 0.03 * BY[iso].intelProfile.counter));
   }
@@ -1164,7 +1303,7 @@
       const nb = window.NEIGHBORS[A] || [], navy = (forces(A).ships || 0) + (forces(A).carriers || 0) * 10 >= 15;
       const treaty = T => blocsOf(A).some(({ members }) => members.includes(T));
       const has = (T, r) => { const p = window.warProfile(T).res; return r === "oil" ? p.oil > p.oilUse * 1.1 : p[r] > 0; };
-      const cands = C.map(x => x.iso3).filter(T => T !== A && s.owner[T] !== A && (nb.includes(T) || (navy && !LANDLOCKED.has(T) && distKm(A, T) < 3000)) && !treaty(T) &&
+      const cands = C.map(x => x.iso3).filter(T => T !== A && s.owner[T] !== A && (nb.includes(T) || (navy && !LANDLOCKED.has(T) && distKm(A, T) < 3000 && projection(A, T).ok)) && !treaty(T) &&
         e.short.some(r => has(T, r)) && pa * 0.4 > targetDefence(T, A) * 1.2);
       if (!cands.length) { rt[A] = Math.max(0, (rt[A] || 0) - 0.02); return; }
       rt[A] = (rt[A] || 0) + 0.02 * e.short.length;
@@ -1196,6 +1335,7 @@
       UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) * 0.3 + left.reduce((x, e) => x + (e.units[u.key] || 0), 0)));
       s.enemies = s.enemies.filter(e => !left.includes(e));
       s.owner[T] = s.owner[w.by] || w.by; s.garrison[T] = 0.6; invalidateGroups();
+      (s.acquired = s.acquired || {})[T] = { how: "conquest", turn: s.turn };
       delete s.aiWars[T];
       log(`🌍 ${by} conquered ${c.name} after ${s.turn - w.start + 1} turn(s) of war.`, "world");
     }
@@ -1239,6 +1379,7 @@
     UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) * 0.3 + foes.reduce((x, e) => x + (e.units[u.key] || 0), 0)));
     s.enemies = s.enemies.filter(e => !foes.includes(e));
     s.owner[iso] = by; s.garrison[iso] = 0.6; invalidateGroups();
+    (s.acquired = s.acquired || {})[iso] = { how: "conquest", turn: s.turn };
     log(`💥 ${BY[by].name} captured ${c.name} from you.`, "bad");
     if (iso !== s.player) return;
     const rest = empire().sort((a, b) => b.gdp - a.gdp);
@@ -1329,11 +1470,23 @@
       const calm = (1 - fx(iso, "stab")) * (1 - TFULL.governance * Math.min(1, techShare(iso, "governance"))) * (armiesAt(iso).length ? 0.3 : 1);
       // Unrest builds each day a territory is weakly held; it rises up when unrest reaches 100%.
       const un = (s.unrest = s.unrest || {});
-      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm;
+      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm * unrestMult(occupation(iso).score);
       if (un[iso] >= 1) { un[iso] = 0; startRevolt(c); }
     });
     if (!s.over) aiTurn();
     if (!s.over) checkAllies();
+    // Lands held by AI countries: unhappy ones build resistance and in time throw the occupier out.
+    const au = (s.aiUnrest = s.aiUnrest || {});
+    C.forEach(c => {
+      const iso = c.iso3, o = s.owner[iso];
+      if (o === iso || o === s.player || s.enemies.some(e => e.to === iso)) { delete au[iso]; return; }
+      const H = occupation(iso).score;
+      au[iso] = H >= 60 ? 0 : (au[iso] || 0) + 0.008 * unrestMult(H);
+      if (au[iso] >= 1) {
+        delete au[iso]; s.owner[iso] = iso; s.garrison[iso] = 0.5; invalidateGroups();
+        log(`🌍 ${c.name} threw off ${BY[o].name}'s occupation (its people's happiness under it: ${H}/100).`, "world");
+      }
+    });
     s.coins += income();
     const share = empireGdp() / window.WORLD_GDP;
     if (share >= 0.5 && !s.over) { s.over = true; log(`🏆 Victory! Your empire controls ${Math.round(share * 100)}% of world GDP.`, "good"); }
@@ -1363,7 +1516,7 @@
       s.unlocked.push(iso);
       log(`💰 Bought ${t.name} for ${fmtCoins(t.price)} coins. It is now playable.`, "good");
     } else {
-      annex(iso, 1);
+      annex(iso, 1, "bought");
       s.purchased = (s.purchased || []).concat([iso]);
       log(`💰 Bought ${t.name} for ${fmtCoins(t.price)} coins. It joins your empire; raise its access levels to use more of its forces.`, "good");
     }
@@ -1475,6 +1628,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

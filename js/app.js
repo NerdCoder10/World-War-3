@@ -1224,7 +1224,7 @@
     if (!Object.keys(units).length) return { err: "Nothing assigned to this destination." };
     if (leg.target.base) return G.moveQuote(sel.iso, sel.base, leg.target.base.name, units);
     const p = G.preview("b:" + sel.iso + "|" + sel.base, leg.target.country, units, sel.models);
-    return p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
+    return p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: p.route.airRange || (p.route.proj && !p.route.proj.ok) ? G.reachWhy(p.src.nat, leg.target.country, p.route) : "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
   }
   const legDest = (sel, tg) => (tg.base ? tg.base.name : BY[tg.country].name + (G.state.owner[tg.country] === G.state.owner[sel.iso] ? "" : G.owns(tg.country) ? " (attacking you)" : " (invasion)"));
   const legHow = q => (q.err ? `<b class="bad">${esc(q.err)}</b>` : `${Math.round(q.km).toLocaleString("en-US")} km${q.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[q.mode]}` : ""} · arrives in ${G.fmtDur(q.hours)} (${G.clockLabel((G.state.clock || 0) + q.hours)})`);
@@ -2596,6 +2596,31 @@
       return `<p class="hint"><b>${esc(bloc)}</b>${war ? ` · if ${esc(BY[test[0]].name)} attacked ${esc(BY[test[1]].name)}` : ""}: loyalty <b>${L.score}</b> ${stanceTag(L.stance)}</p>${partsList(L.parts)}`;
     }).join("")}<p class="hint">Test other wars in the Alliances tab.</p></div>`;
   }
+  // Spare parts with no trade: which kinds depend on parts from countries that won't supply them.
+  function partsHtml(c) {
+    const info = G.partsInfo(c.iso3).filter(x => x.share >= 0.05), sk = window.maintSkill(c.iso3), war = G.warDaysOf(c.iso3), skNote = (window.MAINT_SKILL[c.iso3] || [0, ""])[1];
+    const who = by => Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o]) => (BY[o] ? BY[o].name : o)).join(", ");
+    return `<p class="mcline">🔩 <b>Spare parts, no trade</b> · depots keep ${Math.round(sk * 100)}% of cut-off kit going${skNote ? ` (${esc(skNote)})` : ""}: ${info.length ? info.map(x =>
+      `${esc(x.label.toLowerCase())} ${Math.round(x.share * 100)}% foreign parts (${esc(who(x.by))}) → <b>${Math.round((war ? x.now : x.floor) * 100)}%</b>${war ? " now" : " after 4 months of war"}`).join(" · ") : "makes, licence-builds or can get parts for everything it fields"}.</p>
+      <p class="hint">At war with all trade cut, kit made abroad keeps going only while spare-part stocks and cannibalised airframes last (about 4 months), then only the share its own depots can keep running. Parts still come from your own nations, your allies and treaty partners: conquer or ally with the maker to restore them.</p>`;
+  }
+  // How its people take occupation: under its current ruler, or under any country you pick.
+  let occBy = null;
+  const happyWord = H => (H >= 60 ? "content" : H >= 40 ? "resentful" : H >= 20 ? "hostile" : "rebellious");
+  function occupationHtml(c) {
+    const s = G.state, cur = G.occupation(c.iso3), ruler = s.owner[c.iso3];
+    const others = C.filter(o => o.iso3 !== c.iso3);
+    const by = cur ? ruler : occBy && occBy !== c.iso3 ? occBy : s.player && s.player !== c.iso3 ? s.player : (others.find(o => o.iso3 === "USA") || others[0]).iso3;
+    const H = cur || G.happiness(c.iso3, by);
+    const all = others.map(o => [o.iso3, G.happiness(c.iso3, o.iso3).score]).sort((a, b) => b[1] - a[1]);
+    const ls = l => l.map(([i, v]) => `${esc(BY[i].name)} ${v}`).join(", ");
+    const head = cur ? `Under ${ruler === s.player ? "your rule" : esc(BY[ruler].name)}` : `If ${by === s.player ? "you" : esc(BY[by].name)} conquered it`;
+    return `<div class="section"><h3>Occupation <small>how its people would take it</small></h3>
+      <p class="hint">${head}: happiness <b>${H.score}/100</b> (${happyWord(H.score)}). ${cur && ruler === s.player && c.iso3 !== s.player ? `Unrest builds ×${(1.6 - 1.2 * H.score / 100).toFixed(2)} as fast and it pays ${Math.round((0.5 + 0.6 * H.score / 100) * 100)}% of its taxes.` : "Unhappy lands build unrest faster, pay less and raise bigger revolts; AI conquerors' unhappy lands throw them out in time."}</p>
+      ${cur ? "" : `<div class="rank-ctl"><select id="occ-by" aria-label="Occupier">${C.filter(o => o.iso3 !== c.iso3).sort((a, b) => a.name.localeCompare(b.name)).map(o => `<option value="${o.iso3}" ${o.iso3 === by ? "selected" : ""}>${esc(o.iso3 === s.player ? `You (${o.name})` : o.name)}</option>`).join("")}</select></div>`}
+      ${partsList(H.parts)}
+      <p class="hint">Most welcome rulers: ${ls(all.slice(0, 3))} · least welcome: ${ls(all.slice(-3).reverse())}. A peaceful diplomatic union is taken far better than conquest, and resentment fades with time.</p></div>`;
+  }
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
     const t = G.allianceTerms(c.iso3);
@@ -2872,15 +2897,18 @@
     const equipHtml = `<div class="section"><h3>Equipment <span class="tag">${c.equipSource === "researched" ? "researched" : esc(c.equipSource.replace("_", " ")) + " template"}</span></h3>
         <div class="bc-models">${modelLines(c, G.baseForces(c))}</div>
         <p class="mcline">🔧 <b>Mission-capable</b> (the rest is in maintenance and can't fight): ${window.UNITS.filter(u => u.key !== "troops" && G.baseForces(c)[u.key] >= 1).map(u => `${esc(u.label.toLowerCase())} <b>${Math.round(window.mcRate(c, u.key) * 100)}%</b>`).join(" · ")}</p>
+        ${partsHtml(c)}
         <p class="hint">×N is each model's combat value against a typical unit of its kind (a 4th-gen tank ×1.8, a 1950s T-55 ×0.45; an F-35 ×2.2, a MiG-21 ×0.45). Only the mission-capable share fights: it follows readiness (${Math.round(c.tech.ready * 100)}%: maintenance, spare parts, funding) and is lower for maintenance-heavy models (F-35, F-22, B-1) and worn-out ones (MiG-21, T-55, anything in reserve). Zoom into a base to inspect every unit's specs; units in maintenance are grey with an orange marker.</p></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) .</p>
         <p class="hint">🚚 <b>Logistics ${ms.logistics}/10</b>: invading, its armies keep ${Math.round(100 * (1 - (10 - ms.logistics) / 10 * 0.4 * 0.35))}% of their strength 1,000 km away overland and ${Math.round(100 * Math.max(0.45, 1 - (10 - ms.logistics) / 10 * 0.5))}% across 9,000 km of sea (less in harsh terrain); they travel ×${G.travelMult(c.iso3).toFixed(2)} as long as perfect logistics would take, and ${Math.round((0.4 + 0.06 * ms.logistics) * 100)}% of the usual share of its transport fleet is free for an airlift.${c.iso3 === "USA" ? " The strongest in the world: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent." : ""}</p>
+        <p class="hint">🌍 <b>Power projection ${num(Math.round(G.reachOf(c.iso3)))} km</b>: it can land and supply an army across the sea or by air only that far from its nearest staging point (home, conquered or allied land, treaty partners, its bases abroad)${window.REACH_KM[c.iso3] ? ` · ${esc(window.REACH_KM[c.iso3][1])}` : ""}. Fighters need a base within 2,500 km and helicopters 1,000 km unless a carrier sails with them.</p>
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
         ${borderHtml(c)}
         ${terrainHtml(c)}
         ${blocLoyaltyHtml(c)}
+        ${occupationHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -3086,6 +3114,7 @@
 
 
   // ── Campaign ───────────────────────────────────────────────
+  document.addEventListener("change", e => { if (e.target && e.target.id === "occ-by") { occBy = e.target.value; dossier(); } });
   function campaign() {
     const pane = $("#pane-campaign"), s = G.state;
     const groups = {};
