@@ -118,6 +118,19 @@ Up close, the boats in an area are spread out at sea. Like any base, you can sel
 
 In battle, a defender's submarines hunt any force crossing the sea to attack it, whether an invasion convoy or a fleet. The invader keeps 1 − 0.3 × S / (S + ASW) of its strength, where S is the defender's submarine power and ASW what its own warships, submarines, carriers and helicopters bring to hunt them. A thinly escorted troop convoy suffers most, and a strong escort keeps the loss to a few percent. The send preview shows the effect.
 
+**Alliances and loyalty: who is really on your side.** The *Alliances* tab ranks every mutual-defence bloc by **reliability**: the share of its military power that would actually fight. The blocs are NATO, the CSTO, the US Pacific treaties, the China–North Korea treaty, the Gulf Peninsula Shield, the 2024 Russia–North Korea treaty and the 2025 Saudi–Pakistan pact (`js/loyalty.js`).
+- **Loyalty, 0–100, for every member:** it starts from how binding the treaty is and the member's real record. For example, Poland and the Baltic states spend 3–5% of GDP on the front line; Hungary blocks aid to Ukraine; Turkey bought Russian S-400s; Armenia froze its CSTO membership; Qatar was blockaded by its Gulf partners. Then the war itself counts:
+  - whether the attacker is the threat the bloc exists to deter, or the member's own rival;
+  - how close the fighting is;
+  - whether the attacker looks stronger than the whole bloc;
+  - whether the member is busy defending itself, or the bloc's leader has fallen;
+  - whether it is also bound by treaty to the attacker;
+  - your diplomatic influence there, which peels members away from a bloc you attack.
+- **What loyalty does:** 70+ **fights** (sends 12% of its strength); 50–69 gives **limited help** (6%); 30–49 **sits out**; under 30 **betrays**: it walks out of the bloc when the war starts. Members torn between both sides sit out rather than quit. No dice: the same war always gets the same answer.
+- **Test any war:** each bloc is shown against the war it exists for (Russia attacking Estonia: 26 of NATO's 31 other members fight, Spain, Iceland, Slovakia and Turkey give limited help, and Hungary sits out; Azerbaijan attacking Armenia: no CSTO member fights). Pick any attacker, you included, and any member. Open a member to see every reason.
+- **In your wars:** when a war starts, the log says how the bloc lines up and who betrayed it, and attack forecasts list which treaty partners fight, sit out or would betray. If your own nation is in a bloc, its partners now defend it by their loyalty.
+- **Your own allies:** each ally's loyalty to you is tracked. It starts from what drew it in and falls with war weariness, invading its neighbours, losing nations, facing a stronger enemy, or allying with its rival. 70+ joins your invasions; 50–69 defends you but joins attacks with half; under 50 it wavers (you get a warning); under 30 it betrays you, tears up the alliance and turns hostile.
+
 **War economy: total war, no trade.** Losses are replaced only by what a country's own factories build and the recruits it trains. **All trade between countries is cut off**: no country can buy fuel, steel, metals, chips or weapons from any other (`js/wareconomy.js`).
 - **Real resources:** every country produces its own amount of each strategic resource a year (2023–24, rounded). About 90 countries have real figures; the rest have little or none.
 
