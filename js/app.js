@@ -2578,8 +2578,26 @@
       <p class="hint">Each weapon needs real materials: a fighter titanium, aluminium, rare-earth magnets and a set of chips; a submarine titanium and rare earths; a tank steel and electronics. Anything that needs a resource the country lacks can't be built at all. Conquering, uniting with or buying a country seizes its resources at once and half of its factories.</p></div>`;
   }
   // Alliance with an AI country: the terms it weighs (fixed, no dice) and the button.
+  // If you attacked: which of its treaty partners fight, help, sit out or betray it.
+  function blocLine(detail) {
+    if (!detail || !detail.length) return "";
+    const n = k => detail.filter(d => d.stance[2] === k).map(d => BY[d.iso].name);
+    const f = n("fights"), l = n("limited"), o = n("sits"), b = n("betrays");
+    const ls = (a, max) => a.slice(0, max).join(", ") + (a.length > max ? ` +${a.length - max}` : "");
+    return ` Its treaty partners if you attack: ${f.length ? `${f.length} fight (${ls(f, 3)})` : "none fight"}${l.length ? `, ${l.length} limited help (${ls(l, 3)})` : ""}${o.length ? `, ${o.length} sit out (${ls(o, 3)})` : ""}${b.length ? `, ${b.length} would betray it (${ls(b, 3)})` : ""}.`;
+  }
+  // This country's loyalty to each of its blocs, in peacetime and in the war its bloc exists for.
+  function blocLoyaltyHtml(c) {
+    const bl = G.blocsOf(c.iso3);
+    if (!bl.length || G.state.owner[c.iso3] !== c.iso3) return "";
+    return `<div class="section"><h3>Alliance loyalty <small>${bl.length} ${bl.length === 1 ? "bloc" : "blocs"}</small></h3>${bl.map(({ bloc }) => {
+      const info = window.ALLIANCE_INFO[bloc] || {}, test = info.test || [], war = test[0] && test[1] && test[1] !== c.iso3 && test[0] !== c.iso3;
+      const L = G.loyalty(c.iso3, bloc, war ? { attacker: test[0], target: test[1] } : null);
+      return `<p class="hint"><b>${esc(bloc)}</b>${war ? ` · if ${esc(BY[test[0]].name)} attacked ${esc(BY[test[1]].name)}` : ""}: loyalty <b>${L.score}</b> ${stanceTag(L.stance)}</p>${partsList(L.parts)}`;
+    }).join("")}<p class="hint">Test other wars in the Alliances tab.</p></div>`;
+  }
   function allianceHtml(c) {
-    if (G.isAlly(c.iso3)) return `<p class="hint">🤝 <b>Your ally.</b> It sends 15% of its forces to defend any of your nations it can reach, joins your invasions with 10% of them, and never attacks you.</p><button class="btn ghost" data-act="unally">End alliance</button>`;
+    if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
     const t = G.allianceTerms(c.iso3);
     if (t.why) return `<p class="hint">Alliance: ${esc(t.why)}</p>`;
     return `<button class="btn diplo" data-act="ally" ${t.ok ? "" : "disabled"}>Form alliance <small>support ${t.score}/${t.need}</small></button>
@@ -2638,7 +2656,7 @@
       const D = G.defenceOf(c.iso3);
       const de = G.estimate(D.total, c.iso3);
       const help = (p.allies || []).reduce((x, h) => x + h.power, 0);
-      vs = ` Army strength ${p.power.toFixed(0)}${help ? ` + ${help.toFixed(0)} from your allies (${p.allies.map(h => BY[h.iso].name).join(", ")})` : ""} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.`;
+      vs = ` Army strength ${p.power.toFixed(0)}${help ? ` + ${help.toFixed(0)} from your allies (${p.allies.map(h => BY[h.iso].name).join(", ")})` : ""} vs defence ~${de.est.toFixed(0)} (±${Math.round(de.err * 100)}% intel estimate)${D.allyMult > 0.01 ? ` incl. +${pct(D.allyMult)} from ${D.allies.blocs.join(", ")} allies` : ""}.${blocLine(D.allies.detail)}`;
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
     if (p.supply != null && !G.owns(c.iso3)) vs += ` 🚚 Supply line: ×${p.supply.toFixed(2)} (${BY[p.src.nat].name}'s logistics ${BY[p.src.nat].milStats.logistics}/10). ⛰️ Terrain (${window.terrainLabel(c.iso3)}): this army fights ×${p.terrain.toFixed(2)} there, and the defenders ×${window.terrainOf(c.iso3).defence.toFixed(2)}.`;
@@ -2702,7 +2720,7 @@
         <p class="hint">Rebels are ${Math.round(rv.progress)}% of the way to independence. Loyal strength ${L.toFixed(0)} vs rebels ${R.toFixed(0)} (${esc(G.unitList(rv.units))}). Crush 85% of the rebels to end it, or send more forces.</p></div>`;
     } else if (!G.owns(c.iso3) && s.player) {
       const D = G.defenceOf(c.iso3);
-      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}. Forces: ${esc(estUnits(c.iso3) || "none")}.${c.missileTotal ? ` 🚀 Missiles: ${num(G.missileStock(c.iso3).bm)} ballistic and ${num(G.missileStock(c.iso3).cm)} cruise left; it fires 4% of them a day at invaders.` : ""}</p>`;
+      front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}.${esc(blocLine(D.allies.detail))} Forces: ${esc(estUnits(c.iso3) || "none")}.${c.missileTotal ? ` 🚀 Missiles: ${num(G.missileStock(c.iso3).bm)} ballistic and ${num(G.missileStock(c.iso3).cm)} cruise left; it fires 4% of them a day at invaders.` : ""}</p>`;
     }
     const foes = s.enemies.filter(e => e.to === c.iso3 && (!e.vsPlayer || e.detected));
     if (foes.length && G.owns(c.iso3)) {
@@ -2862,6 +2880,7 @@
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
         ${borderHtml(c)}
         ${terrainHtml(c)}
+        ${blocLoyaltyHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -3012,6 +3031,60 @@
     pane.querySelectorAll("li").forEach(li => (li.onclick = () => select(li.dataset.iso)));
   }
 
+  // ── Alliances: every bloc ranked by how much of it would really fight ──
+  // Each bloc is tested against a war (by default the one it exists for); pick any attacker and
+  // member. Loyalty comes from js/loyalty.js and G.loyalty: no dice.
+  const blocScen = {};
+  const STANCE_ICON = { fights: "✅", limited: "🟡", sits: "⚪", betrays: "🗡️" };
+  const stanceTag = st => `<span class="st st-${st[2]}">${STANCE_ICON[st[2]]} ${st[1]}</span>`;
+  const partsList = parts => `<ul class="lparts">${parts.map(([l, v]) => `<li><span>${esc(l)}</span><b class="${v >= 0 ? "ok" : "bad"}">${v >= 0 ? "+" : ""}${v}</b></li>`).join("")}</ul>`;
+  const loyalRow = (iso, score, st, parts, extra) => `<details class="lmem"><summary><span aria-hidden="true">${flag(BY[iso].iso2)}</span>
+      <span class="nm">${esc(BY[iso].name)}${extra || ""}<i style="width:${Math.max(2, score)}%" class="lb-${st[2]}"></i></span>${stanceTag(st)}<b class="sc">${score}</b></summary>${partsList(parts)}</details>`;
+  function blocView(b) {
+    const s = G.state, info = window.ALLIANCE_INFO[b] || {}, sc = blocScen[b] || {}, members = G.blocMembers(b);
+    const test = info.test || [];
+    const t = members.includes(sc.t) ? sc.t : members.includes(test[1]) ? test[1] : members[0];
+    let a = sc.a != null ? sc.a : test[0] || "";
+    if (a === t) a = "";
+    const rep = G.blocReport(b, a || null, a ? t : null);
+    return { b, info, a, t, rep, rel: G.blocReliability(rep), members };
+  }
+  function alliancesPane() {
+    const pane = $("#pane-alliances"), s = G.state, open = new Set([...pane.querySelectorAll("details.bloc[open]")].map(d => d.dataset.bloc));
+    const views = Object.keys(window.ALLIANCES).map(blocView).filter(v => v.members.length > 1).sort((x, y) => y.rel - x.rel);
+    const mineAllies = s.player ? G.allies() : [];
+    const yours = s.player ? `<div class="section"><h3>Your alliances <small>${mineAllies.length ? `${mineAllies.length} ${mineAllies.length === 1 ? "ally" : "allies"}` : "none yet"}</small></h3>
+        ${mineAllies.length ? mineAllies.map(a => { const L = G.allyLoyalty(a); return loyalRow(a, L.score, L.stance, L.parts); }).join("") +
+          `<p class="hint">70+ joins your invasions and defends you · 50–69 defends you, joins attacks with half · 30–49 sends half to defend, won't attack · under 30 betrays you: it tears up the alliance and turns hostile. War weariness, losing nations, invading its neighbours and stronger enemies wear loyalty down.</p>`
+          : `<p class="hint">Form alliances from a country's dossier. Each ally's loyalty to you is tracked here, so you can see who will stand by you and who is about to betray you.</p>`}</div>` : "";
+    const opts = (sel, list, none) => (none ? `<option value="" ${sel === "" ? "selected" : ""}>${none}</option>` : "") + list.map(i => `<option value="${i}" ${i === sel ? "selected" : ""}>${esc(i === s.player ? `You (${BY[i].name})` : BY[i].name)}</option>`).join("");
+    const attackers = [...(s.player ? [s.player] : []), ...C.filter(c => c.iso3 !== s.player).sort((x, y) => x.name.localeCompare(y.name)).map(c => c.iso3)];
+    const cards = views.map((v, i) => {
+      const free = v.rep.filter(r => r.free), n = k => free.filter(r => r.stance[2] === k).length;
+      const gone = (s.leftBloc || {})[v.b] || [];
+      const rows = v.rep.map(r => r.free ? loyalRow(r.iso, r.score, r.stance, r.parts, r.iso === v.info.leader ? ` <span class="tag">leader</span>` : "")
+        : `<div class="lmem off"><span aria-hidden="true">${flag(BY[r.iso].iso2)}</span><span class="nm">${esc(BY[r.iso].name)}</span><span class="st">${r.yours ? "Yours" : `Held by ${esc(BY[r.by].name)}`}</span><b class="sc">—</b></div>`).join("");
+      return `<details class="bloc" data-bloc="${esc(v.b)}" ${open.has(v.b) ? "open" : ""}><summary>
+          <span class="n">${i + 1}</span><span class="nm"><b>${esc(v.b)}</b><small>${v.a ? `if ${esc(v.a === s.player ? "you" : BY[v.a].name)} attacked ${esc(BY[v.t].name)}` : "peacetime"}</small>
+          <i style="width:${Math.max(2, v.rel * 100)}%"></i></span><span class="v">${Math.round(v.rel * 100)}%</span>
+          <span class="cnt">✅${n("fights")} 🟡${n("limited")} ⚪${n("sits")} 🗡️${n("betrays")}</span></summary>
+        <p class="hint">${esc(v.info.treaty || "")}. ${esc(v.info.note || "")}${gone.length ? ` Walked out in this campaign: ${gone.map(g => esc(BY[g].name)).join(", ")}.` : ""}</p>
+        <div class="rank-ctl"><select data-k="a" aria-label="Attacker">${opts(v.a, attackers, "No war (peacetime loyalty)")}</select>
+          <select data-k="t" aria-label="Member attacked">${opts(v.t, v.members.filter(m => s.owner[m] === m || G.owns(m)))}</select></div>
+        ${rows}</details>`;
+    }).join("");
+    pane.innerHTML = `${yours}<div class="section"><h3>Alliance blocs <small>ranked by reliability</small></h3>
+      <p class="hint">Reliability is the share of each bloc's military power that would really fight in the war shown (limited help counts half). Each bloc is tested against the war it exists for: pick another attacker or member to test any war, including one you start. Open a member to see why.</p>
+      <p class="hint">✅ Fights (70+): sends 12% of its strength · 🟡 Limited help (50–69): 6% · ⚪ Sits out (30–49) · 🗡️ Betrays (under 30): walks out of the bloc when the war starts.</p>
+      ${cards}</div>`;
+    pane.querySelectorAll("details.bloc select").forEach(sel => (sel.onchange = () => {
+      const b = sel.closest("details").dataset.bloc;
+      blocScen[b] = { ...(blocScen[b] || {}), [sel.dataset.k]: sel.value };
+      alliancesPane();
+    }));
+  }
+
+
   // ── Campaign ───────────────────────────────────────────────
   function campaign() {
     const pane = $("#pane-campaign"), s = G.state;
@@ -3095,7 +3168,7 @@
     document.querySelectorAll(".pane").forEach(p => (p.hidden = p.id !== "pane-" + t));
     render();
   }
-  function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : campaign(); }
+  function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : tab === "alliances" ? alliancesPane() : campaign(); }
   function refresh() { paint(); render(); coinChip(); drawArmies(); }
   function coinChip() {
     $("#coins").textContent = G.fmtCoins(G.state.coins);

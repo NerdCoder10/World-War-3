@@ -172,51 +172,137 @@
     return nb.some(n => owns(n));
   }
 
-  function alliedSupport(iso) {
-    // Each free ally in a mutual-defence bloc sends 12% of its strength.
-    const seen = new Set();
+  // ── Mutual-defence blocs and how loyal each member is (js/loyalty.js) ──
+  // Members can walk out of a bloc (betrayal); s.leftBloc remembers who left which.
+  const leftOf = b => ((G.state.leftBloc || {})[b] || []);
+  const blocMembers = b => (window.ALLIANCES[b] || []).filter(m => !leftOf(b).includes(m));
+  const blocsOf = iso => (window.ALLIES_OF[iso] || []).filter(({ bloc }) => !leftOf(bloc).includes(iso)).map(({ bloc }) => ({ bloc, members: blocMembers(bloc) }));
+  // Fighting strength of everything one side holds (cached for the day: it is only used to weigh odds).
+  let sideCache = { st: null, turn: -1, v: {} };
+  function sideStrength(owner) {
+    const s = G.state;
+    if (sideCache.st !== s || sideCache.turn !== s.turn) sideCache = { st: s, turn: s.turn, v: {} };
+    if (sideCache.v[owner] == null) sideCache.v[owner] = C.reduce((x, c) => x + (s.owner[c.iso3] === owner ? rawPower(forces(c.iso3), c.iso3) * ms(c.iso3).skill : 0), 0);
+    return sideCache.v[owner];
+  }
+  const sideName = o => (o === G.state.player ? "your empire" : BY[o].name);
+  // How firmly member `iso` would fight for `bloc`, 0–100, with the reasons. With ctx {attacker,
+  // target}, for that war: who attacks whom, how near the fighting is, the odds, shared treaties.
+  function loyalty(iso, bloc, ctx) {
+    const s = G.state, info = window.ALLIANCE_INFO[bloc] || { binding: 0.5 }, rec = (window.ALLY_RECORD[bloc] || {})[iso];
+    const parts = [[`Treaty: ${info.treaty || bloc}`, Math.round(70 * info.binding)]];
+    if (rec && rec[0]) parts.push([rec[1], rec[0]]);
+    if (info.leader && info.leader !== iso && s.owner[info.leader] !== info.leader) parts.push([`The bloc's leader, ${BY[info.leader].name}, has fallen`, -20]);
+    const lost = (window.ALLIANCES[bloc] || []).filter(m => s.owner[m] !== m).length;
+    if (lost && lost / (window.ALLIANCES[bloc] || [1]).length >= 0.25) parts.push([`${lost} members already conquered`, -10]);
+    if (s.enemies.some(e => e.to === iso) || s.wars[iso] || (s.aiWars || {})[iso]) parts.push(["Busy defending itself", -15]);
+    const A = ctx && ctx.attacker, T = ctx && ctx.target, torn = [], soft = [];
+    if (A && T && T !== iso) {
+      const atk = s.owner[A] || A;
+      // Torn loyalties (bound to both sides, a rival of the victim, or a victim that has itself
+      // turned its back on the bloc) keep a member out of the war but never make it quit the bloc.
+      if (blocsOf(iso).some(({ members }) => members.some(m => m !== iso && m !== T && s.owner[m] === atk))) torn.push([`Also treaty-bound to ${sideName(atk)}: won't fight a treaty partner`, -40]);
+      if ((RIVAL.get(iso) || []).includes(T)) torn.push([`Sworn rival of ${BY[T].name}`, -40]);
+      const trec = (window.ALLY_RECORD[bloc] || {})[T];
+      if (trec && trec[0] <= -20) soft.push([`${BY[T].name} has itself turned its back on the bloc`, -Math.round(-trec[0] * 0.75)]);
+      if ((RIVAL.get(iso) || []).includes(A)) parts.push([`Sworn rival of ${BY[A].name}`, 15]);
+      else if ((info.threat || []).includes(A)) parts.push([`${BY[A].name} is the threat the bloc exists to deter`, 10]);
+      const near = (window.NEIGHBORS[iso] || []).includes(T) || distKm(iso, T) < 1000;
+      if (near) parts.push([`On the front line next to ${BY[T].name}`, 10]);
+      else if (info.leader !== iso && distKm(iso, T) > 6000) parts.push(["Far from the fighting", -10]);
+      const ap = sideStrength(atk), bp = blocMembers(bloc).reduce((x, m) => x + (s.owner[m] === m ? sideStrength(m) : 0), 0);
+      if (ap > bp) parts.push([`${sideName(atk)[0].toUpperCase() + sideName(atk).slice(1)} looks stronger than the whole bloc`, -15]);
+      else if (bp > 3 * ap) parts.push(["The bloc clearly outguns the attacker", 5]);
+      const inf = atk === s.player ? (s.influenceAt || {})[iso] || 0 : 0;
+      if (inf > 0) parts.push(["Your diplomatic influence there", -Math.round(40 * inf)]);
+    }
+    const core = Math.max(0, Math.min(100, parts.reduce((x, p) => x + p[1], 0)));
+    let score = Math.max(0, Math.min(100, core + [...torn, ...soft].reduce((x, p) => x + p[1], 0)));
+    if (core >= 30) score = Math.max(30, score);
+    if (torn.length) score = Math.min(49, score);
+    parts.push(...torn, ...soft);
+    return { score, parts, stance: window.stanceOf(score) };
+  }
+  // Every member of a bloc, for a war (attacker → target) or in peacetime, most loyal first.
+  function blocReport(bloc, attacker, target) {
+    return blocMembers(bloc).filter(m => m !== target).map(m => {
+      const free = G.state.owner[m] === m && !owns(m);
+      const L = free ? loyalty(m, bloc, attacker && target ? { attacker, target } : null) : null;
+      return { iso: m, free, yours: owns(m), by: G.state.owner[m], score: L ? L.score : 0, parts: L ? L.parts : [], stance: L ? L.stance : null };
+    }).sort((a, b) => b.free - a.free || b.score - a.score);
+  }
+  // Reliability: the share of the bloc's power that would actually fight (limited help counts half).
+  function blocReliability(rep) {
+    let all = 0, fight = 0;
+    rep.filter(r => r.free).forEach(r => { const p = BY[r.iso].truePower || 1; all += p; fight += p * r.stance[3]; });
+    return all ? fight / all : 0;
+  }
+
+  function alliedSupport(iso, attacker) {
+    // Each free partner sends 12% of its strength if it fights, 6% if it gives limited help, none otherwise.
+    const seen = new Set(), blocs = [], detail = [];
     let s = 0;
-    const blocs = [];
-    (window.ALLIES_OF[iso] || []).forEach(({ bloc, members }) => {
-      if (!members.some(m => G.state.owner[m] === G.state.player)) blocs.push(bloc);
+    blocsOf(iso).forEach(({ bloc, members }) => {
+      let any = false;
       members.forEach(m => {
-        if (m === iso || seen.has(m) || owns(m) || G.state.owner[m] !== m) return;
+        if (m === iso || seen.has(m) || owns(m) || G.state.owner[m] !== m || isAlly(m)) return;
         seen.add(m);
-        s += 0.12 * BY[m].truePower * G.state.garrison[m];
+        const L = loyalty(m, bloc, attacker ? { attacker, target: iso } : null);
+        detail.push({ iso: m, bloc, score: L.score, stance: L.stance });
+        if (L.stance[3] > 0) any = true;
+        s += 0.12 * L.stance[3] * BY[m].truePower * G.state.garrison[m];
       });
+      if (any) blocs.push(bloc);
     });
-    return { strength: s, blocs };
+    return { strength: s, blocs, detail };
+  }
+  // Partners who would betray walk out of the bloc as the war starts; you hear how the bloc lines up.
+  function blocWar(T, A) {
+    const s = G.state, mine = owns(T), byYou = (s.owner[A] || A) === s.player, seen = (s.blocWars = s.blocWars || {}), key = A + ">" + T;
+    if (seen[key] != null && s.turn - seen[key] <= HOSTILE_TURNS) return; // same war, already lined up
+    seen[key] = s.turn;
+    blocsOf(T).forEach(({ bloc }) => {
+      const rep = blocReport(bloc, A, T).filter(r => r.free && !isAlly(r.iso));
+      if (!rep.length) return;
+      const out = rep.filter(r => r.stance[2] === "betrays");
+      out.forEach(r => {
+        ((s.leftBloc = s.leftBloc || {})[bloc] = s.leftBloc[bloc] || []).push(r.iso);
+        const why = r.parts.filter(p => p[1] < 0).sort((a, b) => a[1] - b[1]).slice(0, 2).map(p => p[0].toLowerCase()).join("; ");
+        log(`🗡️ ${BY[r.iso].name} walked out of ${bloc} rather than fight for ${BY[T].name} (loyalty ${r.score}: ${why}).`, mine ? "bad" : byYou ? "good" : "world");
+      });
+      if (mine || byYou) {
+        const n = k => rep.filter(r => r.stance[2] === k).map(r => BY[r.iso].name);
+        const f = n("fights"), l = n("limited");
+        log(`🤝 ${bloc} lines up behind ${BY[T].name} against ${sideName(s.owner[A] || A)}: ${f.length ? `${f.length} fight (${f.slice(0, 4).join(", ")}${f.length > 4 ? "…" : ""})` : "none fight"}, ${l.length} send limited help, ${n("sits").length} sit out${out.length ? `, ${out.length} betrayed it` : ""}.`, mine ? (f.length ? "good" : "bad") : "info");
+      }
+    });
   }
 
   // ── Your alliances with AI countries ────────────────────────
   // An ally stays independent but fights on your side: it sends 15% of its forces to defend any
   // of your nations it can reach, joins your invasions with 10% (it loses men alongside yours),
   // never attacks you, and can't be invaded while the alliance stands. Whether a country agrees
-  // is decided by fixed terms, not dice (allianceTerms).
+  // is decided by fixed terms, not dice (allianceTerms). How hard it fights depends on its
+  // loyalty (allyLoyalty), and it betrays you if that falls below 30.
   const isAlly = iso => (G.state.allies || []).includes(iso) && G.state.owner[iso] === iso && !owns(iso);
   const allies = () => (G.state.allies || []).filter(isAlly);
   // Can an ally's forces get to a country: over land, by sea with a real navy, or nearby.
   const allyReaches = (a, T) => (window.NEIGHBORS[a] || []).includes(T) || ((forces(a).ships || 0) + (forces(a).carriers || 0) * 10 >= 15) || distKm(a, T) < 2500;
   const allyForce = (a, share) => share * rawPower(forces(a), a) * ms(a).skill * isr(a);
   // Help your allies send: to defend one of your nations, or to join your attack on a country
-  // (not against their own treaty partners).
+  // (not against their own treaty partners). Loyal allies (70+) send it all; 50–69 defend fully
+  // but join attacks with half; 30–49 defend with half and won't attack.
   function allyHelp(T, attack) {
-    return allies().filter(a => a !== T && allyReaches(a, T) && !(attack && (window.ALLIES_OF[a] || []).some(({ members }) => members.includes(T))))
-      .map(a => ({ iso: a, power: allyForce(a, attack ? 0.1 : 0.15) }));
+    return allies().filter(a => a !== T && allyReaches(a, T) && !(attack && blocsOf(a).some(({ members }) => members.includes(T))))
+      .map(a => { const L = allyLoyalty(a).score, f = attack ? (L >= 70 ? 1 : L >= 50 ? 0.5 : 0) : (L >= 50 ? 1 : L >= 30 ? 0.5 : 0); return { iso: a, power: allyForce(a, attack ? 0.1 : 0.15) * f, loyalty: L }; })
+      .filter(h => h.power > 0);
   }
   const allyTotal = list => list.reduce((x, h) => x + h.power, 0);
-  function allianceTerms(iso) {
+  // What draws a country to you (used to sign an alliance and, later, to keep it).
+  function allianceParts(iso) {
     const s = G.state, t = BY[iso];
-    if (!s.player) return { why: "Start a campaign first." };
-    if (owns(iso)) return { why: `${t.name} is already part of your empire.` };
-    if (s.owner[iso] !== iso) return { why: `${t.name} is occupied by ${BY[s.owner[iso]].name}.` };
-    if (isAlly(iso)) return { why: `${t.name} is already your ally.` };
-    if (s.wars[iso] || s.armies.some(a => a.to === iso)) return { why: `You are at war with ${t.name}.` };
-    if (isHostile(iso)) return { why: `${t.name} is hostile after recent fighting with you (${HOSTILE_TURNS - (s.turn - s.hostile[iso])} more days).` };
-    const mine = empire().map(c => c.iso3), rival = mine.find(m => (RIVAL.get(iso) || []).includes(m));
-    if (rival) return { why: `${t.name} is a sworn rival of ${BY[rival].name}.` };
     const S = empireSoft(), A = empireStrength(), D = Math.max(1, t.truePower * 1.25);
-    const blocs = window.ALLIES_OF[iso] || [];
+    const mine = empire().map(c => c.iso3), blocs = blocsOf(iso);
     const bloc = blocs.find(({ members }) => members.some(m => mine.includes(m)));
     const foes = blocs.find(({ members }) => members.some(m => m !== iso && (s.wars[m] || isHostile(m))));
     const common = (RIVAL.get(iso) || []).find(r => s.wars[r] || isHostile(r));
@@ -230,8 +316,53 @@
     const inf = (s.influenceAt || {})[iso] || 0;
     if (inf > 0) parts.push([`Your diplomatic influence there (${Math.round(inf * 100)}%)`, Math.round(30 * inf)]);
     if (foes) parts.push([`Its ${foes.bloc} partners are fighting you`, -30]);
-    const score = parts.reduce((x, p2) => x + p2[1], 0);
+    return parts;
+  }
+  function allianceTerms(iso) {
+    const s = G.state, t = BY[iso];
+    if (!s.player) return { why: "Start a campaign first." };
+    if (owns(iso)) return { why: `${t.name} is already part of your empire.` };
+    if (s.owner[iso] !== iso) return { why: `${t.name} is occupied by ${BY[s.owner[iso]].name}.` };
+    if (isAlly(iso)) return { why: `${t.name} is already your ally.` };
+    if (s.wars[iso] || s.armies.some(a => a.to === iso)) return { why: `You are at war with ${t.name}.` };
+    if (isHostile(iso)) return { why: `${t.name} is hostile after recent fighting with you (${HOSTILE_TURNS - (s.turn - s.hostile[iso])} more days).` };
+    const rival = empire().map(c => c.iso3).find(m => (RIVAL.get(iso) || []).includes(m));
+    if (rival) return { why: `${t.name} is a sworn rival of ${BY[rival].name}.` };
+    const parts = allianceParts(iso), score = parts.reduce((x, p2) => x + p2[1], 0);
     return { score, need: 50, parts, ok: score >= 50 };
+  }
+  // An ally's loyalty to you: what drew it in, minus what the war is costing it.
+  function allyLoyalty(iso) {
+    const s = G.state, parts = allianceParts(iso);
+    const hit = Object.keys(s.invasions || {}).length;
+    if (hit) parts.push([`${hit} of your nations under attack: you look like a losing side`, -5 * hit]);
+    const days = (s.allyDays || {})[iso] || 0;
+    if (days >= 3) parts.push([`War weariness: its troops have fought ${days} days in your wars`, -Math.min(20, Math.floor(days / 3))]);
+    const nb = Object.keys(s.wars).find(w => (window.NEIGHBORS[iso] || []).includes(w) && !(RIVAL.get(iso) || []).includes(w));
+    if (nb) parts.push([`You invaded its neighbour ${BY[nb].name}`, -10]);
+    const foes = [...new Set(s.enemies.filter(e => e.vsPlayer).map(e => e.nat))];
+    const big = foes.find(f => sideStrength(f) > sideStrength(s.player));
+    if (big) parts.push([`${BY[big].name}, attacking you, looks stronger than you`, -15]);
+    const rv = (RIVAL.get(iso) || []).find(r => isAlly(r));
+    if (rv) parts.push([`You are also allied with its rival ${BY[rv].name}`, -25]);
+    const score = Math.max(0, Math.min(100, parts.reduce((x, p) => x + p[1], 0)));
+    return { score, parts, stance: window.stanceOf(score) };
+  }
+  // Each day: allies whose loyalty falls under 50 waver, and under 30 they betray you.
+  function checkAllies() {
+    const s = G.state, warn = (s.allyWarn = s.allyWarn || {});
+    allies().forEach(a => {
+      const L = allyLoyalty(a), why = L.parts.filter(p => p[1] < 0).sort((x, y) => x[1] - y[1]).slice(0, 2).map(p => p[0].toLowerCase()).join("; ");
+      if (L.score < 30) {
+        s.allies = s.allies.filter(x => x !== a);
+        delete warn[a];
+        provoke(a);
+        log(`🗡️ ${BY[a].name} betrayed you: it tore up your alliance and turned hostile (loyalty ${L.score}: ${why || "what drew it to you has faded"}).`, "bad");
+      } else if (L.score < 50 && !warn[a]) {
+        warn[a] = 1;
+        log(`⚠️ ${BY[a].name} is wavering (loyalty ${L.score}: ${why || "what drew it to you has faded"}). It won't join your attacks, and below 30 it will betray you.`, "bad");
+      } else if (L.score >= 55) delete warn[a];
+    });
   }
   function proposeAlliance(iso) {
     const err = ready(); if (err) return err;
@@ -353,9 +484,9 @@
   }
 
   // Defence of an independent country: its remaining forces, home advantage, morale, its trait and allies.
-  function defenceOf(iso) {
+  function defenceOf(iso, attacker) {
     const c = BY[iso];
-    const allies = alliedSupport(iso);
+    const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
     const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
@@ -665,7 +796,7 @@
     const D = BY[iso].truePower * 1.25 * (1 + t.soft / 400) + 0.3;
     let p = 0.75 * (S / (S + t.soft)) * (Gp / (Gp + t.gdp)) * (A / (A + D));
     if (!bordersEmpire(iso)) p *= 0.6;
-    if ((window.ALLIES_OF[iso] || []).length) p *= 0.5;
+    if (blocsOf(iso).length) p *= 0.5;
     p *= (1 + bonus("dip")) * (1 - fx(iso, "res"));
     return { p: Math.min(0.9, p) };
   }
@@ -717,6 +848,7 @@
   // One round of fighting in a country you are invading.
   function warRound(iso) {
     const s = G.state, t = BY[iso], armies = armiesAt(iso);
+    if (!s.wars[iso]) blocWar(iso, s.player);
     const war = (s.wars[iso] = s.wars[iso] || { start: s.turn, p0: rawPower(forces(iso), iso) });
     const help = allyHelp(iso, true), mine = missileSalvo(empire().map(c => c.iso3), iso), theirs = missileSalvo([iso], armies[0] ? armies[0].nat : s.player);
     const D = defenceOf(iso).total + theirs.power;
@@ -726,6 +858,8 @@
     const al = Math.min(0.6, 0.3 * (1 - r));
     armies.forEach(a => scaleUnits(a.units, 1 - al));
     help.forEach(h => scaleUnits(forces(h.iso), 1 - al * 0.1)); // allies' contingents (10% of their forces) take losses too
+    const ad = (s.allyDays = s.allyDays || {});
+    help.forEach(h => (ad[h.iso] = (ad[h.iso] || 0) + 1));
     s.armies = s.armies.filter(a => total(a.units) >= 0.05);
     const left = armiesAt(iso);
     const prog = warProgress(iso);
@@ -894,19 +1028,21 @@
     return d;
   };
   // Your side when one of your nations is attacked: its own accessible forces, order, trait, stationed armies and allies.
-  function homeDefence(iso) {
-    const u = homeShare(iso);
-    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) +
+  // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
+  function homeDefence(iso, attacker) {
+    const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
+    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+      (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
 
   // Defence of any target: yours (homeDefence) or an AI country's (defenceOf).
-  const targetDefence = T => (owns(T) ? homeDefence(T) : defenceOf(T).total);
+  const targetDefence = (T, A) => (owns(T) ? homeDefence(T, A) : defenceOf(T, A || null).total);
   function launchEnemy(A, T) {
     const s = G.state, f = forces(A), land = (window.NEIGHBORS[A] || []).includes(T), vsPlayer = owns(T);
     // Send about 1.45× what defends the target, within a share of the army that grows with hostility.
     const cap = !vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3;
-    const want = targetDefence(T) * 1.45 / Math.max(1, rawPower(f, A) * ms(A).skill);
+    const want = targetDefence(T, A) * 1.45 / Math.max(1, rawPower(f, A) * ms(A).skill);
     const share = Math.max(0.03, Math.min(cap, want));
     const units = {};
     UNITS.forEach(u => { if (u.kind !== "naval" || !land) units[u.key] = (f[u.key] || 0) * share; });
@@ -924,7 +1060,9 @@
     // Seen if your intelligence beats its counter-intelligence: intel ≥ 3.3 + 0.53 × its counter-intel.
     const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter >= 0.5;
     const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: !land, vsPlayer, detected };
+    const fresh = !s.enemies.some(x => x.nat === A && x.to === T);
     s.enemies.push(e);
+    if (fresh) blocWar(T, A);
     if (vsPlayer) {
       s.hostile[A] = s.turn;
       if (detected) log(`🚨 Intelligence warning: ${BY[A].name} launched an attack on ${BY[T].name}: about ${unitList(fuzzUnits(units, A))}. Arrives in ${fmtDur(hours)} (${clockLabel(etaH)}). Send forces to defend it.`, "bad");
@@ -1024,14 +1162,14 @@
       const pa = rawPower(forces(A), A) * ms(A).skill;
       if (pa < 80) return;
       const nb = window.NEIGHBORS[A] || [], navy = (forces(A).ships || 0) + (forces(A).carriers || 0) * 10 >= 15;
-      const treaty = T => (window.ALLIES_OF[A] || []).some(({ members }) => members.includes(T));
+      const treaty = T => blocsOf(A).some(({ members }) => members.includes(T));
       const has = (T, r) => { const p = window.warProfile(T).res; return r === "oil" ? p.oil > p.oilUse * 1.1 : p[r] > 0; };
       const cands = C.map(x => x.iso3).filter(T => T !== A && s.owner[T] !== A && (nb.includes(T) || (navy && !LANDLOCKED.has(T) && distKm(A, T) < 3000)) && !treaty(T) &&
-        e.short.some(r => has(T, r)) && pa * 0.4 > targetDefence(T) * 1.2);
+        e.short.some(r => has(T, r)) && pa * 0.4 > targetDefence(T, A) * 1.2);
       if (!cands.length) { rt[A] = Math.max(0, (rt[A] || 0) - 0.02); return; }
       rt[A] = (rt[A] || 0) + 0.02 * e.short.length;
       if (rt[A] < 1) return;
-      const T = cands.reduce((a, b) => (targetDefence(a) <= targetDefence(b) ? a : b)), wants = e.short.filter(r => has(T, r)).map(r => window.WAR_RES_LABEL[r].toLowerCase());
+      const T = cands.reduce((a, b) => (targetDefence(a, A) <= targetDefence(b, A) ? a : b)), wants = e.short.filter(r => has(T, r)).map(r => window.WAR_RES_LABEL[r].toLowerCase());
       const before = s.enemies.length;
       launchEnemy(A, T);
       if (s.enemies.length > before) {
@@ -1045,7 +1183,7 @@
   function aiWarRound(T) {
     const s = G.state, c = BY[T], foes = enemiesAt(T);
     const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + missileSalvo(foes.map(e => e.nat), T).power, D = defenceOf(T).total + missileSalvo([T], foes[0].nat).power, r = E / (E + D);
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + missileSalvo(foes.map(e => e.nat), T).power, D = defenceOf(T, foes[0].nat).total + missileSalvo([T], foes[0].nat).power, r = E / (E + D);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
@@ -1068,7 +1206,7 @@
     const s = G.state, c = BY[iso], foes = enemiesAt(iso);
     const inv = (s.invasions = s.invasions || {})[iso] || (s.invasions[iso] = { start: s.turn, progress: 0, e0: foes.reduce((x, e) => x + enemyPower(e), 0) });
     const theirs = missileSalvo(foes.map(e => e.nat), iso), mine = missileSalvo(empire().map(c => c.iso3), foes[0].nat);
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + theirs.power, D = homeDefence(iso) + mine.power;
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + theirs.power, D = homeDefence(iso, foes[0].nat) + mine.power;
     const r = E / (E + D);
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
@@ -1195,6 +1333,7 @@
       if (un[iso] >= 1) { un[iso] = 0; startRevolt(c); }
     });
     if (!s.over) aiTurn();
+    if (!s.over) checkAllies();
     s.coins += income();
     const share = empireGdp() / window.WORLD_GDP;
     if (share >= 0.5 && !s.over) { s.over = true; log(`🏆 Victory! Your empire controls ${Math.round(share * 100)}% of world GDP.`, "good"); }
@@ -1336,6 +1475,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

@@ -527,3 +527,35 @@ h3 small { font: 11px var(--font-data); letter-spacing: 0; text-transform: none;
 .wetable td, .wetable th { padding: 2px 4px; border-bottom: 1px solid #ffffff12; }
 .tbar-row { white-space: nowrap; }
 .wetable .ok { color: var(--teal); } .wetable .warn { color: var(--brass); } .wetable .bad { color: var(--danger); }
+
+/* Alliances */
+.tabs button { letter-spacing: .06em; font-size: 13px; }
+details.bloc { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 0 8px; }
+details.bloc[open] { padding-bottom: 8px; }
+details.bloc > summary {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) 42px; gap: 4px 6px; align-items: center;
+  padding: 8px 0; cursor: pointer; list-style: none; font-variant-numeric: tabular-nums;
+}
+details.bloc > summary::-webkit-details-marker { display: none; }
+details.bloc > summary .n { font: 12px var(--font-data); color: var(--muted); text-align: right; }
+details.bloc > summary .nm { min-width: 0; }
+details.bloc > summary .nm small { display: block; color: var(--muted); font-size: 11px; }
+details.bloc > summary .nm i { display: block; height: 3px; border-radius: 2px; margin-top: 3px; background: var(--teal); }
+details.bloc > summary .v { font: 600 13px var(--font-data); text-align: right; }
+details.bloc > summary .cnt { grid-column: 2 / 4; font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+details.bloc .rank-ctl { margin: 8px 0; }
+.lmem { border-top: 1px solid var(--line); }
+.lmem > summary, .lmem.off { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 28px; gap: 6px; align-items: center; padding: 4px 2px; cursor: pointer; list-style: none; font-size: 13px; }
+.lmem > summary::-webkit-details-marker { display: none; }
+.lmem.off { cursor: default; opacity: .55; }
+.lmem .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmem .nm i { display: block; height: 3px; border-radius: 2px; margin-top: 2px; }
+.lmem .sc { font: 12px var(--font-data); text-align: right; }
+.lb-fights { background: var(--teal); } .lb-limited { background: var(--brass); } .lb-sits { background: var(--muted); } .lb-betrays { background: var(--danger); }
+.st { font-size: 11px; white-space: nowrap; color: var(--muted); }
+.st-fights { color: var(--teal); } .st-limited { color: var(--brass); } .st-betrays { color: var(--danger); }
+.lparts { list-style: none; margin: 2px 0 6px 28px; padding: 0; font-size: 11.5px; color: var(--muted); }
+.lparts li { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+.lparts b { font: 11.5px var(--font-data); white-space: nowrap; }
+.lparts b.ok { color: var(--teal); } .lparts b.bad { color: var(--danger); }
+details.bloc .rank-ctl select { min-width: 0; width: 0; }

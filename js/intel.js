@@ -104,6 +104,8 @@ window.ALLIANCES = {
   "US Pacific Treaties": ["USA","JPN","KOR","AUS","PHL","NZL"],
   "China–DPRK Treaty": ["CHN","PRK"],
   "Gulf Peninsula Shield": ["SAU","ARE","KWT","BHR","QAT","OMN"],
+  "Russia–DPRK Treaty": ["RUS","PRK"],
+  "Saudi–Pakistan Pact": ["SAU","PAK"],
 };
 
 // Overseas territories / regions in the map file that belong to one of the 196 states.
