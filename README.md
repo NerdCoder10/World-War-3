@@ -140,6 +140,26 @@ Neutral countries (Austria, Ireland, Malta, Switzerland and others) never send f
 - **In your wars:** when a war starts, the log says how the bloc lines up and who betrayed it, and attack forecasts list which treaty partners fight, sit out or would betray. If your own nation is in a bloc, its partners now defend it by their loyalty.
 - **Your own allies:** each ally's loyalty to you is tracked. It starts from what drew it in and falls with war weariness, invading its neighbours, losing nations, facing a stronger enemy, or allying with its rival. 70+ joins your invasions; 50–69 defends you but joins attacks with half; under 50 it wavers (you get a warning); under 30 it betrays you, tears up the alliance and turns hostile.
 
+**Weather and seasons.** Every country has a climate, and each day's weather there follows its season (`js/weather.js`):
+- **Seasonal hazards:** Russia and Ukraine's snowy winters and spring and autumn mud seasons (*rasputitsa*), the South Asian monsoon, Pacific typhoons, Atlantic hurricanes and Indian Ocean cyclones, Gulf summer heat and spring sandstorms, Sahel dust, mountain snow, Atlantic storms and fog. Southern-hemisphere seasons are six months apart.
+- **No dice:** the weather is set by the date and the place, never rolled. The campaign calendar starts on the real date you begin, and every dossier shows a 7-day forecast, so you can plan around it.
+- **What weather does:** each kind of unit suffers differently:
+  - mud stops tanks;
+  - storms and blizzards ground helicopters and older jets;
+  - heat and sandstorms exhaust infantry;
+  - typhoons scatter fleets;
+  - freezing cold bites harder the colder it gets.
+- **Every country copes differently:**
+  - Forces used to a climate from home lose far less than strangers to it.
+  - Some are also trained for others: Finland's ski troops, Russia's "General Winter", Israel's desert armour, Vietnam's jungle infantry, India's Siachen glacier troops, and US forces trained for every climate.
+  - In the same blizzard, Finnish infantry fight at ×0.97, US at ×0.86 and Saudi at ×0.69.
+  - In a sandstorm, Israeli tanks fight at ×0.95 and Russian at ×0.69.
+  - Jets with modern all-weather radar keep flying in rain, fog and snow, and big blue-water navies keep sailing in heavy seas.
+- **Where to see it:**
+  - The *Weather* map mode colours every country by today's weather.
+  - Dossiers show the forecast, each force's adaptation and how several countries' forces would fight there today.
+  - Attack forecasts and battle reports state the weather's effect on both sides.
+
 **Spare parts: maintenance with no trade.** Every weapon needs parts from the country that makes it (`js/maintenance.js`).
 - **Which kit depends on whom:** each model in each country's arsenal is traced to its maker. Joint programmes (Eurofighter, NH90, A400M) count every partner, and licence-built kit counts as home-made (India's Su-30MKI, Japan's F-15J, Korea's KF-16).
 - **Running down:** at war with all trade cut, kit made abroad keeps going only while spare-part stocks and cannibalised airframes last (about 4 months). After that only the share the country's own depots can keep running stays in service:

@@ -40,13 +40,15 @@
   // enemies: AI armies sent against your nations. hostile: turn each country last turned on you.
   const EXTRA = () => ({ forces: {}, armies: [], wars: {}, revolts: {}, courted: {}, nextArmy: 1, enemies: [], hostile: {}, nextEnemy: 1, clock: 0, moves: [], nextMove: 1 });
 
+  // The campaign calendar: day 1 is the real date the campaign began (UTC midnight).
+  const todayMs = () => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
   function fresh(seed) {
     seed = seed ?? Math.floor(Math.random() * 2 ** 31);
     const owner = {}, garrison = {};
     C.forEach(c => { owner[c.iso3] = c.iso3; garrison[c.iso3] = 1; });
     return {
       seed, unlocked: rollUnlocked(seed), player: null, owner, garrison, turn: 1, log: [], over: false, timeV: 1,
-      coins: window.START_COINS, access: {}, tech: {}, tiers: 3, redeemed: [], purchased: [], ...EXTRA(),
+      coins: window.START_COINS, access: {}, tech: {}, tiers: 3, redeemed: [], purchased: [], date0: todayMs(), ...EXTRA(),
     };
   }
 
@@ -91,6 +93,8 @@
   // and each of the old 5 technology levels becomes 18 of the new 100.
   function migrate(s) {
     migrateClock(s);
+    // Saves from before the calendar: today is their current day.
+    if (!s.date0) s.date0 = todayMs() - ((s.turn || 1) - 1) * 86400000;
     // Tiers 2: the old Weapons systems track (a combat bonus) became Arms production.
     if (s.tiers === 1) {
       Object.values(s.tech || {}).forEach(t => { if (t.weapons) { t.production = Math.max(t.production || 0, t.weapons); delete t.weapons; } });
@@ -497,7 +501,44 @@
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
   // An attacking force's strength in the target's terrain: each kind of unit counts by how well it
   // fights there (tanks bog down in mountains and jungle, aircraft lose targets under canopy).
-  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * window.terrainKind(to, u.key), 0);
+  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key), 0);
+  // ── Weather and seasons (js/weather.js) ──
+  // Each day's weather in the country being fought over cuts what each kind of unit can do, less
+  // for forces used to that climate or trained for it. Jets with modern all-weather radar keep
+  // flying in rain, fog and snow (by technology generation); big blue-water navies (logistics)
+  // keep sailing in heavy seas. Weather is fixed by date and place, never rolled.
+  const DAY_MS = 86400000;
+  const absDay = turn => Math.floor((G.state.date0 || 0) / DAY_MS) + (turn == null ? G.state.turn : turn) - 1;
+  const dateOf = turn => new Date(absDay(turn) * DAY_MS);
+  const wxMemo = {};
+  function weather(iso, turn) {
+    const a = absDay(turn), ck = iso + a;
+    if (wxMemo[ck]) return wxMemo[ck];
+    const d = new Date(a * DAY_MS), doy = Math.min(364, Math.floor((a * DAY_MS - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY_MS));
+    return (wxMemo[ck] = window.weatherAt(iso, a, doy));
+  }
+  const airAW = nat => Math.max(0, Math.min(0.85, (BY[nat].tech.gen - 2) / 3.5));
+  const navAW = nat => Math.max(0, Math.min(0.8, ms(nat).logistics / 12));
+  function weatherKind(at, nat, key, w) {
+    w = w || weather(at);
+    const cls = window.WEATHER_CLASS[key], base = (w.pen || {})[cls] || 0;
+    if (!base) return 1;
+    let ad;
+    if (cls === "air" || cls === "heli") ad = w.cat === "wet" || w.cat === "fog" || w.cat === "cold"
+      ? Math.max(window.weatherAdapt(nat, w.cat) * 0.5, airAW(nat) * (w.type === "cyclone" || w.type === "blizzard" ? 0.3 : 0.7)) : window.weatherAdapt(nat, w.cat) * 0.6;
+    else if (cls === "sea" || cls === "sub") ad = navAW(nat);
+    else ad = window.weatherAdapt(nat, w.cat);
+    return 1 - base * (1 - ad);
+  }
+  // A whole force's weather factor, weighted by each kind's share of its strength.
+  function weatherMix(units, nat, at, models) {
+    const w = weather(at);
+    if (w.type === "clear") return 1;
+    let a = 0, b = 0;
+    UNITS.forEach(u => { const v = (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]); a += v; b += v * weatherKind(at, nat, u.key, w); });
+    return a ? b / a : 1;
+  }
+  const wxTag = (iso, mine, theirs) => { const w = weather(iso); return w.type === "clear" ? "" : ` ${w.icon} ${w.label}, ${w.temp}°C: your side ×${mine.toFixed(2)}, theirs ×${theirs.toFixed(2)}.`; };
   const terrainDef = iso => (window.terrainOf ? window.terrainOf(iso).defence : 1);
   // Is a country fighting right now? (Private satellites join the national effort only then.)
   function atWar(iso) {
@@ -513,7 +554,7 @@
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
     const home = owns(a.to) || a.to === a.nat;
-    return (home ? rawPower(a.units, a.nat, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat);
+    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat);
   };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
@@ -540,7 +581,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -1014,7 +1055,7 @@
       log(`⚔️ Conquered ${t.name} after ${s.turn - war.start + 1} turn(s) of fighting. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins. Your armies are now stationed there.`, "good");
       return;
     }
-    log(`⚔️ Fighting in ${t.name}: your strength ${A.toFixed(0)} vs ${D.toFixed(0)}. Defences ${Math.round(prog * 100)}% broken.${salvoText(mine, theirs)}`, r >= 0.5 ? "good" : "info");
+    log(`⚔️ Fighting in ${t.name}: your strength ${A.toFixed(0)} vs ${D.toFixed(0)}. Defences ${Math.round(prog * 100)}% broken.${salvoText(mine, theirs)}${wxTag(iso, left[0] ? weatherMix(left[0].units, left[0].nat, iso, left[0].models) : 1, weatherMix(forces(iso), iso, iso))}`, r >= 0.5 ? "good" : "info");
   }
   // 0 → 1: share of the defender's pre-war forces destroyed, where 80% destroyed = conquest.
   const warProgress = iso => {
@@ -1169,7 +1210,7 @@
   // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
   function homeDefence(iso, attacker) {
     const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
-    return rawPower(u, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+    return rawPower(u, iso) * weatherMix(u, iso, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
       (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
@@ -1367,7 +1408,7 @@
       delete s.invasions[iso];
       loseNation(iso, left[0].nat, left);
     } else {
-      log(`🚨 ${by} attacking ${c.name}: enemy ${E.toFixed(0)} vs your ${D.toFixed(0)}. Enemy ${Math.round(inv.progress)}% of the way to taking it.${salvoText(mine, theirs)}`, r < 0.5 ? "info" : "bad");
+      log(`🚨 ${by} attacking ${c.name}: enemy ${E.toFixed(0)} vs your ${D.toFixed(0)}. Enemy ${Math.round(inv.progress)}% of the way to taking it.${salvoText(mine, theirs)}${wxTag(iso, weatherMix(homeShare(iso), iso, iso), weatherMix(left[0].units, left[0].nat, iso, left[0].models))}`, r < 0.5 ? "info" : "bad");
     }
   }
 
@@ -1628,6 +1669,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
