@@ -489,6 +489,14 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
       - sites in territory the country doesn't hold (occupied Crimea and Donbas, Abkhazia and South Ossetia, Transnistria, Northern Cyprus).
 
     A new base near an existing one, with a shared name or at the same site, is dropped as a duplicate. The new bases' weights are capped so they refine each country's researched distribution: at most 35% of ground forces and 60% of aircraft and ships, or 20% and 35% for the US, whose rows carry real personnel counts. Older catch-all rows such as "Fujian & Zhejiang air bases" keep only a quarter of their aircraft where the real air bases are now listed. Installation data © OpenStreetMap contributors, available under the Open Database License (ODbL).
+  - **Even more installations, toward US-level detail** (`js/deployments-osm.js`): about 4,250 more bases for 157 countries, taking the map from about 6,950 to about 11,200.
+    - **Source:** every named military area in OpenStreetMap (`landuse=military`) that wasn't already covered. Each site was placed in its country against the game's own borders and classified by its name in many languages: missile bases, air bases, naval bases, garrisons and barracks, headquarters, training areas, academies, depots, and radar and signals sites.
+    - **Examples:** Saudi Arabia goes from 29 to 78 bases (Al-Watah and Al Sulayyil missile bases, Dirab and Khasm Alan air bases, named infantry and air-defence battalions), Iran from 140 to 366, South Korea from 100 to 300, and China and Russia to 700 each, like the US.
+    - **How many per country:** each country is filled up to a density set by its active troops (0.6 bases per thousand troops, between 40 and 700).
+    - **Left out:** police, border guards, interior-ministry troops, coast guards, companies, hospitals and other civilian sites, historic and former sites, foreign-run bases and occupied ground.
+    - **Duplicates:** sites within 2 km of an existing base, or with the same name within 25 km, are skipped.
+    - **Weights:** the new rows take at most 35% of a country's ground weight and 50% of its air and naval weight, so its researched distribution stays in charge.
+    - Countries whose militaries are barely mapped, such as Ukraine (scrubbed from maps in wartime), Ethiopia and Eritrea, gain only a little. Map data © OpenStreetMap contributors (ODbL).
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.
