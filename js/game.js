@@ -564,6 +564,139 @@
     return 1 - n.frac * pen * (1 - nightCap(nat, window.WEATHER_CLASS[key])) * (1 - 0.35 * n.moon);
   }
 
+  // ── Spy networks (js/spies.js) ──
+  // Strength 0–100 of the network country S's services run inside country T. Each pair has a
+  // natural level: S's priority on T (its real targets; else neighbours and rivals) × its skill
+  // (HUMINT, SIGINT, cyber) against T's counter-intelligence. Networks drift 3% a day toward that
+  // level (plus what you invest); operations burn them and counter-intelligence sweeps roll them up.
+  // Only pairs pushed away from their natural level are stored (s.spy).
+  const ipf = iso => BY[iso].intelProfile;
+  const spyBaseMemo = {};
+  function spyBase(S, T) {
+    if (S === T || !BY[S] || !BY[T]) return 0;
+    const k = S + T;
+    if (k in spyBaseMemo) return spyBaseMemo[k];
+    const ent = (window.SPY_TARGETS[S] || []).find(x => x[0] === T) || [], pri = ent[1];
+    const near = (window.NEIGHBORS[S] || []).includes(T) || (RIVAL.get(S) || []).includes(T);
+    const p = pri != null ? pri : near ? 0.3 : 0;
+    const skill = (ipf(S).humint + ipf(S).sigint + ipf(S).cyber) / 30;
+    return (spyBaseMemo[k] = Math.max(0, Math.min(95, Math.round(p * 100 * (0.25 + 0.75 * skill) * (1 - 0.04 * ipf(T).counter) + (ent[3] || 0)))));
+  }
+  const spyStore = () => (G.state.spy = G.state.spy || {});
+  const spyNet = (S, T) => { const r = spyStore()[S + ">" + T]; return r ? r.net : spyBase(S, T); };
+  const spySide = iso => G.state.owner[iso] || iso; // a conquered nation's services work for its owner
+  // Networks shared by intelligence partners (Five Eyes) and, for you, your allies: half their strength.
+  function spyEff(S, T) {
+    let v = spyNet(S, T);
+    const partners = new Set();
+    Object.values(window.SPY_SHARING).forEach(g => { if (g.includes(S)) g.forEach(x => partners.add(x)); });
+    if (S === G.state.player) allies().forEach(a => partners.add(a));
+    partners.forEach(x => { if (x !== S && G.state.owner[x] === x) v = Math.max(v, 0.5 * spyNet(x, T)); });
+    return v;
+  }
+  // Your network in a country: your home services' (and partners'), against whoever holds it.
+  const myNet = iso => (G.state.player ? spyEff(G.state.player, iso) : 0);
+  // Battle edge from a network inside the enemy: targeting, plans, sabotage of command (up to +8%).
+  const spyEdge = (S, T) => (S && T && S !== T ? 0.08 * spyEff(spySide(S), T) / 100 : 0);
+  const sabotaged = iso => ((G.state.sabotage || {})[iso] || 0) >= G.state.turn;
+  function spyDay() {
+    const s = G.state, st = spyStore(), inv = s.spyInv || {};
+    Object.keys(st).forEach(k => {
+      const [S, T] = k.split(">"), r = st[k];
+      if (!BY[S] || !BY[T] || spySide(T) === spySide(S)) { delete st[k]; return; }
+      const eq = Math.min(100, spyBase(S, T) + (S === s.player ? 10 * (inv[T] || 0) : 0));
+      r.net += (eq - r.net) * 0.03;
+      if (Math.abs(r.net - eq) < 0.5 && !(S === s.player && inv[T])) delete st[k];
+    });
+    // Hostile services with deep networks in your nations sabotage them every ten days.
+    if (!s.player) return;
+    empire().forEach(c => {
+      C.forEach(o => {
+        const S = o.iso3;
+        if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
+        const n = spyNet(S, c.iso3);
+        if (n < 55 || (s.turn + S.charCodeAt(0) + c.iso3.charCodeAt(1)) % 10) return;
+        const ms2 = missileStock(c.iso3); ms2.bm *= 0.9; ms2.cm *= 0.9;
+        (s.sabotage = s.sabotage || {})[c.iso3] = s.turn + 2;
+        log(`🕵️ ${spyVisible(S, c.iso3) ? `${BY[S].name}'s agents` : "Unidentified saboteurs"} struck in ${c.name}: missile stocks −10% and its defences shaken for two days. Sweep for spies in the Intel tab.`, "bad");
+      });
+    });
+  }
+  // Can your counter-intelligence in `T` see who runs a network there?
+  const spyVisible = (S, T) => ipf(T).counter >= ipf(S).score - 2;
+  const setNet = (S, T, v) => { const st = spyStore(); st[S + ">" + T] = { net: Math.max(0, Math.min(100, v)) }; };
+  const spyCost = T => Math.round(40 + BY[T].gdp * 0.004 * (1 + ipf(T).counter / 10));
+  // Recruit agents: +6 now and a higher level kept (up to six times).
+  function spyRecruit(T) {
+    const err = ready(); if (err) return err;
+    const s = G.state, inv = (s.spyInv = s.spyInv || {});
+    if (owns(T)) return "That is your own nation.";
+    if ((inv[T] || 0) >= 6) return `Your network in ${BY[T].name} is as large as you can run.`;
+    const cost = spyCost(T);
+    if (s.coins < cost) return `You need ${fmtCoins(cost - s.coins)} more coins.`;
+    s.coins -= cost; inv[T] = (inv[T] || 0) + 1;
+    setNet(s.player, T, spyNet(s.player, T) + 6);
+    log(`🕵️ Your services recruited more agents in ${BY[T].name}: network ${Math.round(spyNet(s.player, T))}/100.`, "good");
+    save(); return null;
+  }
+  const SPY_OPS = {
+    sabotage: { label: "Sabotage", need: 40, burn: 25, what: "Blow up depots and cut lines: its missiles and drones −15% and its defence ×0.9 for 3 days" },
+    steal: { label: "Steal technology", need: 50, burn: 20, what: "Steal designs: +1 level in your home nation's weakest technology" },
+    influence: { label: "Influence", need: 30, burn: 15, what: "Bribe and persuade: +15% diplomatic influence there" },
+    incite: { label: "Incite revolt", need: 30, burn: 15, what: "Arm the resistance in a land another country occupies: brings its liberation closer" },
+  };
+  function spyOp(T, op) {
+    const err = ready(); if (err) return err;
+    const s = G.state, O = SPY_OPS[op], n = spyNet(s.player, T), cd = (s.spyOpAt = s.spyOpAt || {});
+    if (!O) return "Unknown operation.";
+    if (owns(T)) return "That is your own nation.";
+    if (n < O.need) return `${O.label} needs a network of ${O.need}; yours in ${BY[T].name} is ${Math.round(n)}.`;
+    if (cd[T] != null && s.turn - cd[T] < 5) return `Your network in ${BY[T].name} is lying low after the last operation (${5 - (s.turn - cd[T])} more days).`;
+    if (op === "incite" && s.owner[T] === T) return `${BY[T].name} isn't occupied: there is no resistance to arm.`;
+    if (op === "influence" && s.owner[T] !== T) return `${BY[T].name} is occupied by ${BY[s.owner[T]].name}.`;
+    if (op === "steal") {
+      const home = s.player, t = window.TECH.slice().sort((a, b) => techLvl(home, a.key) - techLvl(home, b.key))[0];
+      if (techLvl(home, t.key) >= window.LEVEL_MAX) return "Your technology is already at the maximum.";
+      if (BY[T].tech.gen < BY[home].tech.gen - 0.3) return `${BY[T].name} has nothing more advanced than you to steal.`;
+      s.tech = s.tech || {}; s.tech[home] = Object.assign({}, s.tech[home], { [t.key]: techLvl(home, t.key) + 1 });
+      log(`🕵️ Your agents stole ${BY[T].name}'s designs: ${BY[home].name}'s ${t.label.toLowerCase()} rises to level ${techLvl(home, t.key)}.`, "good");
+    } else if (op === "sabotage") {
+      const m = missileStock(T); m.bm *= 0.85; m.cm *= 0.85;
+      const d = (s.drones = s.drones || {}); if (d[T] != null) d[T] *= 0.85;
+      (s.sabotage = s.sabotage || {})[T] = s.turn + 3;
+      log(`🕵️ Your saboteurs struck in ${BY[T].name}: missiles and drones −15%, its defences shaken for 3 days.`, "good");
+    } else if (op === "influence") {
+      const inf = (s.influenceAt = s.influenceAt || {}); inf[T] = Math.min(0.99, (inf[T] || 0) + 0.15);
+      log(`🕵️ Your agents bought friends in ${BY[T].name}: your influence there is now ${Math.round(inf[T] * 100)}%.`, "good");
+    } else if (op === "incite") {
+      const au = (s.aiUnrest = s.aiUnrest || {}); au[T] = (au[T] || 0) + 0.35;
+      log(`🕵️ Your agents armed the resistance in ${BY[T].name} against ${BY[s.owner[T]].name}: resistance ${Math.round(Math.min(1, au[T]) * 100)}% of the way to liberation.`, "good");
+    }
+    cd[T] = s.turn;
+    const left = n - O.burn;
+    setNet(s.player, T, left);
+    if (left < 15) { provoke(s.owner[T]); log(`🚨 The operation blew your network in ${BY[T].name}: ${BY[s.owner[T]].name} expelled your agents and turned hostile.`, "bad"); }
+    save(); return null;
+  }
+  // Counter-intelligence sweep across your empire: every foreign network loses 4% per point of
+  // the nation's counter-intelligence (once every 5 days).
+  const sweepCost = () => Math.round(60 + empireGdp() * 0.002);
+  function spySweep() {
+    const err = ready(); if (err) return err;
+    const s = G.state;
+    if (s.sweepAt != null && s.turn - s.sweepAt < 5) return `Your counter-intelligence is still working through the last sweep (${5 - (s.turn - s.sweepAt)} more days).`;
+    const cost = sweepCost();
+    if (s.coins < cost) return `You need ${fmtCoins(cost - s.coins)} more coins.`;
+    s.coins -= cost; s.sweepAt = s.turn;
+    let caught = 0;
+    empire().forEach(c => C.forEach(o => { const S = o.iso3, n = spyNet(S, c.iso3); if (S === s.player || owns(S) || n < 1) return; const cut = n * 0.04 * ipf(c.iso3).counter; caught += cut; setNet(S, c.iso3, n - cut); }));
+    log(`🔎 Counter-intelligence sweep: rolled up ${Math.round(caught)} points of foreign networks across your empire.`, "good");
+    save(); return null;
+  }
+  // Every network a country runs abroad, and every network inside it (strongest first).
+  const spyAbroad = S => C.map(c => [c.iso3, spyEff(S, c.iso3)]).filter(([T, v]) => T !== S && v >= 1).sort((a, b) => b[1] - a[1]);
+  const spyInside = T => C.map(c => [c.iso3, spyNet(c.iso3, T)]).filter(([S, v]) => S !== T && v >= 1).sort((a, b) => b[1] - a[1]);
+
   // ── Drones (js/drones.js) ──
   // A side's drones add to its strength by their technology level, cut by the enemy's
   // counter-drone defences, by weather that grounds them, by darkness for those without thermal
@@ -606,7 +739,7 @@
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
     const home = owns(a.to) || a.to === a.nat;
-    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : 1 + droneEdge(a.nat, a.to, G.state.owner[a.to]));
+    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : (1 + droneEdge(a.nat, a.to, G.state.owner[a.to])) * (1 + spyEdge(a.nat, G.state.owner[a.to])));
   };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
@@ -633,7 +766,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -1249,7 +1382,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
+  const enemyPower = e => (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * (1 + spyEdge(e.nat, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
     (e.sea ? subScreen(e.to, owns(e.to) ? homeShare(e.to).subs : forces(e.to).subs, e.units, e.nat) : 1) /
     (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
@@ -1262,7 +1395,7 @@
   // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
   function homeDefence(iso, attacker) {
     const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
-    return rawPower(u, iso) * weatherMix(u, iso, iso) * (1 + droneEdge(iso, iso, attacker)) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+    return rawPower(u, iso) * weatherMix(u, iso, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
       (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
@@ -1290,7 +1423,8 @@
     const r = route(A, T, units, A), hours = r.ok ? r.hours : (r.km * 1.3) / 30 + 48, { eta, etaH } = etaOf(hours);
     // Your intelligence decides whether you see the attack coming or only when it lands.
     // Seen if your intelligence beats its counter-intelligence: intel ≥ 3.3 + 0.53 × its counter-intel.
-    const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter >= 0.5;
+    // ...or if your spy network inside the attacker (30+) sees the orders before the troops move.
+    const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter >= 0.5 || myNet(A) >= 30;
     const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: !land, vsPlayer, detected };
     const fresh = !s.enemies.some(x => x.nat === A && x.to === T);
     s.enemies.push(e);
@@ -1306,7 +1440,7 @@
   // band that shrinks with your intelligence and widens with their counter-intelligence.
   const myIntel = () => (G.state.player && empire().length ? Math.max(...empire().map(c => c.intelProfile.score)) : 5);
   function intelError(iso) {
-    return Math.max(0.05, Math.min(0.6, 0.55 - 0.045 * myIntel() + 0.03 * BY[iso].intelProfile.counter));
+    return Math.max(0.03, Math.min(0.6, 0.55 - 0.045 * myIntel() + 0.03 * BY[iso].intelProfile.counter) * (1 - 0.7 * myNet(spySide(iso)) / 100));
   }
   // Deterministic per turn and country, so estimates don't flicker between redraws.
   function noiseFor(iso, salt) {
@@ -1557,6 +1691,7 @@
     });
     produce();
     droneDay();
+    spyDay();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
@@ -1722,6 +1857,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

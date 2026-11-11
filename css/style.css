@@ -565,3 +565,6 @@ details.bloc .rank-ctl select { min-width: 0; width: 0; }
 .wxd { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; border: 1px solid var(--line); border-radius: 4px; font-size: 18px; }
 .wxd small { font: 10.5px var(--font-data); color: var(--muted); }
 .nightside { fill: #01030a; fill-opacity: .5; stroke: #f0c66a; stroke-opacity: .45; stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; vector-effect: non-scaling-stroke; }
+.tabs button { letter-spacing: .03em; font-size: 12px; }
+.spyops { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px 28px; }
+.spyops .btn { width: auto; flex: 0 1 auto; margin: 0; padding: 4px 8px; font-size: 12px; }

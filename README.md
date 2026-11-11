@@ -140,6 +140,26 @@ Neutral countries (Austria, Ireland, Malta, Switzerland and others) never send f
 - **In your wars:** when a war starts, the log says how the bloc lines up and who betrayed it, and attack forecasts list which treaty partners fight, sit out or would betray. If your own nation is in a bloc, its partners now defend it by their loyalty.
 - **Your own allies:** each ally's loyalty to you is tracked. It starts from what drew it in and falls with war weariness, invading its neighbours, losing nations, facing a stronger enemy, or allying with its rival. 70+ joins your invasions; 50–69 defends you but joins attacks with half; under 50 it wavers (you get a warning); under 30 it betrays you, tears up the alliance and turns hostile.
 
+**Spy networks.** Every country's services run networks inside other countries: agents and moles, intercept stations and cable taps, and cyber implants (`js/spies.js`).
+- **Strength:** each network (0–100) drifts each day toward what the spymaster can keep there. That depends on its real priorities and skill against the target's counter-intelligence, plus what you invest.
+- **Starting networks follow real-world penetrations:** Mossad in Iran (95), Russia in Ukraine (80), China in Taiwan (79), the US in Russia and China (≈70), Cuba inside Venezuela. Five Eyes partners and your allies share theirs at half strength.
+- **What a network gives you:**
+  - estimates of that country's forces up to 70% more precise;
+  - early warning of its attacks at 30+;
+  - up to +8% in battles against it.
+- **Operations (Intel tab):**
+  - **Recruit agents:** grow a network, up to six times.
+  - **Sabotage:** its missiles and drones −15% and its defence ×0.9 for 3 days.
+  - **Steal technology:** +1 level in your weakest technology track.
+  - **Influence:** +15% diplomatic influence.
+  - **Incite revolt:** arm the resistance in a land another country occupies.
+  - Each operation burns part of the network, which then lies low for 5 days. One that falls under 15 is blown and the country turns hostile.
+- **Foreign spies in your empire:**
+  - Hostile services with networks of 55+ in your nations sabotage them every ten days.
+  - Services more skilled than your counter-intelligence stay unidentified.
+  - A counter-intelligence sweep rolls them up.
+- **Where to see it:** the Intel tab also lists the world's deepest networks with what's publicly known about them, and every dossier shows who spies on that country.
+
 **Day and night.** Each day's battle runs through the real hours of daylight and darkness at the battlefield, from the sun's position for the campaign date and latitude (`js/daynight.js`):
 - **Darkness varies:** long winter nights in the north, polar night above the Arctic Circle, white nights in summer, twelve-hour nights in the tropics.
 - **The moon matters:** a bright moon helps forces fighting by eye. The moon follows its real cycle.
