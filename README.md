@@ -497,6 +497,15 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Duplicates:** sites within 2 km of an existing base, or with the same name within 25 km, are skipped.
     - **Weights:** the new rows take at most 35% of a country's ground weight and 50% of its air and naval weight, so its researched distribution stays in charge.
     - Countries whose militaries are barely mapped, such as Ukraine (scrubbed from maps in wartime), Ethiopia and Eritrea, gain only a little. Map data © OpenStreetMap contributors (ODbL).
+  - **Assessed bases where the real ones aren't public** (`js/deployments-assessed.js`): about 1,800 more sites for the 26 countries whose militaries are still thinly mapped. Every one is labelled *assessed (not public)* with its reason. They are the **most likely** places, not the best ones, chosen from evidence in this order:
+    1. **Known past garrisons.** Ukraine's publicly documented 2021 order of battle, outside occupied ground: brigade towns such as Kolomyia, Kryvyi Rih, Yavoriv, Bila Tserkva and Mukachevo, air bases such as Myrhorod, Vasylkiv and Ivano-Frankivsk, air-defence regiments, training centres and command headquarters.
+    2. **Its existing known bases.** Forces most likely stay in and around established garrison towns.
+    3. **Its basing patterns:**
+       - one garrison in most provinces, in a real town (15,000+ people, or 5,000+ next to an established garrison);
+       - air-force detachments at large dual-use airports, about one per 30 aircraft;
+       - extra forces near the border with a rival (Ukraine facing Russia and Belarus, North Korea facing the South, Pakistan and India).
+
+    Sites are picked in order of likelihood and kept at least 20 km apart (10 km in North Korea and Eritrea, the most militarised states). Their weights are capped at 30% of a country's ground forces and 35% of its aircraft, so the known bases stay in charge. Examples: Ukraine 59 → 372, North Korea 126 → 292, Pakistan 138 → 396, India 455 → 700, Egypt 81 → 172, Ethiopia 15 → 96. Towns and airports © OpenStreetMap contributors (ODbL).
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.
