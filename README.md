@@ -506,6 +506,19 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
        - extra forces near the border with a rival (Ukraine facing Russia and Belarus, North Korea facing the South, Pakistan and India).
 
     Sites are picked in order of likelihood and kept at least 20 km apart (10 km in North Korea and Eritrea, the most militarised states). Their weights are capped at 30% of a country's ground forces and 35% of its aircraft, so the known bases stay in charge. Examples: Ukraine 59 → 372, North Korea 126 → 292, Pakistan 138 → 396, India 455 → 700, Egypt 81 → 172, Ethiopia 15 → 96. Towns and airports © OpenStreetMap contributors (ODbL).
+  - **Assessed air and naval bases, worldwide** (`js/deployments-assessed-air-naval.js`): calibrated against the US, the best-mapped military. The US runs about 62 aircraft per mapped air site and 13 vessels per naval site.
+    - **Air:** nearly every country's air force is already mapped at that density or better. The 24 assessed air bases go only where a fleet still lacks sites (Israel, the UAE, Taiwan and a few others): airfields OpenStreetMap tags as military or joint use first, then major airports near the air force's existing bases.
+    - **Naval:** the real gap. Each navy gets about one site per 13 warships and submarines, as the US Navy runs, which adds 160 assessed naval stations across about 40 countries. Candidates, most likely first:
+      - harbours named as naval or military;
+      - seaports on the coast where the fleet is already based;
+      - then the biggest seaports.
+    - **Rules for naval stations:**
+      - every one passes a coast test: open water within 20 km;
+      - river ports, dry ports, container depots, company terminals, shipyards, fishing harbours and marinas are left out;
+      - each is named after its town, with the port in the note.
+      - Where a country's ports are barely mapped (North Korea), the navy falls back to the larger coastal towns on its fleet's coast.
+    - **Weights:** assessed sites take at most 35% of a country's aircraft or ships, so the known bases stay in charge.
+    - North Korea's and Eritrea's assessed garrisons also accept towns of 5,000+ people, since OpenStreetMap rarely lists town sizes there.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.
