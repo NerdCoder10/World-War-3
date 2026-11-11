@@ -140,6 +140,23 @@ Neutral countries (Austria, Ireland, Malta, Switzerland and others) never send f
 - **In your wars:** when a war starts, the log says how the bloc lines up and who betrayed it, and attack forecasts list which treaty partners fight, sit out or would betray. If your own nation is in a bloc, its partners now defend it by their loyalty.
 - **Your own allies:** each ally's loyalty to you is tracked. It starts from what drew it in and falls with war weariness, invading its neighbours, losing nations, facing a stronger enemy, or allying with its rival. 70+ joins your invasions; 50–69 defends you but joins attacks with half; under 50 it wavers (you get a warning); under 30 it betrays you, tears up the alliance and turns hostile.
 
+**Day and night.** Each day's battle runs through the real hours of daylight and darkness at the battlefield, from the sun's position for the campaign date and latitude (`js/daynight.js`):
+- **Darkness varies:** long winter nights in the north, polar night above the Arctic Circle, white nights in summer, twelve-hour nights in the tropics.
+- **The moon matters:** a bright moon helps forces fighting by eye. The moon follows its real cycle.
+- **Each military fights differently in the dark:**
+  - US, British and Israeli forces "own the night" with thermal sights, night-vision goggles and night-trained helicopter crews. US infantry keep ×0.99 of their strength over a Ukrainian winter day.
+  - Russia's thermal sights relied on French parts and few of its soldiers have goggles (×0.85).
+  - North Korea and Nigeria fight largely blind after dark (×0.77–0.84).
+  - Helicopters suffer most, warships least, and submarines not at all.
+- **On the map:** the night side is shaded, with the terminator line moving with the game clock.
+- **Where to see it:** dossiers show today's darkness, the moon, local time and how several militaries would fight there; battle reports and attack forecasts include it.
+
+**Drones.** Every country has a drone technology level, war production, counter-drone defences and stocks (`js/drones.js`):
+- **The leaders:** Ukraine's millions of FPV drones and its naval drones, Russia's Geran-2 and Lancet, China's industry, Israel's Heron and Harop, Turkey's Bayraktars, Iran's Shahed, the US Reaper and Switchblade.
+- **In battle:** a side's drones add up to about +30% to its strength, cut by the enemy's jamming, interceptors and lasers. Storms, blizzards, sandstorms and typhoons ground them, and darkness grounds those without thermal cameras.
+- **Stocks run down:** each day of war burns one day of stock, refilled at what the country's factories make. With no trade, chip shortages cut that.
+- **Where to see it:** each dossier has a *Drones* section, and Rankings add *Drone technology*.
+
 **Weather and seasons.** Every country has a climate, and each day's weather there follows its season (`js/weather.js`):
 - **Seasonal hazards:** Russia and Ukraine's snowy winters and spring and autumn mud seasons (*rasputitsa*), the South Asian monsoon, Pacific typhoons, Atlantic hurricanes and Indian Ocean cyclones, Gulf summer heat and spring sandstorms, Sahel dust, mountain snow, Atlantic storms and fog. Southern-hemisphere seasons are six months apart.
 - **No dice:** the weather is set by the date and the place, never rolled. The campaign calendar starts on the real date you begin, and every dossier shows a 7-day forecast, so you can plan around it.

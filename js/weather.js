@@ -18,6 +18,7 @@ window.CLIMATE_ZONES = {
   monsoon: { label: "Monsoon (hot spring, torrential summer rains)", temp: [19, 22, 26, 30, 32, 31, 29, 29, 29, 27, 23, 20] },
   tropical: { label: "Tropical rainforest (rain all year)", temp: [27, 27, 28, 28, 28, 27, 27, 27, 27, 27, 27, 27] },
   savanna: { label: "Savanna and Sahel (wet season, dusty dry season)", temp: [26, 28, 31, 33, 32, 29, 27, 27, 28, 29, 28, 26] },
+  tropicalHighland: { label: "Tropical highlands (mild, rainy season)", temp: [16, 17, 18, 18, 17, 16, 15, 15, 16, 16, 16, 16] },
   highland: { label: "Mountains (snowbound winters)", temp: [-3, -1, 4, 10, 14, 18, 21, 20, 16, 10, 4, -1] },
   eastasia: { label: "East Asian (cold dry winters, rainy summers)", temp: [-1, 2, 8, 15, 21, 25, 28, 28, 23, 16, 8, 1] },
   subtropical: { label: "Humid subtropical (hot wet summers)", temp: [9, 11, 15, 19, 23, 27, 28, 28, 25, 20, 15, 10] },
@@ -34,9 +35,10 @@ Object.entries({
     "HND", "GTM", "SLV", "BLZ", "CUB", "DOM", "HTI", "JAM", "BHS", "TTO", "BRB", "GRD", "LCA", "VCT", "ATG", "KNA", "DMA", "GUY", "SUR", "MDG", "UGA", "SYC", "COM", "MUS",
     "FJI", "VUT", "WSM", "TON", "KIR", "TUV", "NRU", "FSM", "MHL", "PLW", "TLS"],
   savanna: ["SEN", "GMB", "GNB", "BFA", "NGA", "BEN", "TGO", "CAF", "SSD", "ZMB", "ZWE", "MWI", "MOZ", "AGO", "KEN", "TZA", "BWA", "CPV"],
-  highland: ["AFG", "NPL", "BTN", "TJK", "KGZ", "ARM", "GEO", "AZE", "BOL", "PER", "ETH", "CHE", "AUT", "AND", "LIE", "RWA", "BDI", "LSO", "SWZ", "MEX"],
+  highland: ["AFG", "NPL", "BTN", "TJK", "KGZ", "ARM", "GEO", "AZE", "CHE", "AUT", "AND", "LIE"],
+  tropicalHighland: ["BOL", "PER", "ETH", "RWA", "BDI"],
   eastasia: ["CHN", "KOR", "PRK", "JPN"],
-  subtropical: ["TWN", "URY", "ARG", "PRY", "ZAF"],
+  subtropical: ["TWN", "URY", "ARG", "PRY", "ZAF", "LSO", "SWZ", "MEX"],
 }).forEach(([z, l]) => l.forEach(i => (window.CLIMATE_OF[i] = z)));
 window.SOUTHERN = new Set(["AUS", "NZL", "ARG", "CHL", "URY", "PRY", "ZAF", "NAM", "BWA", "ZWE", "ZMB", "MOZ", "MWI", "AGO", "MDG", "LSO", "SWZ", "BOL", "PER", "BRA", "TZA", "COM", "MUS", "FJI", "VUT", "WSM", "TON", "SLB", "PNG", "IDN", "TLS"]);
 
@@ -59,6 +61,7 @@ window.CLIMATE_WEATHER = {
   monsoon: [M([5, 6, 7, 8], [["monsoon", 0.6], ["storm", 0.1]]), M([9, 10], [["rain", 0.2]]), M([11, 0, 1], [["fog", 0.15]]), M([2, 3, 4], [["heat", 0.5], ["storm", 0.05]])],
   tropical: [M([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [["rain", 0.45], ["storm", 0.15], ["heat", 0.1]])],
   savanna: [M([5, 6, 7, 8], [["rain", 0.4], ["mud", 0.2], ["storm", 0.1]]), M([11, 0, 1], [["sandstorm", 0.2], ["heat", 0.2]]), M([2, 3, 4], [["heat", 0.45]]), M([9, 10], [["heat", 0.25], ["rain", 0.1]])],
+  tropicalHighland: [M([5, 6, 7, 8], [["rain", 0.45], ["storm", 0.1], ["mud", 0.1]]), M([9, 10, 11, 0, 1, 2, 3, 4], [["fog", 0.1], ["rain", 0.1]])],
   highland: [M([10, 11, 0, 1, 2], [["snow", 0.35], ["blizzard", 0.1], ["fog", 0.1]]), M([3, 4], [["mud", 0.2], ["rain", 0.2], ["snow", 0.1]]), M([5, 6, 7, 8, 9], [["storm", 0.12], ["rain", 0.2]])],
   eastasia: [M([11, 0, 1], [["snow", 0.15], ["fog", 0.1]]), M([2, 3, 4], [["rain", 0.2], ["sandstorm", 0.08]]), M([5, 6], [["rain", 0.45], ["storm", 0.05]]), M([7, 8], [["heat", 0.15], ["rain", 0.25]]), M([9, 10], [["rain", 0.1], ["fog", 0.05]])],
   subtropical: [M([5, 6, 7, 8], [["rain", 0.3], ["storm", 0.12], ["heat", 0.2]]), M([9, 10, 11, 0, 1, 2, 3, 4], [["rain", 0.25], ["fog", 0.08]])],
@@ -89,7 +92,7 @@ window.ZONE_ADAPT = {
   oceanic: { cold: 0.25, mud: 0.35, heat: 0.15, wet: 0.55, fog: 0.5 }, mediterranean: { cold: 0.15, mud: 0.25, heat: 0.45, wet: 0.3, fog: 0.2 },
   desert: { cold: 0.1, mud: 0.1, heat: 0.75, wet: 0.1, fog: 0.1 }, monsoon: { cold: 0.05, mud: 0.55, heat: 0.6, wet: 0.7, fog: 0.4 },
   tropical: { cold: 0, mud: 0.5, heat: 0.55, wet: 0.7, fog: 0.3 }, savanna: { cold: 0.05, mud: 0.4, heat: 0.65, wet: 0.45, fog: 0.2 },
-  highland: { cold: 0.6, mud: 0.45, heat: 0.2, wet: 0.35, fog: 0.4 }, eastasia: { cold: 0.45, mud: 0.4, heat: 0.35, wet: 0.45, fog: 0.35 },
+  highland: { cold: 0.6, mud: 0.45, heat: 0.2, wet: 0.35, fog: 0.4 }, tropicalHighland: { cold: 0.35, mud: 0.45, heat: 0.4, wet: 0.5, fog: 0.4 }, eastasia: { cold: 0.45, mud: 0.4, heat: 0.35, wet: 0.45, fog: 0.35 },
   subtropical: { cold: 0.2, mud: 0.35, heat: 0.45, wet: 0.5, fog: 0.3 },
 };
 // Forces trained and equipped beyond their home climate: [adaptation floors, why].
