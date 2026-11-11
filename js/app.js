@@ -2979,6 +2979,7 @@
         ${weatherHtml(c)}
         ${nightHtml(c)}
         ${droneHtml(c)}
+        ${spyHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -3184,6 +3185,59 @@
   }
 
 
+  // ── Intel: your spy networks abroad, foreign networks in your empire, the world's spy war ──
+  let spyPick = "";
+  function intelPane() {
+    const pane = $("#pane-intel"), s = G.state, open = new Set([...pane.querySelectorAll("details.spy[open]")].map(d => d.dataset.iso));
+    const bar = v => `<i style="width:${Math.max(2, v)}%" class="lb-${v >= 60 ? "fights" : v >= 30 ? "limited" : "sits"}"></i>`;
+    const ag = iso => BY[iso].intelProfile;
+    let html = "";
+    if (s.player) {
+      const me = s.player, P = ag(me), list = G.spyAbroad(me).filter(([T]) => !G.owns(T)).slice(0, 40);
+      html += `<div class="section"><h3>Your services <small>${esc(BY[me].name)} · intelligence ${P.score}/10</small></h3>
+        <p class="hint">${esc(P.agencies)}. HUMINT ${P.humint} · SIGINT ${P.sigint} · imagery ${P.imint} · cyber ${P.cyber} · counter-intelligence ${P.counter}${P.alliance ? ` · shares with ${esc(P.alliance)}` : ""}.</p></div>
+        <div class="section"><h3>Your networks abroad <small>${list.length} countries</small></h3>
+        <p class="hint">A network sharpens your estimates of that country's forces (up to −70% error), warns you of its attacks before they launch (30+), adds up to +8% in battles against it, and runs operations. It drifts each day toward the level your services can keep there against its counter-intelligence, plus what you invest. Partners' networks (Five Eyes, your allies) count at half.</p>
+        ${list.map(([T, v]) => { const own = G.spyNet(me, T), base = G.spyBase(me, T), inv = (s.spyInv || {})[T] || 0, err = G.intelError(T);
+          return `<details class="lmem spy" data-iso="${T}" ${open.has(T) ? "open" : ""}><summary><span aria-hidden="true">${flag(BY[T].iso2)}</span><span class="nm">${esc(BY[T].name)}${bar(v)}</span><span class="st">${v >= 60 ? "deep" : v >= 30 ? "working" : "thin"}</span><b class="sc">${Math.round(v)}</b></summary>
+            <p class="hint">Yours ${Math.round(own)} (natural ${base}${inv ? `, +${inv * 10} invested` : ""})${v > own + 0.5 ? `, ${Math.round(v)} with partners'` : ""} · against counter-intelligence ${ag(T).counter}/10 · estimates ±${Math.round(err * 100)}% · ${v >= 30 ? "warns of its attacks" : "no early warning"} · +${(G.spyEdge(me, T) * 100).toFixed(1)}% in battle.</p>
+            <div class="spyops"><button class="btn ghost" data-spy="recruit" data-t="${T}" ${inv >= 6 ? "disabled" : ""}>Recruit agents <small>${G.fmtCoins(G.spyCost(T))}</small></button>
+            ${Object.entries(G.SPY_OPS).map(([k, O]) => `<button class="btn ghost" data-spy="${k}" data-t="${T}" ${own < O.need ? "disabled" : ""} title="${esc(O.what)}">${esc(O.label)} <small>needs ${O.need}</small></button>`).join("")}</div></details>`; }).join("")}
+        <div class="rank-ctl"><select id="spy-new" aria-label="Country"><option value="">Start or grow a network in…</option>${C.filter(c => !G.owns(c.iso3)).sort((a, b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.iso3}" ${c.iso3 === spyPick ? "selected" : ""}>${esc(c.name)} (${Math.round(G.spyEff(me, c.iso3))})</option>`).join("")}</select>
+          <button class="btn ghost" id="spy-new-go" ${spyPick ? "" : "disabled"}>Recruit${spyPick ? ` <small>${G.fmtCoins(G.spyCost(spyPick))}</small>` : ""}</button></div>
+        <p class="hint">Operations burn part of the network and it lies low for 5 days; if it falls under 15 it is blown and the country turns hostile. ${Object.values(G.SPY_OPS).map(O => `<b>${esc(O.label)}</b>: ${esc(O.what)}.`).join(" ")}</p></div>`;
+      const inside = [];
+      G.empire().forEach(c => G.spyInside(c.iso3).forEach(([S, v]) => { if (!G.owns(S) && v >= 5) inside.push([S, c.iso3, v]); }));
+      inside.sort((a, b) => b[2] - a[2]);
+      html += `<div class="section"><h3>Foreign spies in your empire <small>${inside.length} networks</small></h3>
+        ${inside.slice(0, 25).map(([S, T, v]) => { const seen = G.spyVisible(S, T); return `<div class="lmem off" style="opacity:1"><span aria-hidden="true">${seen ? flag(BY[S].iso2) : "❔"}</span><span class="nm">${seen ? esc(BY[S].name) : "Unidentified service"} in ${esc(BY[T].name)}${bar(v)}</span><span class="st">${v >= 55 ? "can sabotage" : ""}</span><b class="sc">${Math.round(v)}</b></div>`; }).join("") || `<p class="hint">None detected.</p>`}
+        <button class="btn diplo" id="spy-sweep">Counter-intelligence sweep <small>${G.fmtCoins(G.sweepCost())}</small></button>
+        <p class="hint">Hostile services with networks of 55+ in your nations sabotage them every ten days. A sweep cuts every foreign network by 4% per point of that nation's counter-intelligence (once every 5 days). Services more skilled than your counter-intelligence stay unidentified.</p></div>`;
+    }
+    const world = [];
+    C.forEach(a => window.SPY_TARGETS[a.iso3] && window.SPY_TARGETS[a.iso3].forEach(([T]) => { if (BY[T]) world.push([a.iso3, T, G.spyNet(a.iso3, T)]); }));
+    world.sort((a, b) => b[2] - a[2]);
+    const note = (S, T) => (((window.SPY_TARGETS[S] || []).find(x => x[0] === T) || [])[2] || "");
+    html += `<div class="section"><h3>The world's spy war <small>deepest networks</small></h3>${world.slice(0, 20).map(([S, T, v]) => `<details class="lmem"><summary><span aria-hidden="true">${flag(BY[S].iso2)}</span><span class="nm">${esc(BY[S].name)} → ${esc(BY[T].name)}${bar(v)}</span><span class="st"></span><b class="sc">${Math.round(v)}</b></summary>${note(S, T) ? `<p class="hint">${esc(note(S, T))}.</p>` : ""}</details>`).join("")}
+      <p class="hint">Starting networks follow each service's real priorities and known penetrations (Mossad in Iran, Russia in Ukraine, China in Taiwan and the US...).</p></div>`;
+    pane.innerHTML = html;
+    pane.querySelectorAll("[data-spy]").forEach(b => (b.onclick = () => {
+      const T = b.dataset.t, k = b.dataset.spy, err = k === "recruit" ? G.spyRecruit(T) : G.spyOp(T, k);
+      if (err) toast(err); refresh();
+    }));
+    const sel = pane.querySelector("#spy-new"); if (sel) sel.onchange = () => { spyPick = sel.value; intelPane(); };
+    const go = pane.querySelector("#spy-new-go"); if (go) go.onclick = () => { const err = G.spyRecruit(spyPick); if (err) toast(err); refresh(); };
+    const sw = pane.querySelector("#spy-sweep"); if (sw) sw.onclick = () => { const err = G.spySweep(); if (err) toast(err); refresh(); };
+  }
+  // Dossier: who spies on this country, and where its own services are strongest.
+  function spyHtml(c) {
+    const inside = G.spyInside(c.iso3).slice(0, 5), abroad = G.spyAbroad(c.iso3).slice(0, 5), you = G.state.player && !G.owns(c.iso3) ? G.myNet(c.iso3) : null;
+    const ls = l => l.map(([i, v]) => `${esc(BY[i].name)} ${Math.round(v)}`).join(", ") || "none";
+    return `<div class="section"><h3>Spy networks <small>0–100</small></h3>
+      ${you != null ? `<p class="hint">🕵️ Your network here: <b>${Math.round(you)}</b>: estimates ±${Math.round(G.intelError(c.iso3) * 100)}%, ${you >= 30 ? "you'll see its attacks coming" : "no early warning"}, +${(G.spyEdge(G.state.player, c.iso3) * 100).toFixed(1)}% in battle. Manage it in the Intel tab.</p>` : ""}
+      <p class="hint">Spying on it: ${ls(inside)}.</p><p class="hint">Its networks abroad: ${ls(abroad)}.</p></div>`;
+  }
+
   // ── Campaign ───────────────────────────────────────────────
   document.addEventListener("change", e => { if (e.target && e.target.id === "occ-by") { occBy = e.target.value; dossier(); } });
   function campaign() {
@@ -3268,7 +3322,7 @@
     document.querySelectorAll(".pane").forEach(p => (p.hidden = p.id !== "pane-" + t));
     render();
   }
-  function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : tab === "alliances" ? alliancesPane() : campaign(); }
+  function render() { tab === "dossier" ? dossier() : tab === "rankings" ? rankings() : tab === "alliances" ? alliancesPane() : tab === "intel" ? intelPane() : campaign(); }
   function refresh() { paint(); render(); coinChip(); drawArmies(); }
   function coinChip() {
     $("#coins").textContent = G.fmtCoins(G.state.coins);
