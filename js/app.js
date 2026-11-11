@@ -364,6 +364,13 @@
     .on("click", (e, f) => f.iso && select(f.iso, { fly: k < 60 }))
     .on("mousemove", (e, f) => showTip(e, f))
     .on("mouseleave", hideTip);
+  // ── Night side of the world, from the game clock (the sun's real position for the date and hour).
+  const nightPath = root.append("path").attr("class", "nightside");
+  function drawNight() {
+    const s = G.state, ms = (s.date0 || 0) + (s.clock || 0) * 3600000, d = new Date(ms), doy = Math.min(364, Math.floor((ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000));
+    const decl = window.sunDeclination(doy), hour = (ms / 3600000) % 24, sunLon = -15 * (hour - 12);
+    nightPath.datum(d3.geoCircle().center([((sunLon + 360) % 360) - 180, -decl]).radius(90.8)()).attr("d", path).attr("display", k > 25 ? "none" : null);
+  }
   // ── Fortified borders (js/borders.js) ──
   // Borders of level 5 and up are drawn everywhere (the DMZ, the Ukrainian front, the Baltic
   // Defence Line, Morocco's closed border...), and every border of the selected country is drawn
@@ -2028,7 +2035,7 @@
     mapW = w; mapH = h;
     svg.attr("viewBox", `0 0 ${w} ${h}`);
     projection.fitExtent([[8, 8], [w - 8, h - 8]], { type: "Sphere" });
-    sphere.attr("d", path); grat.attr("d", path); countryPaths.attr("d", path);
+    sphere.attr("d", path); grat.attr("d", path); countryPaths.attr("d", path); drawNight();
     provLayer.selectAll("path").attr("d", path);
     drawBorders();
     markerSel.attr("cx", m => projection(m.at)[0]).attr("cy", m => projection(m.at)[1]).attr("r", 3.2 / Math.sqrt(k));
@@ -2650,6 +2657,32 @@
       <p class="hint">Its forces cope with cold ${ad("cold")}% · mud ${ad("mud")}% · heat and dust ${ad("heat")}% · rain and storms ${ad("wet")}% · fog ${ad("fog")}%${tr ? ` (${esc(tr[1])})` : " (from its home climate)"}. All-weather air ${Math.round(G.airAW(c.iso3) * 100)}% (aircraft technology) · heavy-seas navy ${Math.round(G.navAW(c.iso3) * 100)}%.</p>
       <p class="hint">Weather is fixed by date and place, never rolled, so you can plan around the forecast. Mud seasons stop tanks, blizzards and storms ground helicopters and older jets, heat and sandstorms exhaust infantry, typhoons scatter fleets. Forces used to a climate, or trained for it, lose far less than strangers to it.</p></div>`;
   }
+  // Day and night: today's darkness and moon there, and how differently forces fight in the dark.
+  function nightHtml(c) {
+    const s = G.state, n = G.nightInfo(c.iso3), cap = window.NIGHT_CAP[c.iso3], P = (window.CENTROIDS || {})[c.iso3] || [0, 0];
+    const ms = (s.date0 || 0) + (s.clock || 0) * 3600000, d = new Date(ms), doy = Math.min(364, Math.floor((ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000));
+    const up = window.sunUp(P[0], P[1], ms, doy), local = (((ms / 3600000) + P[0] / 15) % 24 + 24) % 24;
+    const kinds = [["infantry", "troops"], ["tanks", "tanks"], ["jets", "fighters"], ["helicopters", "helis"], ["warships", "ships"]];
+    const nb = (window.NEIGHBORS[c.iso3] || []).filter(x => BY[x]).sort((a, b) => BY[b].truePower - BY[a].truePower)[0];
+    const sides = [...new Set([c.iso3, s.player, nb, "USA", "RUS", "PRK"].filter(i => i && BY[i]))].slice(0, 5);
+    const row = iso => `<tr><td>${flag(BY[iso].iso2)} ${esc(iso === s.player ? `You (${BY[iso].name})` : BY[iso].name)}</td>${kinds.map(([, k2]) => { const v = G.nightKind(c.iso3, iso, k2, n); return `<td class="${v < 0.8 ? "bad" : v < 0.95 ? "warn" : "ok"}">×${v.toFixed(2)}</td>`; }).join("")}</tr>`;
+    const capPct = cls => Math.round(G.nightCap(c.iso3, cls) * 100);
+    return `<div class="section"><h3>Day & night <small>${Math.round(n.dark)}h of darkness today</small></h3>
+      <p class="hint">${up ? "☀️ Daylight" : "🌙 Night"} there now (about ${String(Math.floor(local)).padStart(2, "0")}:${String(Math.floor((local % 1) * 60)).padStart(2, "0")} local) · ${Math.round(24 - n.dark)}h of usable light today · ${window.moonIcon(n.moon)} moon ${Math.round(n.moon * 100)}% lit${n.dark >= 20 ? " · polar night" : n.dark <= 3 ? " · white nights" : ""}.</p>
+      <table class="wetable"><tr><th>A day's fighting here</th>${kinds.map(([l]) => `<th>${l}</th>`).join("")}</tr>${sides.map(row).join("")}</table>
+      <p class="hint">Its night fighting: vehicles ${capPct("veh")}% · infantry ${capPct("inf")}% · jets ${capPct("air")}% · helicopters ${capPct("heli")}% of the dark's losses avoided${cap ? ` (${esc(cap[1])})` : " (from its technology level)"}.</p>
+      <p class="hint">Each day's battle runs through the real hours of daylight and darkness at the battlefield, for the date and latitude: long winter nights in the north, polar night above the Arctic Circle, twelve-hour nights in the tropics. Forces with thermal sights, night-vision goggles and night-trained crews fight almost as well in the dark; others lose up to half their strength, a little less under a full moon. The shaded side of the map is where it is night right now.</p></div>`;
+  }
+  // Drones: technology, production, counter-drone defence and stocks.
+  function droneHtml(c) {
+    const t = window.droneTech(c.iso3), st = G.droneStock(c.iso3), w = G.weather(c.iso3), fly = window.DRONE_WEATHER[w.type] ?? 1;
+    const vs = ["USA", "RUS", "UKR", "CHN", "IRN"].filter(i => i !== c.iso3).slice(0, 4);
+    return `<div class="section"><h3>Drones <small>technology ${t.level}/10 · counter-drone ${t.counter}/10</small></h3>
+      <div class="meters">${meter("Drone technology", t.level)}${meter("Counter-drone defence", t.counter)}</div>
+      <p class="hint">${esc(t.note)}.${t.known ? "" : " (Estimated from its technology level.)"}</p>
+      <p class="hint">🏭 At total war: about <b>${num(t.prod * 1000)}</b> drones a year, enough to keep <b>${Math.round(G.droneSustain(c.iso3) * 100)}%</b> of a hard-fought war supplied (with no trade, chip shortages cut it). Stocks: <b>${Math.round(st)} days</b> of hard use. Today's weather ${fly >= 0.9 ? "lets them fly" : fly >= 0.5 ? `grounds ${Math.round((1 - fly) * 100)}% of them` : `grounds almost all of them (${esc(w.label.toLowerCase())})`}.</p>
+      <p class="hint">⚔️ Its drones add <b>+${Math.round(G.droneEdge(c.iso3, c.iso3, null) * 100)}%</b> to its strength at home today, cut by the enemy's defences: ${vs.map(v => `vs ${esc(BY[v].name)} (${window.droneTech(v).counter}/10) +${Math.round(G.droneEdge(c.iso3, c.iso3, v) * 100)}%`).join(" · ")}.</p></div>`;
+  }
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
     const t = G.allianceTerms(c.iso3);
@@ -2714,7 +2747,11 @@
     } else if (G.inRevolt(c.iso3)) vs = ` Adds ${p.power.toFixed(0)} strength against the rebels.`;
     const lift = r.need > 0 ? ` Sealift ${Math.ceil(r.need)} needed / ${Math.floor(r.cap)} available${r.sea ? "" : " (not needed overland)"}.` : "";
     if (p.supply != null && !G.owns(c.iso3)) vs += ` 🚚 Supply line: ×${p.supply.toFixed(2)} (${BY[p.src.nat].name}'s logistics ${BY[p.src.nat].milStats.logistics}/10). ⛰️ Terrain (${window.terrainLabel(c.iso3)}): this army fights ×${p.terrain.toFixed(2)} there, and the defenders ×${window.terrainOf(c.iso3).defence.toFixed(2)}.`;
-    if (!G.owns(c.iso3)) { const w = G.weather(c.iso3); if (w.type !== "clear") vs += ` ${w.icon} Weather in ${c.name} today: ${w.label}, ${w.temp}°C: this army fights ×${G.weatherMix(p.units, p.src.nat, c.iso3).toFixed(2)}, its defenders ×${G.weatherMix(G.forces(c.iso3), c.iso3, c.iso3).toFixed(2)}.`; }
+    if (!G.owns(c.iso3)) {
+      const w = G.weather(c.iso3), n = G.nightInfo(c.iso3);
+      vs += ` ${w.type !== "clear" ? `${w.icon} ${w.label}, ${w.temp}°C · ` : ""}${window.moonIcon(n.moon)} ${Math.round(n.dark)}h of darkness in ${c.name} today: this army fights ×${G.weatherMix(p.units, p.src.nat, c.iso3).toFixed(2)}, its defenders ×${G.weatherMix(G.forces(c.iso3), c.iso3, c.iso3).toFixed(2)}.`;
+      vs += ` 🛸 Drones: yours +${Math.round(G.droneEdge(p.src.nat, c.iso3, c.iso3) * 100)}%, theirs +${Math.round(G.droneEdge(c.iso3, c.iso3, p.src.nat) * 100)}%.`;
+    }
     if (p.subs != null && p.subs < 0.995) vs += ` 🌊 ${c.name}'s ${num(G.forces(c.iso3).subs || 0)} submarines hunt your fleet at sea: ×${p.subs.toFixed(2)} (more warships, submarines and helicopters in the army protect it).`;
     if (c.missileTotal && !G.owns(c.iso3)) vs += ` 🚀 It will fire ~${num(Math.round((G.missileStock(c.iso3).bm + G.missileStock(c.iso3).cm) * 0.04))} missiles a day at you.`;
     if (p.border && p.border.level > 2) vs += ` 🧱 Crossing the ${BY[p.border.from].name} border (fortified ${p.border.level}/10: ${p.border.note.toLowerCase()}): the army fights at ${Math.round(100 / p.border.mult)}% there.`;
@@ -2940,6 +2977,8 @@
         ${blocLoyaltyHtml(c)}
         ${occupationHtml(c)}
         ${weatherHtml(c)}
+        ${nightHtml(c)}
+        ${droneHtml(c)}
         <p class="hint">🔒 Fixed. These reflect the real military and can't be bought or researched, just like each weapon model's ability and each base's fortification.</p></div>`;
     pane.innerHTML = `
       <div class="card-head"><div class="flag" aria-hidden="true">${flag(c.iso2)}</div>
@@ -3070,6 +3109,7 @@
     mil: ["Defence budget", c => c.mil, money],
     active: ["Active troops", c => c.active, kPers],
     missileTotal: ["Missile arsenal (ballistic + cruise)", c => c.missileTotal, num],
+    drones: ["Drone technology (level, counter-drone, production)", c => { const t = window.droneTech(c.iso3); return t.level + 0.3 * t.counter + Math.log10(1 + t.prod); }, v => v.toFixed(1)],
     warOutput: ["War production at total war, no trade ($bn/yr)", c => window.warEconomy([c.iso3], c.iso3).capacity, v => "$" + num(Math.round(v)) + "bn"],
   };
   function rankings() {
@@ -3238,6 +3278,7 @@
   }
   function clockChip() {
     const s = G.state, h = s.clock || 0, el = $("#clock");
+    drawNight();
     el.textContent = `Day ${Math.floor(h / 24) + 1} · ${G.dateOf(Math.floor(h / 24) + 1).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })} · ${String(Math.floor(h % 24)).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
     el.classList.toggle("paused", !!s.paused || !s.player);
     $("#pause").setAttribute("aria-pressed", !!s.paused);

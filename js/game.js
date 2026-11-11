@@ -501,7 +501,7 @@
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
   // An attacking force's strength in the target's terrain: each kind of unit counts by how well it
   // fights there (tanks bog down in mountains and jungle, aircraft lose targets under canopy).
-  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key), 0);
+  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key) * nightKind(to, nat, u.key), 0);
   // ── Weather and seasons (js/weather.js) ──
   // Each day's weather in the country being fought over cuts what each kind of unit can do, less
   // for forces used to that climate or trained for it. Jets with modern all-weather radar keep
@@ -531,14 +531,66 @@
     return 1 - base * (1 - ad);
   }
   // A whole force's weather factor, weighted by each kind's share of its strength.
+  // (Includes day and night: darkness costs each kind its own share, see nightKind.)
   function weatherMix(units, nat, at, models) {
-    const w = weather(at);
-    if (w.type === "clear") return 1;
+    const w = weather(at), n = nightInfo(at);
     let a = 0, b = 0;
-    UNITS.forEach(u => { const v = (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]); a += v; b += v * weatherKind(at, nat, u.key, w); });
+    UNITS.forEach(u => { const v = (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]); a += v; b += v * weatherKind(at, nat, u.key, w) * nightKind(at, nat, u.key, n); });
     return a ? b / a : 1;
   }
-  const wxTag = (iso, mine, theirs) => { const w = weather(iso); return w.type === "clear" ? "" : ` ${w.icon} ${w.label}, ${w.temp}°C: your side ×${mine.toFixed(2)}, theirs ×${theirs.toFixed(2)}.`; };
+  // ── Day and night (js/daynight.js) ──
+  // A day's fighting spans its hours of daylight and darkness at the battlefield. In the dark each
+  // kind loses its NIGHT_PEN share, less what its night kit and training avoid (NIGHT_CAP), and
+  // less again under a bright moon for forces fighting by eye.
+  const latOf = iso => ((window.CENTROIDS || {})[iso] || [0, 0])[1];
+  const doyOfAbs = a => { const d = new Date(a * DAY_MS); return Math.min(364, Math.floor((a * DAY_MS - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY_MS)); };
+  const nightMemo = {};
+  function nightInfo(iso, turn) {
+    const a = absDay(turn), ck = iso + a;
+    if (nightMemo[ck]) return nightMemo[ck];
+    const dark = window.darkHours(latOf(iso), doyOfAbs(a)), moon = window.moonLight(a * DAY_MS + 43200000);
+    return (nightMemo[ck] = { dark, moon, frac: dark / 24 });
+  }
+  function nightCap(nat, cls) {
+    const o = window.NIGHT_CAP[nat];
+    if (o && o[0][cls] != null) return o[0][cls];
+    const g = BY[nat].tech.gen;
+    return Math.max(0.05, Math.min(0.8, cls === "air" || cls === "heli" ? (g - 2.5) / 2.3 : (g - 2.2) / 2.6));
+  }
+  function nightKind(at, nat, key, n) {
+    n = n || nightInfo(at);
+    const pen = window.NIGHT_PEN[window.WEATHER_CLASS[key]] || 0;
+    if (!pen || !n.frac) return 1;
+    return 1 - n.frac * pen * (1 - nightCap(nat, window.WEATHER_CLASS[key])) * (1 - 0.35 * n.moon);
+  }
+
+  // ── Drones (js/drones.js) ──
+  // A side's drones add to its strength by their technology level, cut by the enemy's
+  // counter-drone defences, by weather that grounds them, by darkness for those without thermal
+  // cameras (level under 6), and by how many it has left. Stocks (in days of hard use) start at 30,
+  // burn a day for each day at war and refill at what its factories make (needing chips, which
+  // with no trade only some countries have).
+  const droneStock = iso => { const d = (G.state.drones = G.state.drones || {}); return d[iso] == null ? (d[iso] = window.droneTech(iso).level ? 30 : 0) : d[iso]; };
+  function droneSustain(iso) {
+    const t = window.droneTech(iso), e = econOf(iso), chips = e.fill && e.fill.chips != null && isFinite(e.fill.chips) ? Math.min(1, e.fill.chips) : 1;
+    return Math.min(1.5, t.prod / Math.max(5, BY[iso].active * 0.5)) * (0.4 + 0.6 * chips);
+  }
+  function droneEdge(nat, at, vs) {
+    const t = window.droneTech(nat);
+    if (!t.level) return 0;
+    const enemy = vs && BY[vs] ? window.droneTech(vs).counter : 0, n = nightInfo(at);
+    return 0.03 * t.level * (1 - 0.06 * enemy) * (window.DRONE_WEATHER[weather(at).type] ?? 1) * (t.level >= 6 ? 1 : 1 - 0.3 * n.frac) * Math.min(1, droneStock(nat) / 10);
+  }
+  function droneDay() {
+    const s = G.state;
+    C.forEach(c => {
+      const iso = c.iso3;
+      if (!window.droneTech(iso).level) return;
+      const st = droneStock(iso), sus = droneSustain(iso);
+      s.drones[iso] = atWar(iso) ? Math.max(0, Math.min(60, st - 1 + sus)) : Math.min(Math.max(st, 30), st + sus);
+    });
+  }
+  const wxTag = (iso, mine, theirs) => { const w = weather(iso), n = nightInfo(iso); return ` ${w.type === "clear" ? "" : `${w.icon} ${w.label}, ${w.temp}°C · `}${window.moonIcon(n.moon)} ${Math.round(n.dark)}h of darkness: your side ×${mine.toFixed(2)}, theirs ×${theirs.toFixed(2)}.`; };
   const terrainDef = iso => (window.terrainOf ? window.terrainOf(iso).defence : 1);
   // Is a country fighting right now? (Private satellites join the national effort only then.)
   function atWar(iso) {
@@ -554,7 +606,7 @@
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
     const home = owns(a.to) || a.to === a.nat;
-    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat);
+    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : 1 + droneEdge(a.nat, a.to, G.state.owner[a.to]));
   };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
@@ -581,7 +633,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -1197,7 +1249,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
+  const enemyPower = e => (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
     (e.sea ? subScreen(e.to, owns(e.to) ? homeShare(e.to).subs : forces(e.to).subs, e.units, e.nat) : 1) /
     (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
@@ -1210,7 +1262,7 @@
   // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
   function homeDefence(iso, attacker) {
     const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
-    return rawPower(u, iso) * weatherMix(u, iso, iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+    return rawPower(u, iso) * weatherMix(u, iso, iso) * (1 + droneEdge(iso, iso, attacker)) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
       (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
@@ -1504,6 +1556,7 @@
       if (!inRevolt(iso)) s.garrison[iso] = Math.min(cap, s.garrison[iso] + (cap === 1 ? 0.08 : 0.05) + fx(iso, "rec") + 0.05 * techShare(iso, "governance"));
     });
     produce();
+    droneDay();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
@@ -1669,6 +1722,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
