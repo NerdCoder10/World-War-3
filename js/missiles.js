@@ -79,3 +79,27 @@ window.MISSILES = {
     c.missileTotal = c.missiles.bm + c.missiles.cm;
   });
 })();
+
+// Ground launchers and air-defence batteries, for basing (js/app.js shows them at their sites).
+// Ballistic-missile launchers (TELs): about one per 6 missiles in stock (Russia's ~900 Iskander
+// missiles ≈ 150 launchers in 12 brigades). Air-defence batteries: rating × (1 + 2.5 × log of the
+// army's size), so the US gets ~45 (Patriot and THAAD), Russia ~40 S-300/400 battalions, a small
+// state with basic defences 2–3.
+window.LAUNCHERS = c => Math.round(((c.missiles && c.missiles.bm) || 0) / 6);
+window.AD_BATTERIES = c => Math.round(((c.missiles && c.missiles.ad) || 0) * (1 + 2.5 * Math.log10(1 + (c.active || 0) / 20)));
+window.MISSILE_SITE_RX = /missile|ракет|导弹|미사일|füze|صاروخ|موشک|rocket force|iskander|\bDF-\d|hyunmoo|prithvi|shaheen|scud/i;
+window.AD_SITE_RX = /air defen[cs]e|anti-aircraft|antiaircraft|\bSAM\b|S-300|S-400|S-500|Patriot|THAAD|Iron Dome|David's Sling|Arrow [23]|HQ-9|Akash|Pantsir|NASAMS|SAMP\/T|IRIS-T|ПВО|ППО|зенітн|зенитн|防空|방공|hava savunma|دفاع جوي|پدافند/i;
+// Public US posts: Patriot and THAAD battalions (Fort Bliss, Fort Sill, Fort Cavazos, Fort Liberty,
+// Fort Stewart, JBLM) and HIMARS/ATACMS fires brigades (Fort Sill, Fort Liberty, JBLM, Fort Carson,
+// Fort Campbell, Fort Bliss).
+window.STRAT_HINT = {
+  USA: { launchers: /Fort Sill|Fort Liberty|Fort Bragg|Lewis-McChord|JBLM|Fort Carson|Fort Campbell|Fort Bliss/i, adb: /Fort Bliss|Fort Sill|Fort Cavazos|Fort Hood|Fort Liberty|Fort Bragg|Fort Stewart|Lewis-McChord|JBLM/i },
+};
+// Which bases hold them: named as missile or air-defence sites (or typed so by the assessed and
+// OpenStreetMap rows), never air or naval bases whose notes merely mention missiles.
+window.isStratSite = (iso, z, key) => {
+  const hint = (window.STRAT_HINT[iso] || {})[key];
+  if (hint) return hint.test(z.name);
+  if (key === "launchers") return (window.MISSILE_SITE_RX.test(z.name) || /^Missile (base|brigade)/.test(z.note || "")) && !window.AD_SITE_RX.test(z.name) && !(z.airPct > 0.02 || z.navalPct > 0.02);
+  return window.AD_SITE_RX.test(z.name) || /^Air-defence site/.test(z.note || "");
+};

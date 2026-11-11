@@ -188,6 +188,15 @@
         if (give > 0) { o.kit[key] -= give; z.kit[key] = (z.kit[key] || 0) + give; short -= give; }
       }
     }));
+    // Missile launchers and air-defence batteries sit at the missile and air-defence sites (by name),
+    // shared out evenly, larger shares to the known (not assessed) sites.
+    [["launchers", window.LAUNCHERS(c)], ["adb", window.AD_BATTERIES(c)]].forEach(([key, n]) => {
+      const sites = zones.filter(z => !z.host && window.isStratSite(iso, z, key));
+      if (!n || !sites.length) return;
+      const w = sites.map(z => (/assessed/.test(z.note) ? 1 : 2)), tw = w.reduce((a, b) => a + b, 0);
+      let left = n;
+      sites.forEach((z, i) => { const v = i === sites.length - 1 ? left : Math.round((n * w[i]) / tw); z.kit[key] = Math.max(0, Math.min(left, v)); left -= z.kit[key]; });
+    });
     return zones;
   }
   // Whole units in proportion to weights, adding up to n (largest remainder).
@@ -2345,7 +2354,7 @@
   const countOf = (n, one, many) => { const r = Math.round(n); return r >= 1 ? `${num(r)} ${r === 1 ? one : many}` : ""; };
   function zoneStats(c, z) {
     return [(z.kit.troops ?? c.active * z.groundPct) > 0 ? `${kPers(z.kit.troops ?? c.active * z.groundPct)} troops` : ""]
-      .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many))).filter(Boolean);
+      .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many)), [countOf(z.kit.launchers || 0, "missile launcher", "missile launchers"), countOf(z.kit.adb || 0, "air-defence battery", "air-defence batteries")]).filter(Boolean);
   }
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {

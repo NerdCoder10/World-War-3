@@ -519,6 +519,13 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
       - Where a country's ports are barely mapped (North Korea), the navy falls back to the larger coastal towns on its fleet's coast.
     - **Weights:** assessed sites take at most 35% of a country's aircraft or ships, so the known bases stay in charge.
     - North Korea's and Eritrea's assessed garrisons also accept towns of 5,000+ people, since OpenStreetMap rarely lists town sizes there.
+  - **Missile and air-defence sites** (`js/deployments-assessed-strategic.js`): every country's bases now show its ballistic-missile launchers and air-defence batteries, at named sites (counts in `js/missiles.js`).
+    - **Missile launchers:** about one per 6 ballistic missiles in stock. Russia's ~900 Iskander missiles ≈ 150 launchers in 12 brigades.
+    - **Air-defence batteries:** the air-defence rating × (1 + 2.5 × log of the army's size). That gives the US ≈45 Patriot and THAAD batteries, Russia ≈40 S-300/400 battalions, Israel 34, and small states 2–3.
+    - **Where they go:** launchers sit at sites named as missile units and batteries at sites named as air-defence units, never at air or naval bases whose notes merely mention missiles. Known sites get double shares. The US uses its public posts: Patriot and THAAD battalions at Fort Bliss, Fort Sill, Fort Cavazos, Fort Liberty, Fort Stewart and JBLM, and HIMARS and ATACMS brigades at Fort Sill, Fort Liberty, JBLM, Fort Carson and Fort Campbell.
+    - **Assessed sites:** where a country's known sites fall short of its arsenal (one missile-brigade site per 12 launchers, one air-defence site per battery), about 1,200 assessed sites go where they most likely are, not where they'd be best:
+      - **missile brigades** at existing army garrisons, preferring known ones, clustered with known missile bases, within range of a rival (150–700 km) but back from the border. India's go to its corps towns: Mathura, Dimapur, Guwahati, Dehradun.
+      - **air-defence batteries** ring what gets defended first: the capital (several when a country has many batteries), then its biggest cities, main air bases, naval bases and missile sites, 8–15 km out. Russia's guard Moscow, St Petersburg, Engels bomber base and the Northern Fleet; Israel's ring Jerusalem.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.
