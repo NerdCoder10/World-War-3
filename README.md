@@ -526,6 +526,21 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Assessed sites:** where a country's known sites fall short of its arsenal (one missile-brigade site per 12 launchers, one air-defence site per battery), about 1,200 assessed sites go where they most likely are, not where they'd be best:
       - **missile brigades** at existing army garrisons, preferring known ones, clustered with known missile bases, within range of a rival (150–700 km) but back from the border. India's go to its corps towns: Mathura, Dimapur, Guwahati, Dehradun.
       - **air-defence batteries** ring what gets defended first: the capital (several when a country has many batteries), then its biggest cities, main air bases, naval bases and missile sites, 8–15 km out. Russia's guard Moscow, St Petersburg, Engels bomber base and the Northern Fleet; Israel's ring Jerusalem.
+  - **Radar and early-warning sites** (`js/radars.js`, `js/deployments-assessed-radar.js`): every country now has an air-surveillance radar network.
+    - **How many each needs:** √(area) ÷ 80 × (0.5 + air-defence rating ÷ 12). That's about 56 for Russia, 45 for the US, 41 for China, 22 for India, 7 for Germany and 2 for Israel.
+    - **Known sites first:** the radar stations already mapped, such as the UK's remote radar heads and Russia's and China's radar companies and brigades, plus the public strategic early-warning radars at their real sites:
+      - US: Clear, Beale, Cape Cod, Cavalier and Shemya (Cobra Dane);
+      - UK: RAF Fylingdales;
+      - Russia: eleven Voronezh, Daryal and Don-2N radars, from Lekhtusi and Armavir to Mishelevka and Sofrino;
+      - China: the large phased-array radars at Korla, Shuangyashan and Lin'an;
+      - Japan: four J/FPS-5 radars and two US AN/TPY-2 radars;
+      - Israel: Mount Keren and Green Pine;
+      - Turkey: Kürecik;
+      - Norway: Vardø;
+      - Taiwan: the Leshan PAVE PAWS radar.
+    - **Assessed sites:** about 880 assessed radar stations fill each network where radars most likely are: beside air-defence sites and air bases (control and reporting centres), facing a rival's border, and spread to cover the country, at least 150 km apart and about 5 km from the base they serve. Germany's sit from Berlin to Helgoland; the US network runs from Key West to Colorado Springs.
+    - **On the map:** bases list their air-surveillance or strategic early-warning radar.
+    - **In the game:** air defence works at 60% of its rating with no radar network and in full with complete coverage. Strategic early-warning radars add half a point against incoming missiles. Coverage also helps spot attacks as they launch. Each dossier shows the country's coverage.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.

@@ -397,8 +397,20 @@
   // One day's salvo from countries fighting together, against `targetIso`'s air defence: each fires
   // 4% of each stock (at least 5 if it has any). Hits = fired × (1 − 0.08 × air defence); a ballistic
   // hit is worth 2.5 combat power, a cruise missile 1.5.
+  // ── Radar coverage (js/radars.js) ──
+  // A country's radar sites against the sites it needs. Air defence works at 60% with no radar
+  // network and in full with complete coverage; strategic early-warning radars add half a point
+  // against incoming missiles. Coverage also helps spot attacks as they launch.
+  const radarMemo = {};
+  function radarInfo(iso) {
+    if (radarMemo[iso]) return radarMemo[iso];
+    const rows = (window.DEPLOYMENTS[iso] || []).filter(r => !r[7] && window.isRadarSite({ name: r[0], note: r[6] }));
+    const ew = rows.filter(r => window.isEarlyWarning({ name: r[0], note: r[6] })).length, need = window.RADARS_NEEDED(BY[iso]);
+    return (radarMemo[iso] = { sites: rows.length, ew, need, cov: need ? Math.min(1, rows.length / need) : 0 });
+  }
+  const effectiveAD = iso => { const r = radarInfo(iso); return Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) + (r.ew ? 0.5 : 0)); };
   function missileSalvo(shooters, targetIso) {
-    const leak = 1 - 0.08 * BY[targetIso].missiles.ad;
+    const leak = 1 - 0.08 * effectiveAD(targetIso);
     let power = 0, fired = 0, hits = 0;
     [...new Set(shooters)].forEach(iso => {
       const st = missileStock(iso);
@@ -1424,7 +1436,7 @@
     // Your intelligence decides whether you see the attack coming or only when it lands.
     // Seen if your intelligence beats its counter-intelligence: intel ≥ 3.3 + 0.53 × its counter-intel.
     // ...or if your spy network inside the attacker (30+) sees the orders before the troops move.
-    const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter >= 0.5 || myNet(A) >= 30;
+    const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter + 0.15 * radarInfo(T).cov >= 0.5 || myNet(A) >= 30;
     const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: !land, vsPlayer, detected };
     const fresh = !s.enemies.some(x => x.nat === A && x.to === T);
     s.enemies.push(e);
@@ -1857,6 +1869,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
