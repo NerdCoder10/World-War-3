@@ -197,6 +197,8 @@
       let left = n;
       sites.forEach((z, i) => { const v = i === sites.length - 1 ? left : Math.round((n * w[i]) / tw); z.kit[key] = Math.max(0, Math.min(left, v)); left -= z.kit[key]; });
     });
+    // Radar stations: one air-surveillance radar each, or a strategic early-warning radar.
+    zones.forEach(z => { if (!z.host && window.isRadarSite(z)) z.kit[window.isEarlyWarning(z) ? "ewr" : "radar"] = 1; });
     return zones;
   }
   // Whole units in proportion to weights, adding up to n (largest remainder).
@@ -2354,7 +2356,7 @@
   const countOf = (n, one, many) => { const r = Math.round(n); return r >= 1 ? `${num(r)} ${r === 1 ? one : many}` : ""; };
   function zoneStats(c, z) {
     return [(z.kit.troops ?? c.active * z.groundPct) > 0 ? `${kPers(z.kit.troops ?? c.active * z.groundPct)} troops` : ""]
-      .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many)), [countOf(z.kit.launchers || 0, "missile launcher", "missile launchers"), countOf(z.kit.adb || 0, "air-defence battery", "air-defence batteries")]).filter(Boolean);
+      .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many)), [countOf(z.kit.launchers || 0, "missile launcher", "missile launchers"), countOf(z.kit.adb || 0, "air-defence battery", "air-defence batteries"), z.kit.radar ? "air-surveillance radar" : "", z.kit.ewr ? "strategic early-warning radar" : ""]).filter(Boolean);
   }
   // Hover details for a base / garrison circle.
   function zoneTip(e, z) {
@@ -2979,6 +2981,7 @@
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) .</p>
         <p class="hint">🚚 <b>Logistics ${ms.logistics}/10</b>: invading, its armies keep ${Math.round(100 * (1 - (10 - ms.logistics) / 10 * 0.4 * 0.35))}% of their strength 1,000 km away overland and ${Math.round(100 * Math.max(0.45, 1 - (10 - ms.logistics) / 10 * 0.5))}% across 9,000 km of sea (less in harsh terrain); they travel ×${G.travelMult(c.iso3).toFixed(2)} as long as perfect logistics would take, and ${Math.round((0.4 + 0.06 * ms.logistics) * 100)}% of the usual share of its transport fleet is free for an airlift.${c.iso3 === "USA" ? " The strongest in the world: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent." : ""}</p>
+        <p class="hint">📡 <b>Radar coverage ${Math.round(G.radarInfo(c.iso3).cov * 100)}%</b> (${G.radarInfo(c.iso3).sites} of the ${G.radarInfo(c.iso3).need} sites it needs${G.radarInfo(c.iso3).ew ? `, including ${G.radarInfo(c.iso3).ew} strategic early-warning radar${G.radarInfo(c.iso3).ew > 1 ? "s" : ""}` : ""}): its air defence works at ${(G.effectiveAD(c.iso3)).toFixed(1)}/10 against incoming missiles (rating ${c.missiles.ad}), and coverage helps spot attacks as they launch.</p>
         <p class="hint">🌍 <b>Power projection ${num(Math.round(G.reachOf(c.iso3)))} km</b>: it can land and supply an army across the sea or by air only that far from its nearest staging point (home, conquered or allied land, treaty partners, its bases abroad)${window.REACH_KM[c.iso3] ? ` · ${esc(window.REACH_KM[c.iso3][1])}` : ""}. Fighters need a base within 2,500 km and helicopters 1,000 km unless a carrier sails with them.</p>
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
         ${borderHtml(c)}
