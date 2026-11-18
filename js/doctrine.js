@@ -109,3 +109,11 @@ window.SUPPLY_METHODS = {
   light: { label: "Light and irregular: living off the land", near: 600, n: 0.8, f: 1.5, sea: 1.5 },
   contractor: { label: "Contractor-run logistics", near: 1000, n: 1.0, f: 1.3, sea: 1.2 },
 };
+
+// Port classes: berths and whether carriers can dock (js/app.js portOf, js/game.js buildPort).
+window.PORT_CLASSES = {
+  harbour: { label: "Small harbour", cap: 4 },
+  station: { label: "Naval station", cap: 10 },
+  base: { label: "Naval base", cap: 25 },
+  major: { label: "Major naval base", cap: 60, carriers: true },
+};

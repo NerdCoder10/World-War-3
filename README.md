@@ -606,6 +606,27 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Contractor-run.**
 
   **Where to see it:** each dossier explains the doctrine and supply method, and attack forecasts show both sides' doctrine multipliers.
+- **Ports: ships dock only where a port can take them.** Every base has a harbour class, or none:
+
+  | Class | Berths | Carriers |
+  |---|---|---|
+  | Major deep-water naval base | 60+ | yes |
+  | Naval base | 25+ | no |
+  | Naval station | 10+ | no |
+  | Small harbour | 4 | no |
+
+  - **Capacity:** each port also has room for the fleet it really hosts (×1.3). For example, Naval Station Norfolk is a major base with 91 berths.
+  - **Moving ships:** they can only go to a base with a port and enough free berths, counting ships already on their way. Carriers dock only at major bases. Bases with no naval role (Fort Carson, say) have no port, and destroyed or captured bases can't take ships.
+  - **Building ports:** you can build or upgrade a port at any of your coastal bases (open water within about 55 km) from its base card:
+
+    | Port | Coins | Days |
+    |---|---|---|
+    | Harbour | 150 | 7 |
+    | Naval station | 500 | 20 |
+    | Naval base | 2,000 | 45 |
+    | Major base | 8,000 | 90 |
+
+    Better logistics build faster, and the log reports when the port opens. Every base card shows its port, berths in use and whether carriers can dock.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.
