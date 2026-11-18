@@ -590,3 +590,13 @@ circle.garrison.captured { stroke: #e2654f !important; stroke-width: 2.5; }
 .bc-port { display: block; width: 100%; margin: 6px 0; padding: 7px 10px; background: #4cb5a822; border: 1px solid var(--teal); color: var(--fg); border-radius: 4px; cursor: pointer; font-weight: 600; }
 .bc-port:disabled { opacity: .5; cursor: not-allowed; }
 .bc-port small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+/* Battle scene */
+.battle-overlay { position: fixed; inset: 0; background: #000a; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.battle-box { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; max-width: 1000px; width: 100%; box-shadow: 0 10px 40px #000; }
+.battle-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.battle-head b { font-weight: 600; }
+.battle-x { background: none; border: 0; color: var(--fg); font-size: 22px; cursor: pointer; }
+.battle-box canvas { display: block; margin: 0 auto; }
+.battle-legend { padding: 8px 12px 12px; font-size: 12.5px; }
+.battle-legend p { margin: 4px 0; }
+.watch-battle { margin-top: 6px; }

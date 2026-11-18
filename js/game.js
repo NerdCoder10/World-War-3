@@ -552,6 +552,81 @@
     return { h, by: h >= travelH ? null : best[0], ways, shared };
   }
 
+  // ── Air forces, artillery and air defence in battle (js/airspecs.js) ──
+  // Each air force's real fleet (by model): air-to-air and air-to-ground ratings, share of strike and
+  // close-air-support jets, combat radius. Each army's artillery: range and precision.
+  const profMemo = {};
+  function airProfile(iso) {
+    if (profMemo["a" + iso]) return profMemo["a" + iso];
+    const c = BY[iso], rows = [];
+    // Combat jets are the fighter/attack fleet; from other aircraft only bombers and dedicated attack
+    // jets count (trainers, transports, tankers and drones are left out).
+    ["fighters", "aircraft"].forEach(key => window.splitModels(c, key, Math.round(c[key] || 0)).forEach(([m, n]) => {
+      const sp = window.airSpec(m);
+      if (!sp || n <= 0 || (key === "aircraft" && !(sp.role === "BM" || sp.role === "CAS" || sp.role === "ST")) || (key === "aircraft" && /trainer|transport|tanker|drone|ISR/i.test(m))) return;
+      rows.push({ key, model: m, n, ...sp });
+    }));
+    const jets = rows.filter(r => r.role !== "BM"), nJ = jets.reduce((a, r) => a + r.n, 0) || 1, w = f => jets.reduce((a, r) => a + r.n * f(r), 0) / nJ;
+    const bombers = rows.filter(r => r.role === "BM");
+    return (profMemo["a" + iso] = {
+      rows, a2a: jets.length ? w(r => r.a2a) : 3, a2g: jets.length ? w(r => r.a2g) : 3, radius: jets.length ? w(r => r.radius) : 500,
+      cas: jets.length ? w(r => (r.role === "CAS" || r.role === "ST" || r.role === "LA" ? 1 : 0)) : 0, gen: jets.length ? w(r => r.gen) : 3,
+      bombers: bombers.reduce((a, r) => a + r.n, 0), bomberRadius: bombers.length ? Math.max(...bombers.map(r => r.radius)) : 0, tankers: window.TANKERS.has(iso),
+    });
+  }
+  // How far its jets can strike from a base: combat radius, ×2.2 with tankers, ×1.2 without.
+  const jetReach = iso => airProfile(iso).radius * (airProfile(iso).tankers ? 2.2 : 1.2);
+  function artyProfile(iso) {
+    if (profMemo["r" + iso]) return profMemo["r" + iso];
+    const c = BY[iso], ms2 = window.splitModels(c, "arty", Math.round(c.arty || 0)), n = ms2.reduce((a, m) => a + m[1], 0) || 1;
+    let range = 0, prec = 0;
+    ms2.forEach(([m, k]) => { const sp = window.artySpec(m); range += sp.range * k; prec += sp.precision * k; });
+    return (profMemo["r" + iso] = { range: ms2.length ? range / n : 15, precision: ms2.length ? prec / n : 0.15, models: ms2 });
+  }
+  // A side's power by arm (air, artillery, ground, naval), for weighting the contests below.
+  function armShares(units, nat) {
+    const p = { air: 0, arty: 0, ground: 0, naval: 0 };
+    UNITS.forEach(u => { const v = (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key); if (u.key === "arty") p.arty += v; else p[u.kind] += v; });
+    const t = p.air + p.arty + p.ground + p.naval || 1;
+    return { air: p.air / t, arty: p.arty / t, ground: (p.ground + p.arty) / t, airA2A: (units.fighters || 0) * airProfile(nat).a2a * BY[nat].tech.ready };
+  }
+  // One battle's modifiers: the air superiority contest (the defender's radar on home ground counts
+  // ×1.2), its air defence against the attacker's aircraft (−4% of the air share per point), close air
+  // support against a ground-heavy defender, and the artillery duel (longer range and precision win
+  // counter-battery fire).
+  function battleMods(aUnits, aNat, dUnits, dNat, T) {
+    const A = armShares(aUnits, aNat), D = armShares(dUnits, dNat), pa = airProfile(aNat), pd = airProfile(dNat);
+    const edge = A.airA2A + D.airA2A > 0 ? A.airA2A / (A.airA2A + D.airA2A * 1.2) : 0.5;
+    const aa = effectiveAD(T), aaAtt = effectiveAD(aNat) * 0.4;
+    const airA = (0.6 + 0.8 * edge) * (1 - 0.04 * aa), airD = (0.6 + 0.8 * (1 - edge)) * (1 - 0.04 * aaAtt);
+    const cas = 1 + A.air * pa.cas * edge * D.ground * 0.3;
+    const ra = artyProfile(aNat), rd = artyProfile(dNat), sa = ra.range * (1 + ra.precision), sd = rd.range * (1 + rd.precision);
+    const aEdge = sa + sd > 0 ? sa / (sa + sd) : 0.5;
+    return {
+      att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)),
+      def: (1 + D.air * (airD - 1)) * (1 + D.arty * (0.8 + 0.4 * (1 - aEdge) - 1)),
+      edge, aa, aEdge,
+    };
+  }
+
+  // ── Surrender ──
+  // A country losing to a far stronger enemy may capitulate rather than fight to the end, unless it
+  // is diehard: patriotism 9–10 (Ukraine, Israel, Finland, North Korea, the Baltics...) or a
+  // people's-war or fortress doctrine. Its will: 40 + 4 × patriotism, +15 with treaty allies coming,
+  // more against a hated invader and less against one its people would accept. The pressure:
+  // 25 × log2(power ratio) + 70 × the war's progress + 0.3 a day. It surrenders when the pressure
+  // beats its will, the enemy is at least 3× stronger and its defences are 30% broken.
+  const diehard = iso => ms(iso).patriotism >= 9 || (docF(iso).resist || 1) >= 1.3;
+  function surrenderInfo(T, by, prog, days) {
+    const side = sideOf(by), ratio = sideStrength(side) / Math.max(1, sideStrength(sideOf(T)));
+    if (diehard(T)) return { diehard: true, surrender: false, ratio };
+    const H = happiness(T, side).score;
+    const allies = alliedSupport(T, by).strength > 0;
+    const will = 40 + 4 * ms(T).patriotism + (allies ? 15 : 0) + (40 - H) * 0.4;
+    const pressure = 25 * Math.log2(Math.max(1, ratio)) + 70 * Math.max(0, prog) + 0.3 * Math.max(0, days);
+    return { diehard: false, will, pressure, ratio, allies, surrender: pressure > will && ratio >= 3 && prog >= 0.3 };
+  }
+
   // ── Radar coverage (js/radars.js) ──
   // A country's radar sites against the sites it needs. Air defence works at 60% with no radar
   // network and in full with complete coverage; strategic early-warning radars add half a point
@@ -1122,7 +1197,7 @@
     let airRange = null;
     if (!land && !(units.carriers > 0)) {
       if ((units.helis || 0) > 0 && proj.km > 1000) airRange = { kind: "helicopters", max: 1000 };
-      else if ((units.fighters || 0) > 0 && proj.km > 2500) airRange = { kind: "fighters", max: 2500 };
+      else if ((units.fighters || 0) > 0 && proj.km > jetReach(nat)) airRange = { kind: "fighters", max: Math.round(jetReach(nat)) };
       else if ((units.aircraft || 0) > 0 && !proj.ok) airRange = { kind: "aircraft", max: proj.reach };
       if (airRange) ok = false;
     }
@@ -1486,7 +1561,7 @@
     const pride = Math.round(Math.min(12, 3 * Math.log10(1 + t.pop)));
     if (pride) parts.push(["National pride", -pride]);
     const hw = how || "conquest";
-    parts.push(hw === "union" ? ["Joined by diplomatic union", 15] : hw === "bought" ? ["Bought, not conquered", 5] : ["Conquered by force", -15]);
+    parts.push(hw === "union" ? ["Joined by diplomatic union", 15] : hw === "bought" ? ["Bought, not conquered", 5] : hw === "surrender" ? ["Surrendered rather than fought to the end", -5] : ["Conquered by force", -15]);
     if (since != null) { const t2 = Math.min(15, Math.floor((s.turn - since) / 10)); if (t2) parts.push([`${s.turn - since} days under this rule`, t2]); }
     if (s.revolts && s.revolts[iso]) parts.push(["In revolt", -10]);
     return { score: Math.max(0, Math.min(100, parts.reduce((x, p) => x + p[1], 0))), parts };
@@ -1534,8 +1609,11 @@
     // Your own surprise: armies that arrive before the target noticed them catch it unready (first round).
     const surprised = armies.some(a => !a.fought && a.detectAt != null && a.detectAt >= (a.etaH != null ? a.etaH : a.eta * 24));
     armies.forEach(a => (a.fought = true));
-    const D = defenceOf(iso).total * (surprised ? 0.85 : 1) + theirs.power;
-    const A = armies.reduce((x, a) => x + armyPower(a) * docEarly(a.nat, s.turn - war.start) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help) + mine.power;
+    const allU = {}; armies.forEach(a => UNITS.forEach(u => (allU[u.key] = (allU[u.key] || 0) + (a.units[u.key] || 0))));
+    const bm = armies.length ? battleMods(allU, armies[0].nat, forces(iso), iso, iso) : { att: 1, def: 1 };
+    (s.battle = s.battle || {})[iso] = { ...bm, day: s.turn };
+    const D = defenceOf(iso).total * (surprised ? 0.85 : 1) * bm.def + theirs.power;
+    const A = armies.reduce((x, a) => x + armyPower(a) * docEarly(a.nat, s.turn - war.start) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) * bm.att + allyTotal(help) + mine.power;
     const r = A / (A + D);
     scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r));
     const al = Math.min(0.6, 0.3 * (1 - r));
@@ -1559,6 +1637,14 @@
       scaleUnits(forces(iso), 0.5); // survivors surrender and join you, weapons locked
       s.coins += loot(t);
       log(`⚔️ Conquered ${t.name} after ${s.turn - war.start + 1} turn(s) of fighting. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins. Your armies are now stationed there.`, "good");
+      return;
+    }
+    const si = surrenderInfo(iso, s.player, prog, s.turn - war.start);
+    if (si.surrender) {
+      annex(iso, 0.7, "surrender");
+      scaleUnits(forces(iso), 0.6);
+      s.coins += loot(t);
+      log(`🏳️ ${t.name} surrendered to you after ${s.turn - war.start + 1} day(s): facing a force ${si.ratio.toFixed(1)}× its strength with its defences ${Math.round(prog * 100)}% broken, it chose to capitulate. +$${fmt(t.gdp)}bn GDP, +${loot(t)} coins.`, "good");
       return;
     }
     log(`⚔️ Fighting in ${t.name}: your strength ${A.toFixed(0)} vs ${D.toFixed(0)}. Defences ${Math.round(prog * 100)}% broken.${salvoText(mine, theirs)}${wxTag(iso, left[0] ? weatherMix(left[0].units, left[0].nat, iso, left[0].models) : 1, weatherMix(forces(iso), iso, iso))}`, r >= 0.5 ? "good" : "info");
@@ -1875,13 +1961,29 @@
     const s = G.state, c = BY[T], foes = enemiesAt(T);
     const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
     const sE = missileSalvo(foes.map(e => e.nat), T), sD = missileSalvo([T], foes[0].nat);
-    const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - w.start), 0) + sE.power, D = defenceOf(T, foes[0].nat).total + sD.power, r = E / (E + D);
+    const fu = {}; foes.forEach(e => UNITS.forEach(u => (fu[u.key] = (fu[u.key] || 0) + (e.units[u.key] || 0))));
+    const bm = battleMods(fu, foes[0].nat, forces(T), T, T);
+    (s.battle = s.battle || {})[T] = { ...bm, day: s.turn };
+    const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - w.start), 0) * bm.att + sE.power, D = defenceOf(T, foes[0].nat).total * bm.def + sD.power, r = E / (E + D);
     strikeSites(T, sE.hits, sideOf(w.by)); strikeSites(foes[0].nat, sD.hits, T);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
     const left = enemiesAt(T), by = BY[w.by].name;
     if (left.length && w.p0 > 0) captureFront(T, sideOf(w.by), left[0].from || left[0].nat, (1 - rawPower(forces(T), T) / w.p0) / 0.8);
+    if (left.length && w.p0 > 0) {
+      const si = surrenderInfo(T, w.by, (1 - rawPower(forces(T), T) / w.p0) / 0.8, s.turn - w.start);
+      if (si.surrender) {
+        s.enemies = s.enemies.filter(e => !left.includes(e));
+        left.forEach(e => { const f = forces(e.nat); UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) + (e.units[u.key] || 0))); });
+        scaleUnits(forces(T), 0.6);
+        s.owner[T] = s.owner[w.by] || w.by; s.garrison[T] = 0.8; invalidateGroups();
+        (s.acquired = s.acquired || {})[T] = { how: "surrender", turn: s.turn };
+        delete s.aiWars[T];
+        log(`🏳️ ${c.name} surrendered to ${by} after ${s.turn - w.start + 1} day(s) rather than fight on against a force ${si.ratio.toFixed(1)}× its strength.`, "world");
+        return;
+      }
+    }
     if (!left.length) {
       delete s.aiWars[T];
       log(`🌍 ${c.name} defeated the invasion by ${by}.`, "world");
@@ -1903,7 +2005,10 @@
     const theirs = missileSalvo(foes.map(e => e.nat), iso), mine = missileSalvo(empire().map(c => c.iso3), foes[0].nat);
     const surprised = foes.some(e => e.surprise && !e.fought);
     foes.forEach(e => (e.fought = true));
-    const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - inv.start), 0) + theirs.power, D = homeDefence(iso, foes[0].nat) * (surprised ? 0.85 : 1) + mine.power;
+    const fu = {}; foes.forEach(e => UNITS.forEach(u => (fu[u.key] = (fu[u.key] || 0) + (e.units[u.key] || 0))));
+    const bm = battleMods(fu, foes[0].nat, homeShare(iso), iso, iso);
+    (s.battle = s.battle || {})[iso] = { ...bm, day: s.turn };
+    const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - inv.start), 0) * bm.att + theirs.power, D = homeDefence(iso, foes[0].nat) * (surprised ? 0.85 : 1) * bm.def + mine.power;
     const r = E / (E + D);
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
@@ -2198,6 +2303,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

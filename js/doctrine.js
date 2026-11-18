@@ -117,3 +117,47 @@ window.PORT_CLASSES = {
   base: { label: "Naval base", cap: 25 },
   major: { label: "Major naval base", cap: 60, carriers: true },
 };
+
+// How each military really supplies a war, where it differs from its doctrine's default, with why.
+window.SUPPLY_OF = {
+  USA: ["expeditionary", "TRANSCOM, the Military Sealift Command and ~270 strategic airlifters; pre-positioned brigade sets afloat and in Europe, Kuwait and Korea"],
+  GBR: ["expeditionary", "C-17s, A400Ms and chartered ro-ro ships; a small fleet train (RFA) that supports one deployed task group"],
+  FRA: ["expeditionary", "A400Ms and a decade of Sahel logistics, but leans on chartered An-124s and allies for heavy lift"],
+  RUS: ["rail", "The railway troops move everything; few trucks and pallets, so supply collapses ~100–150 km beyond a railhead (as in 2022)"],
+  CHN: ["joint", "The Joint Logistic Support Force (2016) and civilian ro-ro ferries for cross-strait lift; untested far from China"],
+  IND: ["rail", "Railways and roads to the Himalayan and Pakistani fronts; limited strategic lift beyond the subcontinent"],
+  PAK: ["interior", "Short lines to the Indian and Afghan borders; little capacity to sustain a war farther away"],
+  ISR: ["interior", "Short interior lines, emergency stocks and US resupply (pre-positioned WRSA-I stocks in Israel)"],
+  IRN: ["light", "Dispersed stocks and proxies; poor heavy logistics, as its weak armoured columns show"],
+  TUR: ["joint", "Its own military logistics command, proven sustaining cross-border operations in Syria and Iraq"],
+  UKR: ["rail", "Ukrainian Railways moves the war, fed through Poland and Romania with Western weapons and fuel"],
+  POL: ["alliance", "NATO's logistics hub for the east (Rzeszów); host to allied stocks"],
+  DEU: ["alliance", "NATO host-nation hub, but the Bundeswehr itself is short of spare parts, ammunition and trucks"],
+  JPN: ["interior", "Short lines between the home islands; dependent on US logistics beyond them"],
+  KOR: ["interior", "Short interior lines and US Forces Korea stocks; little reach beyond the peninsula"],
+  TWN: ["interior", "Dispersed island stocks; cut off by blockade without outside resupply"],
+  PRK: ["interior", "Underground stockpiles for a short war; poor trucks and fuel for anything longer"],
+  SAU: ["contractor", "Western contractors run maintenance and logistics; fragile without them, as Yemen showed"],
+  ARE: ["contractor", "Contractor-heavy but with real expeditionary experience (Yemen, Libya)"],
+  EGY: ["rail", "Rail and road-bound; large stocks but little capacity to sustain forces far from the Nile valley"],
+  AUS: ["expeditionary", "C-17s, two amphibious ships and long experience sustaining forces abroad"],
+  CAN: ["alliance", "C-17s and NATO partners; little sealift of its own"],
+  BRA: ["contractor", "Road and river logistics for the Amazon; little reach abroad"],
+  VNM: ["depots", "Dispersed people's-war depots; built to fight at home"],
+  FIN: ["depots", "Dispersed wartime depots for a 280,000-strong reserve; built to fight at home"],
+  AZE: ["interior", "Short lines, Turkish and Israeli support; proven in 2020 and 2023"],
+};
+window.DOCTRINE_OF = Object.assign(window.DOCTRINE_OF, {
+  GEO: "total", MDA: "constabulary", BIH: "conventional", TUN: "conventional", LBN: "light", KEN: "light", UGA: "light", TZA: "light",
+  AGO: "conventional", ZWE: "light", CMR: "light", CIV: "light", GHA: "light", SEN: "light", TCD: "light", MLI: "light", BFA: "light", NER: "light",
+  PER: "internal", ECU: "internal", BOL: "internal", URY: "internal", PRY: "internal", NZL: "expeditionary", KHM: "conventional", NPL: "internal",
+  KGZ: "mass", TJK: "mass", MDV: "constabulary", ROU: "nato", HUN: "nato", BGR: "nato", CZE: "nato", PRT: "nato", BEL: "nato", DNK: "nato",
+});
+// The doctrine with its real supply method and note.
+(() => {
+  const base = window.doctrineOf;
+  window.doctrineOf = iso => {
+    const d = base(iso), o = window.SUPPLY_OF[iso];
+    return o ? { ...d, supply: o[0], supplyNote: o[1] } : d;
+  };
+})();

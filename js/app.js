@@ -299,7 +299,10 @@
   function deploymentOnShore(iso) {
     const hand = window.DEPLOYMENTS && window.DEPLOYMENTS[iso];
     if (hand) {
-      const zones = hand.map(([name, lon, lat, ground, air, naval, note, host]) => ({ name, at: [lon, lat], ground, air, naval, note, host }));
+      // Ships need water: a base more than ~110 km from the sea keeps a naval role only as a named river
+      // or lake flotilla (the Congo, Lake Malawi, Lake Victoria, the Danube...).
+      const WATER = /river|lake|flotilla|riverine|danube|lagoon|lac |rio |fluvial|lacustr|caspian|naval|navy|marine|port|harbou?r|fleet|base navale/i;
+      const zones = hand.map(([name, lon, lat, ground, air, naval, note, host]) => ({ name, at: [lon, lat], ground, air, naval: naval > 0 && !host && window.navNearSea && !window.navNearSea([lon, lat], 2) && !WATER.test(name) ? 0 : naval, note, host }));
       const norm = key => { const t = zones.reduce((a, z) => a + z[key], 0) || 1; zones.forEach(z => (z[key + "Pct"] = z[key] / t)); };
       norm("air"); norm("naval");
       // Forces abroad are absolute personnel (thousands); home rows fill the rest of the active force.
@@ -1050,6 +1053,8 @@
         const all = deploymentFor(sh.nat), navalZs = all.filter(z => z.navalPct > 0), zs = navalZs.length ? navalZs : all;
         let best = null, bd = Infinity;
         zs.forEach(z => { const d = d3.geoDistance(z.at, sh.at); if (d < bd) { bd = d; best = z; } });
+        // A ship deployed at sea (more than ~60 km from any naval base) belongs to its fleet's main base.
+        if (best && bd * 6371 > 60 && navalZs.length) best = navalZs.reduce((a, z) => (z.navalPct > a.navalPct ? z : a));
         if (best) { (carrierHome[sh.nat + "|" + best.name] = carrierHome[sh.nat + "|" + best.name] || []).push(sh); homeOf[sh.hull] = best.name; }
       }));
     }
@@ -2902,7 +2907,8 @@
     return `<div class="section"><h3>Military philosophy <small>${esc(d.name)}</small></h3>
       <p class="hint">${esc(d.note)}</p>
       <p class="hint">🎖️ In battle: ${items.length ? esc(items.join(" · ")) : "no distinctive strengths or weaknesses"}.</p>
-      <p class="hint">🚚 Supply: <b>${esc(m.label || d.supply)}</b> (${esc(sup.join(" · "))}). Lower strain means its armies keep more of their strength far from home.</p></div>`;
+      <p class="hint">🚚 Supply: <b>${esc(m.label || d.supply)}</b>${d.supplyNote ? `: ${esc(d.supplyNote)}` : ""} (${esc(sup.join(" · "))}). Lower strain means its armies keep more of their strength far from home.</p>
+      ${G.diehard(c.iso3) ? `<p class="hint">🏴 <b>Diehard</b>: patriotism ${c.milStats.patriotism}/10${(d.fight.resist || 1) >= 1.3 ? ` and a ${esc(d.name.toLowerCase())} doctrine` : ""}. It would never surrender, only be conquered.</p>` : `<p class="hint">🏳️ Could surrender: facing an enemy 3× stronger or more, with its defences 30% broken, it weighs its will (patriotism ${c.milStats.patriotism}/10, allies, how hated the invader is) against the pressure of the war.</p>`}</div>`;
   }
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
@@ -3038,6 +3044,7 @@
       const D = G.defenceOf(c.iso3);
       front = `<p class="hint">Defence strength ${est(D.total, c.iso3)}${D.allyMult > 0.01 ? ` (incl. +${pct(D.allyMult)} from ${esc(D.allies.blocs.join(", "))} allies)` : ""}.${esc(blocLine(D.allies.detail))} Forces: ${esc(estUnits(c.iso3) || "none")}.${c.missileTotal ? ` 🚀 Missiles: ${num(G.missileStock(c.iso3).bm)} ballistic and ${num(G.missileStock(c.iso3).cm)} cruise left; it fires 4% of them a day at invaders.` : ""}</p>`;
     }
+    if (battleAt(c.iso3)) front += `<button class="btn ghost watch-battle" data-t="${c.iso3}">⚔️ Watch the battle</button>`;
     const foes = s.enemies.filter(e => e.to === c.iso3 && (!e.vsPlayer || e.detected));
     if (foes.length && G.owns(c.iso3)) {
       const at = foes.filter(G.arrived), inv = (s.invasions || {})[c.iso3];
@@ -3196,13 +3203,14 @@
         <p class="hint">🚚 <b>Logistics ${ms.logistics}/10</b>: invading, its armies keep ${Math.round(100 * (1 - (10 - ms.logistics) / 10 * 0.4 * 0.35))}% of their strength 1,000 km away overland and ${Math.round(100 * Math.max(0.45, 1 - (10 - ms.logistics) / 10 * 0.5))}% across 9,000 km of sea (less in harsh terrain); they travel ×${G.travelMult(c.iso3).toFixed(2)} as long as perfect logistics would take, and ${Math.round((0.4 + 0.06 * ms.logistics) * 100)}% of the usual share of its transport fleet is free for an airlift.${c.iso3 === "USA" ? " The strongest in the world: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent." : ""}</p>
         ${detectLine(c)}
         <p class="hint">📡 <b>Radar coverage ${Math.round(G.radarInfo(c.iso3).cov * 100)}%</b> (${G.radarInfo(c.iso3).sites} of the ${G.radarInfo(c.iso3).need} sites it needs${G.radarInfo(c.iso3).ew ? `, including ${G.radarInfo(c.iso3).ew} strategic early-warning radar${G.radarInfo(c.iso3).ew > 1 ? "s" : ""}` : ""}): its air defence works at ${(G.effectiveAD(c.iso3)).toFixed(1)}/10 against incoming missiles (rating ${c.missiles.ad}), and coverage helps spot attacks as they launch.</p>
-        <p class="hint">🌍 <b>Power projection ${num(Math.round(G.reachOf(c.iso3)))} km</b>: it can land and supply an army across the sea or by air only that far from its nearest staging point (home, conquered or allied land, treaty partners, its bases abroad)${window.REACH_KM[c.iso3] ? ` · ${esc(window.REACH_KM[c.iso3][1])}` : ""}. Fighters need a base within 2,500 km and helicopters 1,000 km unless a carrier sails with them.</p>
+        <p class="hint">🌍 <b>Power projection ${num(Math.round(G.reachOf(c.iso3)))} km</b>: it can land and supply an army across the sea or by air only that far from its nearest staging point (home, conquered or allied land, treaty partners, its bases abroad)${window.REACH_KM[c.iso3] ? ` · ${esc(window.REACH_KM[c.iso3][1])}` : ""}. Its jets need a base within ${num(Math.round(G.jetReach(c.iso3)))} km (their combat radius${window.TANKERS.has(c.iso3) ? ", stretched by aerial refuelling" : ""}) and helicopters 1,000 km unless a carrier sails with them.</p>
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
         ${borderHtml(c)}
         ${terrainHtml(c)}
         ${blocLoyaltyHtml(c)}
         ${occupationHtml(c)}
         ${doctrineHtml(c)}
+        ${airArtyHtml(c)}
         ${weatherHtml(c)}
         ${nightHtml(c)}
         ${droneHtml(c)}
@@ -3465,8 +3473,56 @@
       <p class="hint">Spying on it: ${ls(inside)}.</p><p class="hint">Its networks abroad: ${ls(abroad)}.</p></div>`;
   }
 
+  // ── Battle scene (js/battle.js) ──
+  // Who is fighting in a country right now, with what, and today's odds.
+  function battleAt(T) {
+    const s = G.state, P = window.CENTROIDS || {};
+    const sum = list => { const u = {}; list.forEach(x => window.UNITS.forEach(k => (u[k.key] = (u[k.key] || 0) + (x.units[k.key] || 0)))); return u; };
+    let att = null;
+    const mine = s.armies.filter(a => a.to === T && G.arrived(a) && !G.owns(T));
+    const foes = G.enemiesAt(T);
+    if (mine.length) att = { nat: s.player, units: sum(mine), power: mine.reduce((x, a) => x + G.armyPower(a), 0), label: `You (${BY[s.player].name})`, col: "#f0c66a", dark: "#5a4510" };
+    else if (foes.length) att = { nat: foes[0].nat, units: sum(foes), power: foes.reduce((x, e) => x + G.enemyPower(e), 0), label: BY[foes[0].nat].name, col: G.owns(T) ? "#e2654f" : "#c79bf2", dark: "#3a1010" };
+    if (!att) return null;
+    const defUnits = G.forces(T), D = G.owns(T) ? G.homeDefence(T, att.nat) : G.defenceOf(T, att.nat).total;
+    const bm = G.battleMods(att.units, att.nat, defUnits, T, T), A = att.power * bm.att, Dp = D * bm.def, r = A / Math.max(1e-9, A + Dp);
+    return { T, att, def: { nat: T, units: defUnits, label: G.owns(T) ? `${BY[T].name} (yours)` : BY[T].name, col: G.owns(T) ? "#f0c66a" : "#8fb3c9", dark: "#1d2a33" }, bm, r };
+  }
+  function openBattleView(T) {
+    const b = battleAt(T);
+    if (!b) return toast("No battle is being fought there right now.");
+    const w = G.weather(T), P = (window.CENTROIDS || {})[T] || [0, 0], ms = (G.state.date0 || 0) + (G.state.clock || 0) * 3600000, d = new Date(ms);
+    const doy = Math.min(364, Math.floor((ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000));
+    const zone = w.zone, snow = /snow|blizzard|frost/.test(w.type);
+    const ground = snow ? "#d9dee2" : zone === "desert" ? "#c9a96b" : zone === "tropical" || zone === "monsoon" ? "#3f6b33" : zone === "boreal" ? "#56664a" : zone === "savanna" ? "#a08a4f" : "#5d6b3e";
+    const weather = /rain|storm|monsoon|cyclone/.test(w.type) ? { fill: "rgba(200,220,255,0.35)", dx: 0.02, dy: 0.9, w: 1, h: 9 } : /snow|blizzard/.test(w.type) ? { fill: "rgba(255,255,255,0.8)", dx: 0.03, dy: 0.12, w: 2.2, h: 2.2 } : /sandstorm/.test(w.type) ? { fill: "rgba(210,170,100,0.35)", dx: 0.6, dy: 0.05, w: 14, h: 2 } : null;
+    const lossAtt = Math.min(0.6, 0.3 * (1 - b.r)), lossDef = Math.min(0.6, 0.3 * b.r);
+    window.openBattle({
+      title: `⚔️ Battle for ${esc(BY[T].name)} · ${w.icon} ${esc(w.label)}, ${w.temp}°C`,
+      seed: T.charCodeAt(0) * 7919 + T.charCodeAt(2) * 31 + G.state.turn,
+      att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4) },
+      def: { ...b.def, aa: window.AD_BATTERIES(BY[T]) },
+      lossAtt, lossDef, ground, weather, night: !window.sunUp(P[0], P[1], ms, doy),
+      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
+    });
+  }
+  // The air force by model, its artillery and its air defence, from js/airspecs.js and js/missiles.js.
+  function airArtyHtml(c) {
+    const ap = G.airProfile(c.iso3), rp = G.artyProfile(c.iso3), rows = ap.rows.slice().sort((a, b) => b.n - a.n);
+    const roles = window.AIR_ROLE;
+    const tbl = rows.length ? `<table class="wetable"><tr><th>Aircraft</th><th>No.</th><th>role</th><th>gen</th><th>radius</th><th>payload</th><th>speed</th><th>air-air</th><th>air-ground</th></tr>${rows.map(r => `<tr><td>${esc(r.model)}</td><td>${num(r.n)}</td><td>${esc(roles[r.role])}</td><td>${r.gen}</td><td>${num(r.radius)} km</td><td>${r.payload} t</td><td>M${r.mach}</td><td>${r.a2a}</td><td>${r.a2g}</td></tr>`).join("")}</table>` : `<p class="hint">No combat aircraft.</p>`;
+    const arty = rp.models.slice().sort((a, b) => b[1] - a[1]).slice(0, 5).map(([m, n]) => { const sp = window.artySpec(m); return `${num(n)} × ${esc(m)} (${sp.range} km${sp.precision >= 0.6 ? ", precision rounds" : ""})`; }).join(" · ");
+    return `<div class="section"><h3>Air force, artillery & air defence</h3>
+      <p class="hint">✈️ Air force: air-to-air <b>${ap.a2a.toFixed(1)}/10</b>, air-to-ground <b>${ap.a2g.toFixed(1)}/10</b>, ${Math.round(ap.cas * 100)}% strike and close-air-support jets, average generation ${ap.gen.toFixed(1)}. Jets reach <b>${num(Math.round(G.jetReach(c.iso3)))} km</b> from a base (average combat radius ${num(Math.round(ap.radius))} km${ap.tankers ? ", doubled by aerial refuelling" : ", no tankers"})${ap.bombers ? `; ${num(ap.bombers)} bombers reaching ${num(ap.bomberRadius)} km` : ""}.</p>
+      ${tbl}
+      <p class="hint">💥 Artillery: average range <b>${rp.range.toFixed(0)} km</b>, precision ${Math.round(rp.precision * 100)}%: ${arty || "none"}. Longer range and precision win the counter-battery duel.</p>
+      <p class="hint">🛡️ Air defence <b>${G.effectiveAD(c.iso3).toFixed(1)}/10</b> (${window.AD_BATTERIES(c)} batteries): ${esc((c.missiles && c.missiles.note) || "")}. In battle it cuts the attacker's air power by 4% per point.</p>
+      <p class="hint">In every battle: the air superiority contest (air-to-air ratings, with the defender's radar ×1.2 at home), its air defence against the attacker's aircraft, close air support against a ground-heavy defender, and the artillery duel all shift the day's odds.</p></div>`;
+  }
+
   // ── Campaign ───────────────────────────────────────────────
   document.addEventListener("change", e => { if (e.target && e.target.id === "occ-by") { occBy = e.target.value; dossier(); } });
+  document.addEventListener("click", e => { const b = e.target.closest && e.target.closest(".watch-battle"); if (b) openBattleView(b.dataset.t); });
   function campaign() {
     const pane = $("#pane-campaign"), s = G.state;
     const groups = {};
