@@ -555,6 +555,24 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
 - **Forces on the move are animated.**
   - **What they look like:** jets fly in a three-ship V trailing contrails, airlifts show heavy transports, tank columns roll along with track bounce and dust, and ships sail in pairs with wakes. All are drawn as simple top-down silhouettes in their side's colour (yours brass, attackers red, other wars purple).
   - **How they move:** each faces its heading and moves every frame between clock ticks, so movement is smooth rather than jumping once a second. Hover for the force's details, or click to open its target.
+- **Ships sail only by sea; vehicles drive only over land** (`js/nav.js`, `js/navgrid.js`).
+  - **The grid:** a 0.5° land/sea grid rasterised from the map's own coastlines. The canals and narrow straits ships really use are open: Suez, Panama, the Bosphorus and Dardanelles, Gibraltar, the Danish straits, Kerch, Bab-el-Mandeb, Hormuz, Singapore, Messina and the Taiwan Strait.
+  - **Routes:** found by A* search and straightened wherever a direct line stays on the same surface.
+  - **Warships:** they sail from the nearest water, or their country's coast facing the target, to the target's coast facing them. Russian ships reach Syria through the Black Sea and the Bosphorus; US ships to Venezuela leave from Puerto Rico; Chinese fleets cross the Pacific. Landlocked countries can't be reached by sea at all. Inland seas don't connect to the ocean, so the Caspian states' fleets stay in the Caspian.
+  - **Tanks and other vehicles:** they drive overland along a land path. Across water they drive to their own coast, ride the army's ships (sealift: about 2 days to load and unload), and drive inland from the landing beach. Airlifts fly direct in heavy transports.
+  - **Travel times:** they use the real path lengths. Moves between your own bases follow the same rules: ships by sea, ground units by road, or by ship where water lies between.
+  - **The AI:** it only launches invasions along a real route.
+  - **On the map:** route lines follow the paths. The animated force changes as it goes: a tank column to the coast, ships at sea, tanks again ashore.
+- **Detection time: how long until a country realises it's being invaded.** Several ways of noticing race each other, and the fastest wins:
+  - **Agents inside the attacker:** its spy network there sees the orders, often before the troops move.
+  - **Satellite and reconnaissance imagery:** spots columns and fleets forming up.
+  - **Radar:** sees aircraft in minutes on a modern network (far slower with weak air defences), and ships as they near the coast.
+  - **Civilians:** report troops at the border on their phones. Wealthier countries are more connected, and denser populations have more eyes.
+  - **General intelligence analysis:** the slow backstop.
+
+  Allies in a bloc with the US or UK share warnings. The attacker's counter-intelligence and deception slow everything but radar and civilians. Examples for a three-day ground invasion: Israel spots an Iranian move in about 2 hours (its agents), Ukraine a Russian one in 12, Estonia in 33 (satellites), and Mali only near the end.
+
+  An attack stays hidden on the map until it's noticed, and the warning says what noticed it and how long after it set off. If nothing notices before it lands, it's a surprise attack: the defenders fight at ×0.85 in the first round, and that works for your attacks too. Attack forecasts tell you whether you'd arrive unnoticed, and every dossier shows how fast that country would spot an invasion and an air strike.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.

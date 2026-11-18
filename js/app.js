@@ -464,24 +464,45 @@
     return "tank";
   }
   // Formation offsets in the vehicle's own frame (x forward, y right), in vehicle lengths.
-  const FORMATION = { jet: [[0, 0], [-1.5, -1.3], [-1.5, 1.3]], transport: [[0, 0]], tank: [[0, 0], [-1.35, 0], [-2.7, 0]], ship: [[0, 0], [-1.7, 1]] };
+  const FORMATION = { jet: [[0, 0], [-1.5, -1.3], [-1.5, 1.3]], transport: [[0, 0]], tank: [[0, 0], [-1.35, 0], [-2.7, 0]], ship: [[0, 0], [-1.8, 0]] };
+  // A force's legs (land, sea, air) with lengths and time weights, so it can be placed by progress.
+  const LEG_SPEED = { land: 20, sea: 30, air: 600 };
+  function legsOf(paths, vk) {
+    const legs = (paths && paths.length ? paths : []).map(l => {
+      const cum = [0];
+      for (let i = 1; i < l.pts.length; i++) cum.push(cum[i - 1] + d3.geoDistance(l.pts[i - 1], l.pts[i]));
+      return { k: l.k, lift: l.lift, pts: l.pts, cum, len: cum[cum.length - 1] };
+    });
+    legs.forEach(l => (l.w = (l.len * 6371) / LEG_SPEED[l.k] + (l.k === "sea" && legs.length > 1 ? 48 : 0)));
+    const tot = legs.reduce((a, l) => a + l.w, 0) || 1;
+    let acc = 0;
+    legs.forEach(l => { l.a = acc / tot; acc += l.w; l.b = acc / tot; });
+    return legs;
+  }
+  function legAt(legs, p) {
+    const l = legs.find(x => p <= x.b) || legs[legs.length - 1], f = Math.max(0, Math.min(1, (p - l.a) / Math.max(1e-9, l.b - l.a))), dist = f * l.len;
+    let i = 1; while (i < l.cum.length - 1 && l.cum[i] < dist) i++;
+    const seg = l.cum[i] - l.cum[i - 1], t = seg > 0 ? (dist - l.cum[i - 1]) / seg : 0;
+    return { at: d3.geoInterpolate(l.pts[i - 1], l.pts[i])(t), leg: l };
+  }
+  const legVk = (l, fallback) => (l.k === "sea" ? "ship" : l.k === "land" ? "tank" : l.lift ? "transport" : fallback === "transport" ? "transport" : "jet");
+  function buildVeh(g2, vk) {
+    g2.selectAll("g.unit").remove();
+    g2.attr("class", `veh veh-${vk} ${g2.datum().side}`);
+    FORMATION[vk].forEach(() => {
+      const u = g2.append("g").attr("class", "unit");
+      if (vk === "jet" || vk === "transport") u.append("line").attr("class", "contrail");
+      if (vk === "ship") u.append("path").attr("class", "wake");
+      if (vk === "tank") { u.append("circle").attr("class", "dust d1"); u.append("circle").attr("class", "dust d2"); }
+      u.append("path").attr("class", "body").attr("d", VEH[vk]);
+      if (VEH_TOP[vk]) u.append("path").attr("class", "top").attr("d", VEH_TOP[vk]);
+    });
+    g2.node().__vk = vk;
+  }
   function setMovers(list) {
     movers = list;
-    const g = vehLayer.selectAll("g.veh").data(movers, d => d.id).join(enter => {
-      const e = enter.append("g").attr("class", d => `veh veh-${d.vk} ${d.side}`);
-      e.each(function (d) {
-        const g2 = d3.select(this);
-        FORMATION[d.vk].forEach(() => {
-          const u = g2.append("g").attr("class", "unit");
-          if (d.vk === "jet" || d.vk === "transport") u.append("line").attr("class", "contrail");
-          if (d.vk === "ship") { u.append("path").attr("class", "wake"); }
-          if (d.vk === "tank") { u.append("circle").attr("class", "dust d1"); u.append("circle").attr("class", "dust d2"); }
-          u.append("path").attr("class", "body").attr("d", VEH[d.vk]);
-          if (VEH_TOP[d.vk]) u.append("path").attr("class", "top").attr("d", VEH_TOP[d.vk]);
-        });
-      });
-      return e;
-    });
+    movers.forEach(d => { if (!d.legs) d.legs = legsOf(d.paths && d.paths.length ? d.paths : [{ k: d.vk === "ship" ? "sea" : d.vk === "tank" ? "land" : "air", pts: [d.interp(0), d.interp(1)], lift: d.vk === "transport" }], d.vk); });
+    const g = vehLayer.selectAll("g.veh").data(movers, d => d.id).join(enter => enter.append("g").attr("class", d => `veh ${d.side}`));
     g.on("click", (e, d) => { e.stopPropagation(); select(d.go); })
       .on("mousemove", (e, d) => { tip.innerHTML = d.tip; placeTip(e); })
       .on("mouseleave", hideTip);
@@ -494,8 +515,11 @@
     const h = smoothClock(now), size = 7.5 / shrink();
     vehLayer.selectAll("g.veh").each(function (d) {
       const p = Math.max(0, Math.min(1, (h - d.t0) / Math.max(0.01, d.t1 - d.t0)));
-      const at = d.interp(p), ahead = d.interp(Math.min(1, p + 0.004)), behind = d.interp(Math.max(0, p - 0.004));
-      const [x, y] = projection(at), [ax, ay] = projection(p < 0.996 ? ahead : at), [bx, by] = projection(p > 0.004 ? behind : at);
+      const here = legAt(d.legs, p), vk = legVk(here.leg, d.vk);
+      if (this.__vk !== vk) buildVeh(d3.select(this), vk);
+      d = Object.assign({}, d, { vk });
+      const at = here.at, ahead = legAt(d.legs, Math.min(1, p + 0.002)).at, behind = legAt(d.legs, Math.max(0, p - 0.002)).at;
+      const [x, y] = projection(at), [ax, ay] = projection(p < 0.998 ? ahead : at), [bx, by] = projection(p > 0.002 ? behind : at);
       const ang = Math.atan2(ay - by, ax - bx), deg = (ang * 180) / Math.PI;
       const sc = (size / 10) * (d.vk === "transport" ? 1.5 : d.vk === "ship" ? 1.05 : 1);
       d3.select(this).selectAll("g.unit").each(function (_, i) {
@@ -1341,7 +1365,7 @@
     if (!Object.keys(units).length) return { err: "Nothing assigned to this destination." };
     if (leg.target.base) return G.moveQuote(sel.iso, sel.base, leg.target.base.name, units);
     const p = G.preview("b:" + sel.iso + "|" + sel.base, leg.target.country, units, sel.models);
-    return p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: p.route.airRange || (p.route.proj && !p.route.proj.ok) ? G.reachWhy(p.src.nat, leg.target.country, p.route) : "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
+    return p.err ? { err: p.err } : p.empty ? { err: "Your access levels don't let any of these units go yet." } : !p.route.ok ? { err: p.route.noSea ? G.seaWhy(leg.target.country, p.route) : p.route.airRange || (p.route.proj && !p.route.proj.ok) ? G.reachWhy(p.src.nat, leg.target.country, p.route) : "No way to get these ground units there: not enough sealift or airlift." } : { km: p.route.km, hours: p.route.hours, mode: p.route.mode };
   }
   const legDest = (sel, tg) => (tg.base ? tg.base.name : BY[tg.country].name + (G.state.owner[tg.country] === G.state.owner[sel.iso] ? "" : G.owns(tg.country) ? " (attacking you)" : " (invasion)"));
   const legHow = q => (q.err ? `<b class="bad">${esc(q.err)}</b>` : `${Math.round(q.km).toLocaleString("en-US")} km${q.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[q.mode]}` : ""} · arrives in ${G.fmtDur(q.hours)} (${G.clockLabel((G.state.clock || 0) + q.hours)})`);
@@ -2252,9 +2276,9 @@
     drawFronts();
     const s = G.state, P = window.CENTROIDS;
     const moving = s.armies.filter(a => !G.arrived(a) && P[a.from] && P[a.to]);
-    const foes = s.enemies.filter(e => !G.arrived(e) && (!e.vsPlayer || e.detected) && P[e.from] && P[e.to]);
+    const foes = s.enemies.filter(e => !G.arrived(e) && (!e.vsPlayer || e.detected || (e.detectAt != null && (s.clock || 0) >= e.detectAt)) && P[e.from] && P[e.to]);
     armyLayer.selectAll("path").data([...moving, ...foes.map(e => ({ ...e, enemy: true }))]).join("path").attr("class", a => "route" + (a.enemy ? (a.vsPlayer ? " enemy" : " aiwar") : ""))
-      .attr("d", a => path({ type: "LineString", coordinates: [a.fromPt || P[a.from], P[a.to]] }));
+      .attr("d", a => path(a.paths && a.paths.length ? { type: "MultiLineString", coordinates: a.paths.map(l => l.pts) } : { type: "LineString", coordinates: [a.fromPt || P[a.from], P[a.to]] }));
     const marks = [];
     // How far along its route a force is, by the clock (moves continuously in real time).
     const progress = a => {
@@ -2266,9 +2290,11 @@
     // Forces on the move: animated vehicles (see setMovers).
     const span = a => [a.sentH != null ? a.sentH : (a.sent - 1) * 24, a.etaH != null ? a.etaH : (a.eta - 1) * 24];
     setMovers([
-      ...moving.map(a => { const [t0, t1] = span(a); return { id: "a" + a.id, vk: vehKind(a), side: "mine", interp: d3.geoInterpolate(a.fromPt || P[a.from], P[a.to]), t0, t1, go: a.to,
+      ...moving.map(a => { const [t0, t1] = span(a); return { id: "a" + a.id, vk: vehKind(a), side: "mine", paths: a.paths, interp: d3.geoInterpolate(a.fromPt || P[a.from], P[a.to]), t0, t1, go: a.to,
         tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}${modeTxt(a)}, arrives in ${G.etaLeft(a)}</div><div class="k">${esc(G.unitList(a.units))}</div><div class="k">${esc(techLine(a.nat))}</div>` }; }),
-      ...foes.map(e => { const [t0, t1] = span(e); return { id: "e" + e.id, vk: vehKind(e), side: e.vsPlayer ? "enemy" : "aiwar", interp: d3.geoInterpolate(e.fromPt || P[e.from], P[e.to]), t0, t1, go: e.to,
+      ...(s.moves || []).filter(m => m.a && m.b).map(m => ({ id: "m" + m.id, vk: vehKind(m), side: "mine", paths: m.paths, interp: d3.geoInterpolate(m.a, m.b), t0: m.sentH, t1: m.etaH, go: m.iso,
+        tip: `<b>${esc(G.unitList(m.units))}</b><div class="k">${esc(m.from)} → ${esc(m.to)}, arrives in ${G.etaLeft(m)}</div>` })),
+      ...foes.map(e => { const [t0, t1] = span(e); return { id: "e" + e.id, vk: vehKind(e), side: e.vsPlayer ? "enemy" : "aiwar", paths: e.paths, interp: d3.geoInterpolate(e.fromPt || P[e.from], P[e.to]), t0, t1, go: e.to,
         tip: `<b>${name(e.nat)} ${e.vsPlayer ? "attack force" : "invasion force"}</b><div class="k">→ ${name(e.to)}, arrives in ${G.etaLeft(e)}</div><div class="k">${esc(techLine(e.nat))}</div>` }; }),
     ]);
     const seen = new Set();
@@ -2534,14 +2560,13 @@
     ctx.save();
     for (const m of moves) {
       const p = Math.max(0, Math.min(1, ((s.clock || 0) - m.sentH) / Math.max(0.01, m.etaH - m.sentH)));
-      const A = projection(m.a), B = projection(m.b), here = projection(d3.geoInterpolate(m.a, m.b)(p));
+      const legs = legsOf(m.paths && m.paths.length ? m.paths : [{ k: "land", pts: [m.a, m.b] }]), here = projection(legAt(legs, p).at);
       ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = COL.brass;
-      ctx.beginPath(); ctx.moveTo(t.applyX(A[0]), t.applyY(A[1])); ctx.lineTo(t.applyX(B[0]), t.applyY(B[1])); ctx.stroke();
+      ctx.beginPath();
+      legs.forEach(l => l.pts.forEach((q, i) => { const xy = projection(q); i ? ctx.lineTo(t.applyX(xy[0]), t.applyY(xy[1])) : ctx.moveTo(t.applyX(xy[0]), t.applyY(xy[1])); }));
+      ctx.stroke();
       ctx.setLineDash([]);
-      const x = t.applyX(here[0]), y = t.applyY(here[1]), r = 9;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fillStyle = "#0c1316e6"; ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
-      const img = iconImg(armyType(m.units), window.techTier(effGen(m.iso)));
-      if (img.ready) ctx.drawImage(img, x - 7, y - 7, 14, 14);
+      const x = t.applyX(here[0]), y = t.applyY(here[1]);
       if (k >= 4) {
         ctx.font = "600 11px sans-serif"; ctx.textAlign = "left";
         const label = `→ ${m.to} · ${G.etaLeft(m)}`;
@@ -2811,6 +2836,13 @@
       <p class="hint">🏭 At total war: about <b>${num(t.prod * 1000)}</b> drones a year, enough to keep <b>${Math.round(G.droneSustain(c.iso3) * 100)}%</b> of a hard-fought war supplied (with no trade, chip shortages cut it). Stocks: <b>${Math.round(st)} days</b> of hard use. Today's weather ${fly >= 0.9 ? "lets them fly" : fly >= 0.5 ? `grounds ${Math.round((1 - fly) * 100)}% of them` : `grounds almost all of them (${esc(w.label.toLowerCase())})`}.</p>
       <p class="hint">⚔️ Its drones add <b>+${Math.round(G.droneEdge(c.iso3, c.iso3, null) * 100)}%</b> to its strength at home today, cut by the enemy's defences: ${vs.map(v => `vs ${esc(BY[v].name)} (${window.droneTech(v).counter}/10) +${Math.round(G.droneEdge(c.iso3, c.iso3, v) * 100)}%`).join(" · ")}.</p></div>`;
   }
+  // How fast this country would notice an invasion by its strongest neighbour, overland and from the air.
+  function detectLine(c) {
+    const nb = (window.NEIGHBORS[c.iso3] || []).filter(n => BY[n]).sort((a, b) => BY[b].truePower - BY[a].truePower)[0] || "USA";
+    const land = G.detectTime(c.iso3, nb, "land", 72), air = G.detectTime(c.iso3, nb, "air", 3);
+    const t = d => (d.by ? `${G.fmtDur(d.h)} (${esc(d.by)})` : "not before it arrives");
+    return `<p class="hint">👁️ <b>Invasion warning</b>: it would spot a ground invasion by ${esc(BY[nb].name)} (3 days' march) after ${t(land)}, and an air strike (3 hours out) after ${t(air)}${land.shared ? ", with warnings shared by its allies" : ""}. Spy networks, satellites, radar, connected civilians and good intelligence all shorten this; the attacker's counter-intelligence lengthens it.</p>`;
+  }
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
     const t = G.allianceTerms(c.iso3);
@@ -2879,6 +2911,8 @@
       const w = G.weather(c.iso3), n = G.nightInfo(c.iso3);
       vs += ` ${w.type !== "clear" ? `${w.icon} ${w.label}, ${w.temp}°C · ` : ""}${window.moonIcon(n.moon)} ${Math.round(n.dark)}h of darkness in ${c.name} today: this army fights ×${G.weatherMix(p.units, p.src.nat, c.iso3).toFixed(2)}, its defenders ×${G.weatherMix(G.forces(c.iso3), c.iso3, c.iso3).toFixed(2)}.`;
       vs += ` 🛸 Drones: yours +${Math.round(G.droneEdge(p.src.nat, c.iso3, c.iso3) * 100)}%, theirs +${Math.round(G.droneEdge(c.iso3, c.iso3, p.src.nat) * 100)}%.`;
+      if (p.route && p.route.ok) { const dt = G.detectTime(c.iso3, p.src.nat, p.route.mode, p.route.hours);
+        vs += dt.by ? ` 👁️ ${c.name} would notice this force after about ${G.fmtDur(dt.h)} (of ${G.fmtDur(p.route.hours)} under way), through ${dt.by}.` : ` 👁️ ${c.name} wouldn't notice this force before it lands: a surprise attack (its defenders fight at ×0.85 in the first round).`; }
     }
     if (p.subs != null && p.subs < 0.995) vs += ` 🌊 ${c.name}'s ${num(G.forces(c.iso3).subs || 0)} submarines hunt your fleet at sea: ×${p.subs.toFixed(2)} (more warships, submarines and helicopters in the army protect it).`;
     if (c.missileTotal && !G.owns(c.iso3)) vs += ` 🚀 It will fire ~${num(Math.round((G.missileStock(c.iso3).bm + G.missileStock(c.iso3).cm) * 0.04))} missiles a day at you.`;
@@ -3098,6 +3132,7 @@
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) .</p>
         <p class="hint">🚚 <b>Logistics ${ms.logistics}/10</b>: invading, its armies keep ${Math.round(100 * (1 - (10 - ms.logistics) / 10 * 0.4 * 0.35))}% of their strength 1,000 km away overland and ${Math.round(100 * Math.max(0.45, 1 - (10 - ms.logistics) / 10 * 0.5))}% across 9,000 km of sea (less in harsh terrain); they travel ×${G.travelMult(c.iso3).toFixed(2)} as long as perfect logistics would take, and ${Math.round((0.4 + 0.06 * ms.logistics) * 100)}% of the usual share of its transport fleet is free for an airlift.${c.iso3 === "USA" ? " The strongest in the world: strategic airlift and sealift, tankers, prepositioned stocks and bases on every continent." : ""}</p>
+        ${detectLine(c)}
         <p class="hint">📡 <b>Radar coverage ${Math.round(G.radarInfo(c.iso3).cov * 100)}%</b> (${G.radarInfo(c.iso3).sites} of the ${G.radarInfo(c.iso3).need} sites it needs${G.radarInfo(c.iso3).ew ? `, including ${G.radarInfo(c.iso3).ew} strategic early-warning radar${G.radarInfo(c.iso3).ew > 1 ? "s" : ""}` : ""}): its air defence works at ${(G.effectiveAD(c.iso3)).toFixed(1)}/10 against incoming missiles (rating ${c.missiles.ad}), and coverage helps spot attacks as they launch.</p>
         <p class="hint">🌍 <b>Power projection ${num(Math.round(G.reachOf(c.iso3)))} km</b>: it can land and supply an army across the sea or by air only that far from its nearest staging point (home, conquered or allied land, treaty partners, its bases abroad)${window.REACH_KM[c.iso3] ? ` · ${esc(window.REACH_KM[c.iso3][1])}` : ""}. Fighters need a base within 2,500 km and helicopters 1,000 km unless a carrier sails with them.</p>
         <p class="hint">🛡️ Base fortification <b>${window.nationFort(c.iso3).toFixed(1)}/10</b> (${esc(window.fortLabel(Math.round(window.nationFort(c.iso3))).toLowerCase())}): ${G.fortMult(c.iso3) >= 1 ? "+" : ""}${Math.round((G.fortMult(c.iso3) - 1) * 100)}% defence.</p>
