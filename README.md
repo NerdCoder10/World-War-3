@@ -627,6 +627,39 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     | Major base | 8,000 | 90 |
 
     Better logistics build faster, and the log reports when the port opens. Every base card shows its port, berths in use and whether carriers can dock.
+- **Air forces, artillery and air defence, by model** (`js/airspecs.js`).
+  - **Aircraft specs:** every fighter, attack jet and bomber has researched specs (role, generation, combat radius, payload, top speed, air-to-air and air-to-ground ratings, rounded public figures) for about 70 types, from the F-22, F-35, Su-57 and J-20 down to MiG-21s, F-5s and Super Tucanos, plus the B-52, B-1, B-2, Tu-95, Tu-160, Tu-22M3 and H-6.
+  - **Air profiles:** each air force gets a count-weighted profile. Examples of air-to-air ratings: US 7.7, Israel 8.0, China 6.9, Russia 5.8, North Korea 2.5. The profile also covers the strike and close-air-support share and jet reach: combat radius, ×2.2 for air forces with aerial refuelling, ×1.2 without. That reach now limits how far fighters can strike from a base.
+  - **Artillery:** each army's guns and rockets have range and precision, from HIMARS (80 km, guided) and PzH 2000 (40 km) to D-30s (15 km).
+  - **Air defence:** the air-defence rating, battery count and systems are shown in every dossier.
+  - **In every battle**, four contests shift the day's odds:
+    - the air superiority contest (air-to-air ratings, with the defender's radar ×1.2 at home);
+    - the defender's air defence against the attacker's aircraft (−4% of the air share per point);
+    - close air support against a ground-heavy defender;
+    - the artillery duel (longer range and precision win counter-battery fire).
+  - **Plane audit:** the fighter and aircraft mixes were checked against public inventories. US bombers were fixed from 520 to 140 (76 B-52H, 45 B-1B, 19 B-2A), along with Russia's (about 130), China's H-6 (about 230) and North Korea's Il-28/H-5 (about 80). Every model mix splits exactly into each country's totals, and every country's planes, ships and vehicles at its bases add up exactly to its national totals.
+  - **Base audit:** all 15,409 bases were checked for missing, negative or impossible values. Ships are no longer placed at inland bases unless they are named river or lake flotillas. Carriers deployed at sea now belong to their fleet's main base: the USS Ford's air wing had landed on an Army Reserve centre in Puerto Rico.
+- **Surrender.** A country losing badly to a far stronger enemy may capitulate rather than fight to the end.
+  - **Diehards never surrender:** countries with patriotism 9–10 (Ukraine, Israel, Finland, North Korea, Vietnam, the Baltic states, Armenia, Azerbaijan, Georgia, Eritrea...) or a people's-war or fortress doctrine fight until conquered.
+  - **Everyone else weighs will against pressure.**
+    - Will: 40 + 4 × patriotism, +15 with treaty allies coming, more against a hated invader.
+    - Pressure: 25 × log2 of the power ratio + 70 × the war's progress + 0.3 a day.
+    - It surrenders when the pressure beats its will, the enemy is at least 3× stronger and its defences are 30% broken.
+  - **Afterwards:** a surrendered country passes to the victor with 60% of its forces and is less resentful than a conquered one. Dossiers say whether a country is diehard.
+- **Real supply methods.** Each military's logistics now follows how it really works, with the reason shown:
+  - US TRANSCOM, sealift and pre-positioned stocks;
+  - Russia's railway troops, with supply collapsing beyond the railheads;
+  - China's Joint Logistic Support Force;
+  - Turkey's own logistics command;
+  - Ukraine's railways fed through Poland and Romania;
+  - the Bundeswehr's spare-parts shortfalls;
+  - Saudi Arabia's contractor dependence, and more.
+  - More countries now have an explicit doctrine.
+- **Battle scenes.** *Watch the battle*, on any country being fought over, opens a side-on view of the day's fighting.
+  - **Icons:** each one is one unit of its kind: a tank, armoured vehicle, gun, infantry squad, jet, helicopter or anti-aircraft launcher. The legend says how many real units it stands for.
+  - **The action:** artillery fires arcing shells, anti-aircraft guns and missiles fire at aircraft, jets make strafing passes, and icons are knocked out in proportion to the day's real losses.
+  - **The setting:** the ground follows the country's terrain and weather, and the sky its day or night.
+  - **The summary:** it gives the odds and the air, air-defence and artillery contests.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.
