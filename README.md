@@ -541,6 +541,20 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Assessed sites:** about 880 assessed radar stations fill each network where radars most likely are: beside air-defence sites and air bases (control and reporting centres), facing a rival's border, and spread to cover the country, at least 150 km apart and about 5 km from the base they serve. Germany's sit from Berlin to Helgoland; the US network runs from Key West to Colorado Springs.
     - **On the map:** bases list their air-surveillance or strategic early-warning radar.
     - **In the game:** air defence works at 60% of its rating with no radar network and in full with complete coverage. Strategic early-warning radars add half a point against incoming missiles. Coverage also helps spot attacks as they launch. Each dossier shows the country's coverage.
+  - **Sites fall in war: captured and destroyed.** Every home site (base, air and naval base, missile, air-defence and radar site) can be lost during a war.
+    - **Captured:** ground advances take sites front-first, nearest where the invaders came from, in step with the war's progress (up to 85% of a country's sites). Captured sites show red rings.
+    - **Destroyed:** missile hits destroy sites. Radars and air defences go first, then missile sites, air bases, naval bases and the rest, as real campaigns open by blinding the enemy. It takes one site per 40 hits, at most two a day per country, because sites are hardened and dispersed and many missiles go at cities. Destroyed sites show grey crosses.
+    - **Strike orders:** in a war, any enemy site's card has a *Strike this site* button. It fires your missiles against the site's air defence: radars take 2 hits, air-defence and missile sites 4, air and naval bases 6.
+    - **What a lost site costs its owner:**
+      - aircraft and ships lose the bases they fly and sail from (down to 40% of their strength);
+      - air defence loses its batteries (down to 40%);
+      - the missile force loses its launchers (fire rate down to 30%);
+      - radar coverage drops with each lost radar.
+      - The units at a lost site move to the bases still standing.
+    - **Recovery:** destroyed sites are rebuilt 20 days after the owner's wars end, or 45 days if it's still fighting. Captured sites return when the invaders leave, or pass to the conqueror with the country. The dossier tags every lost site, and its card says who took it and when.
+- **Forces on the move are animated.**
+  - **What they look like:** jets fly in a three-ship V trailing contrails, airlifts show heavy transports, tank columns roll along with track bounce and dust, and ships sail in pairs with wakes. All are drawn as simple top-down silhouettes in their side's colour (yours brass, attackers red, other wars purple).
+  - **How they move:** each faces its heading and moves every frame between clock ticks, so movement is smooth rather than jumping once a second. Hover for the force's details, or click to open its target.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.

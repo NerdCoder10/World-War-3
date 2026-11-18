@@ -568,3 +568,22 @@ details.bloc .rank-ctl select { min-width: 0; width: 0; }
 .tabs button { letter-spacing: .03em; font-size: 12px; }
 .spyops { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px 28px; }
 .spyops .btn { width: auto; flex: 0 1 auto; margin: 0; padding: 4px 8px; font-size: 12px; }
+/* Sites lost in war */
+circle.garrison.destroyed { stroke: #8a8f94 !important; fill: #2a2f33cc !important; stroke-dasharray: 2 2; }
+circle.garrison.captured { stroke: #e2654f !important; stroke-width: 2.5; }
+.bc-strike { display: block; width: 100%; margin: 6px 0; padding: 7px 10px; background: #e2654f22; border: 1px solid #e2654f; color: var(--fg); border-radius: 4px; cursor: pointer; font-weight: 600; }
+.bc-strike:disabled { opacity: .5; cursor: not-allowed; }
+.bc-strike small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+/* Moving forces */
+.veh-layer { pointer-events: none; }
+.veh { pointer-events: all; cursor: pointer; }
+.veh .body { stroke: #0b1012; stroke-width: 0.9; vector-effect: non-scaling-stroke; fill: #f0c66a; }
+.veh.enemy .body { fill: #e2654f; }
+.veh.aiwar .body { fill: #c79bf2; }
+.veh-tank .body { fill-rule: nonzero; }
+.veh .contrail { stroke: #ffffff; stroke-opacity: .38; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.veh .wake { stroke: #dff3ff; stroke-opacity: .45; stroke-width: 1.2; fill: none; vector-effect: non-scaling-stroke; }
+.veh .dust { fill: #b49a74; opacity: .28; }
+.veh .top { fill: #8a6a2c; stroke: #0b1012; stroke-width: 0.7; vector-effect: non-scaling-stroke; }
+.veh.enemy .top { fill: #8c3020; }
+.veh.aiwar .top { fill: #6e4a94; }
