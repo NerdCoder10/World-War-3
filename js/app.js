@@ -129,6 +129,17 @@
   // off that base, so the base that sent them is the one that's emptier.
   function computeDeployment(iso) {
     const zones = deploymentFor(iso), c = BY[iso];
+    // Sites destroyed or captured in war hold nothing: their share moves to the bases still standing.
+    if (G.state.sites) {
+      let any = false;
+      zones.forEach(z => { z.lost = z.host || z.patrol ? null : G.siteStatus(iso, z.name); if (z.lost) any = true; });
+      if (any) ["groundPct", "airPct", "navalPct"].forEach(key => {
+        const before = zones.reduce((a, z) => a + (z[key] || 0), 0);
+        zones.forEach(z => { if (z.lost) z[key] = 0; });
+        const after = zones.reduce((a, z) => a + (z[key] || 0), 0);
+        if (after > 0 && before > 0) zones.forEach(z => (z[key] = (z[key] || 0) * (before / after)));
+      });
+    }
     const live = G.state.forces[iso];
     const totals = live ? { ...live } : G.baseForces(c);
     const out = (G.state.baseOut || {})[iso] || {};
@@ -191,14 +202,14 @@
     // Missile launchers and air-defence batteries sit at the missile and air-defence sites (by name),
     // shared out evenly, larger shares to the known (not assessed) sites.
     [["launchers", window.LAUNCHERS(c)], ["adb", window.AD_BATTERIES(c)]].forEach(([key, n]) => {
-      const sites = zones.filter(z => !z.host && window.isStratSite(iso, z, key));
+      const sites = zones.filter(z => !z.host && !z.lost && window.isStratSite(iso, z, key));
       if (!n || !sites.length) return;
       const w = sites.map(z => (/assessed/.test(z.note) ? 1 : 2)), tw = w.reduce((a, b) => a + b, 0);
       let left = n;
       sites.forEach((z, i) => { const v = i === sites.length - 1 ? left : Math.round((n * w[i]) / tw); z.kit[key] = Math.max(0, Math.min(left, v)); left -= z.kit[key]; });
     });
     // Radar stations: one air-surveillance radar each, or a strategic early-warning radar.
-    zones.forEach(z => { if (!z.host && window.isRadarSite(z)) z.kit[window.isEarlyWarning(z) ? "ewr" : "radar"] = 1; });
+    zones.forEach(z => { if (!z.host && !z.lost && window.isRadarSite(z)) z.kit[window.isEarlyWarning(z) ? "ewr" : "radar"] = 1; });
     return zones;
   }
   // Whole units in proportion to weights, adding up to n (largest remainder).
@@ -425,6 +436,87 @@
     .on("mouseleave", hideTip);
   const deployLayer = root.append("g").attr("class", "deploy-layer");
   const armyLayer = root.append("g").attr("class", "army-layer");
+  let lastTickAnim = performance.now();
+  // ── Moving forces, animated ──
+  // Forces on the move are drawn as what they are: jets in a three-ship V trailing contrails,
+  // transports for an airlift, tank columns bouncing along with dust, ships in pairs with wakes.
+  // Each faces its heading and moves every frame between clock ticks.
+  const VEH = {
+    jet: "M10,0 L3,-1.5 L-1,-8.5 L-3.2,-8.5 L-1.6,-1.6 L-6.5,-1.4 L-8.6,-4.4 L-9.8,-4.4 L-9,0 L-9.8,4.4 L-8.6,4.4 L-6.5,1.4 L-1.6,1.6 L-3.2,8.5 L-1,8.5 L3,1.5 Z",
+    transport: "M9.5,0 C9.5,-1.6 8,-2 6,-2 L1.5,-2 L0.4,-11 L-1.6,-11 L-1.8,-2 L-6.8,-1.7 L-8.8,-5.2 L-10.2,-5.2 L-9.4,0 L-10.2,5.2 L-8.8,5.2 L-6.8,1.7 L-1.8,2 L-1.6,11 L0.4,11 L1.5,2 L6,2 C8,2 9.5,1.6 9.5,0 Z M-0.2,-7 h1.6 v1.4 h-1.6 Z M-0.4,-4.2 h1.6 v1.4 h-1.6 Z M-0.4,2.8 h1.6 v1.4 h-1.6 Z M-0.2,5.6 h1.6 v1.4 h-1.6 Z",
+    tank: "M-8,-5.6 h15.6 v2.6 h-15.6 Z M-8,3 h15.6 v2.6 h-15.6 Z M-7.2,-3.2 h13.8 v6.4 h-13.8 Z",
+    ship: "M11,0 L6.5,-2.8 L-8.6,-2.8 L-10,-1.6 L-10,1.6 L-8.6,2.8 L6.5,2.8 Z",
+  };
+  // Second layer, drawn darker on top: the tank's turret and gun, the ship's superstructure and gun.
+  const VEH_TOP = {
+    tank: "M-1.2,-0.7 h11 v1.4 h-11 Z M-4.4,-2.7 h5.6 a2.7,2.7 0 0,1 0,5.4 h-5.6 Z",
+    ship: "M-6.5,-1.5 h7 v3 h-7 Z M-3.4,-0.8 h1.8 v1.6 h-1.8 Z M3.2,0 a1.1,1.1 0 1,0 2.2,0 a1.1,1.1 0 1,0 -2.2,0 Z M5.4,-0.25 h3 v0.5 h-3 Z",
+  };
+  const vehLayer = root.append("g").attr("class", "veh-layer");
+  let movers = [], vehFrame = 0;
+  // Which vehicles a force shows.
+  function vehKind(f) {
+    if (f.mode === "airlift") return "transport";
+    const u = f.units || {}, air = (u.fighters || 0) + (u.aircraft || 0) + (u.helis || 0), sea = (u.ships || 0) + (u.subs || 0) + (u.carriers || 0);
+    const land = (u.tanks || 0) + (u.afv || 0) + (u.arty || 0) + (u.troops || 0) * 10;
+    if (f.mode === "air" || (air > 0 && !land && !sea)) return "jet";
+    if (f.mode === "sea" || f.sea || (sea > 0 && !land)) return "ship";
+    return "tank";
+  }
+  // Formation offsets in the vehicle's own frame (x forward, y right), in vehicle lengths.
+  const FORMATION = { jet: [[0, 0], [-1.5, -1.3], [-1.5, 1.3]], transport: [[0, 0]], tank: [[0, 0], [-1.35, 0], [-2.7, 0]], ship: [[0, 0], [-1.7, 1]] };
+  function setMovers(list) {
+    movers = list;
+    const g = vehLayer.selectAll("g.veh").data(movers, d => d.id).join(enter => {
+      const e = enter.append("g").attr("class", d => `veh veh-${d.vk} ${d.side}`);
+      e.each(function (d) {
+        const g2 = d3.select(this);
+        FORMATION[d.vk].forEach(() => {
+          const u = g2.append("g").attr("class", "unit");
+          if (d.vk === "jet" || d.vk === "transport") u.append("line").attr("class", "contrail");
+          if (d.vk === "ship") { u.append("path").attr("class", "wake"); }
+          if (d.vk === "tank") { u.append("circle").attr("class", "dust d1"); u.append("circle").attr("class", "dust d2"); }
+          u.append("path").attr("class", "body").attr("d", VEH[d.vk]);
+          if (VEH_TOP[d.vk]) u.append("path").attr("class", "top").attr("d", VEH_TOP[d.vk]);
+        });
+      });
+      return e;
+    });
+    g.on("click", (e, d) => { e.stopPropagation(); select(d.go); })
+      .on("mousemove", (e, d) => { tip.innerHTML = d.tip; placeTip(e); })
+      .on("mouseleave", hideTip);
+    if (movers.length && !vehFrame) vehFrame = requestAnimationFrame(animateForces);
+    placeMovers(performance.now());
+  }
+  // The clock between ticks: game hours move on smoothly in real time.
+  const smoothClock = now => (G.state.clock || 0) + (!G.state.player || G.state.paused || G.state.over || document.hidden ? 0 : Math.min(1000, now - lastTickAnim) / 30000);
+  function placeMovers(now) {
+    const h = smoothClock(now), size = 7.5 / shrink();
+    vehLayer.selectAll("g.veh").each(function (d) {
+      const p = Math.max(0, Math.min(1, (h - d.t0) / Math.max(0.01, d.t1 - d.t0)));
+      const at = d.interp(p), ahead = d.interp(Math.min(1, p + 0.004)), behind = d.interp(Math.max(0, p - 0.004));
+      const [x, y] = projection(at), [ax, ay] = projection(p < 0.996 ? ahead : at), [bx, by] = projection(p > 0.004 ? behind : at);
+      const ang = Math.atan2(ay - by, ax - bx), deg = (ang * 180) / Math.PI;
+      const sc = (size / 10) * (d.vk === "transport" ? 1.5 : d.vk === "ship" ? 1.05 : 1);
+      d3.select(this).selectAll("g.unit").each(function (_, i) {
+        const [fx, fy] = FORMATION[d.vk][i], L = 20 * sc;
+        const ox = x + (fx * Math.cos(ang) - fy * Math.sin(ang)) * L, oy = y + (fx * Math.sin(ang) + fy * Math.cos(ang)) * L;
+        // Tanks bounce gently on their tracks; aircraft drift a touch in formation.
+        const wob = d.vk === "tank" ? Math.sin(now / 90 + i * 1.7) * 0.35 : d.vk === "jet" ? Math.sin(now / 700 + i) * 0.6 : 0;
+        const u = d3.select(this).attr("transform", `translate(${ox},${oy}) rotate(${deg}) scale(${sc}) translate(0,${wob})`);
+        u.select("line.contrail").attr("x1", -9).attr("y1", 0).attr("x2", -9 - 38 * Math.min(1, p * 8)).attr("y2", 0);
+        u.select("path.wake").attr("d", `M-10,-2.4 L-26,-7 M-10,2.4 L-26,7`);
+        u.select("circle.d1").attr("cx", -10 - ((now / 30 + i * 13) % 8)).attr("cy", -3.5).attr("r", 1.6 + ((now / 30 + i * 13) % 8) / 4);
+        u.select("circle.d2").attr("cx", -10 - ((now / 30 + i * 13 + 4) % 8)).attr("cy", 3.5).attr("r", 1.6 + ((now / 30 + i * 13 + 4) % 8) / 4);
+      });
+    });
+  }
+  function animateForces(now) {
+    vehFrame = 0;
+    if (!movers.length) return;
+    placeMovers(now);
+    vehFrame = requestAnimationFrame(animateForces);
+  }
   const fleetLayer = root.append("g").attr("class", "fleet-layer");
   const frontLayer = root.insert("g", ".army-layer").attr("class", "front-layer");
   const satLayer = root.append("g").attr("class", "sat-layer");
@@ -571,7 +663,7 @@
     // Unit rings are built for the selected country now, and for other bases when first seen up close.
     g.select("g.kits").each(function (z) { if (this.__for === z) return; this.__for = z; this.__built = false; d3.select(this).selectAll("*").remove(); if (z.iso === selected) buildKits(this, z); });
     g.select("circle")
-      .attr("class", z => "garrison" + (z.navalPct > z.groundPct || z.patrol ? " naval" : "") + (z.host || z.patrol ? " abroad" : ""))
+      .attr("class", z => "garrison" + (z.navalPct > z.groundPct || z.patrol ? " naval" : "") + (z.host || z.patrol ? " abroad" : "") + (z.lost ? (z.lost.st === "x" ? " destroyed" : " captured") : ""))
       .classed("picked", isPicked)
       .on("mousemove", (e, z) => zoneTip(e, z))
       .on("mouseleave", hideTip)
@@ -684,8 +776,15 @@
         ctx.fill();
         ctx.lineWidth = picked ? 3 : own ? 1.4 : 1;
         ctx.setLineDash((z.host || z.patrol) && !picked ? [3, 2] : []);
-        ctx.strokeStyle = picked ? "#fff" : naval ? COL.teal : COL.brass;
+        ctx.strokeStyle = picked ? "#fff" : z.lost ? (z.lost.st === "x" ? "#8a8f94" : "#e2654f") : naval ? COL.teal : COL.brass;
         ctx.stroke();
+        if (z.lost && z.lost.st === "x") { // destroyed: a grey cross
+          const q = Math.max(2, r * 0.6);
+          ctx.globalAlpha = 0.9; ctx.strokeStyle = "#c9cdd1"; ctx.lineWidth = Math.max(1.2, r * 0.18);
+          ctx.beginPath(); ctx.moveTo(sx - q, sy - q); ctx.lineTo(sx + q, sy + q); ctx.moveTo(sx + q, sy - q); ctx.lineTo(sx - q, sy + q); ctx.stroke();
+          baseDrawn.push({ z, sx, sy, r });
+          continue;
+        }
         if (own || k >= 4) {
           const tier = window.techTier(effGen(z.iso)), img = iconImg(zoneType(BY[z.iso], z), tier), ir = iconR(r / k) * k;
           if (img.ready) {
@@ -2164,10 +2263,14 @@
     };
     const name = iso => esc(BY[iso].name);
     const modeTxt = a => (a.mode ? ` by ${{ land: "road", sea: "sea", air: "air", airlift: "airlift" }[a.mode]}` : "");
-    moving.forEach(a => marks.push({ at: d3.geoInterpolate(a.fromPt || P[a.from], P[a.to])(progress(a)), kind: "move", type: armyType(a.units), nat: a.nat, go: a.to, live: a,
-      tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}${modeTxt(a)}, arrives in ${G.etaLeft(a)}</div><div class="k">${esc(G.unitList(a.units))}</div>` }));
-    foes.forEach(e => marks.push({ at: d3.geoInterpolate(e.fromPt || P[e.from], P[e.to])(progress(e)), kind: e.vsPlayer ? "attack" : "aiwar", type: armyType(e.units), nat: e.nat, go: e.to, live: e,
-      tip: `<b>${name(e.nat)} ${e.vsPlayer ? "attack force" : "invasion force"}</b><div class="k">→ ${name(e.to)}, arrives in ${G.etaLeft(e)}</div>` }));
+    // Forces on the move: animated vehicles (see setMovers).
+    const span = a => [a.sentH != null ? a.sentH : (a.sent - 1) * 24, a.etaH != null ? a.etaH : (a.eta - 1) * 24];
+    setMovers([
+      ...moving.map(a => { const [t0, t1] = span(a); return { id: "a" + a.id, vk: vehKind(a), side: "mine", interp: d3.geoInterpolate(a.fromPt || P[a.from], P[a.to]), t0, t1, go: a.to,
+        tip: `<b>Army ${a.id}</b><div class="k">${name(a.nat)} units → ${name(a.to)}${modeTxt(a)}, arrives in ${G.etaLeft(a)}</div><div class="k">${esc(G.unitList(a.units))}</div><div class="k">${esc(techLine(a.nat))}</div>` }; }),
+      ...foes.map(e => { const [t0, t1] = span(e); return { id: "e" + e.id, vk: vehKind(e), side: e.vsPlayer ? "enemy" : "aiwar", interp: d3.geoInterpolate(e.fromPt || P[e.from], P[e.to]), t0, t1, go: e.to,
+        tip: `<b>${name(e.nat)} ${e.vsPlayer ? "attack force" : "invasion force"}</b><div class="k">→ ${name(e.to)}, arrives in ${G.etaLeft(e)}</div><div class="k">${esc(techLine(e.nat))}</div>` }; }),
+    ]);
     const seen = new Set();
     s.armies.filter(G.arrived).forEach(a => {
       const kind = !G.owns(a.to) ? "war" : G.inRevolt(a.to) ? "revolt" : a.to === a.nat ? null : "station";
@@ -2193,6 +2296,7 @@
     placeArmies();
   }
   function placeArmies() {
+    placeMovers(performance.now());
     const r = 7 / shrink(), ir = r * 1.7;
     armyLayer.selectAll("g.army").each(function (d) {
       let [x, y] = projection(d.at);
@@ -2359,9 +2463,10 @@
       .concat(KIT.map(([k, one, many]) => countOf(z.kit[k] || 0, one, many)), [countOf(z.kit.launchers || 0, "missile launcher", "missile launchers"), countOf(z.kit.adb || 0, "air-defence battery", "air-defence batteries"), z.kit.radar ? "air-surveillance radar" : "", z.kit.ewr ? "strategic early-warning radar" : ""]).filter(Boolean);
   }
   // Hover details for a base / garrison circle.
+  const lostLine = z => (z.lost ? `${z.lost.st === "x" ? "💥 Destroyed" : "🚩 Captured"} on day ${z.lost.t} by ${z.lost.by === G.state.player ? "your forces" : esc(BY[z.lost.by].name)}${z.lost.st === "x" ? ": rebuilt 20 days after its owner's wars end (45 if still fighting)" : ": returned when the invaders leave"}.` : "");
   function zoneTip(e, z) {
     const iso = z.iso || selected, c = BY[iso], host = hostLabel(z);
-    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div><div class="tipnote">${esc(z.note)}</div><div class="k">🛡️ Fortification ${fortOf(iso, z)}/10 · ${esc(window.fortLabel(fortOf(iso, z)))}</div><div class="k">Click for details${G.canCommand(iso) ? " · select its units to move them" : ""}</div>`;
+    tip.innerHTML = `<b>${esc(z.name)}</b>${iso !== selected ? `<div class="k">${esc(c.name)}${z.host ? " · forces abroad" : ""}</div>` : ""}${host ? `<div class="k">${esc(host)}</div>` : ""}<div class="k">${esc(zoneStats(c, z).join(" · "))}</div><div class="k">${esc(techLine(iso))}</div>${z.lost ? `<div class="k bad">${lostLine(z)}</div>` : ""}<div class="tipnote">${esc(z.note)}</div><div class="k">🛡️ Fortification ${fortOf(iso, z)}/10 · ${esc(window.fortLabel(fortOf(iso, z)))}</div><div class="k">Click for details${G.canCommand(iso) ? " · select its units to move them" : ""}</div>`;
     placeTip(e);
   }
   // Weapon models behind a set of unit counts, one line per kind, with its icon.
@@ -2373,6 +2478,15 @@
       return `<div class="mline">${icon}<span>${body}</span></div>`;
     }).join("");
   }
+  // A strike order on an enemy site: missiles needed against its air defence.
+  function strikeHtml(iso, z) {
+    if (!G.state.player || G.owns(iso) || z.lost || z.host || z.patrol) return "";
+    if (!G.atWarWith(iso)) return `<p class="hint">💥 At war with ${esc(BY[G.state.owner[iso]].name)}, you could strike this site with missiles.</p>`;
+    const q = G.strikeQuote(iso, z.name);
+    if (q.err) return "";
+    return `<button class="bc-strike" ${q.have < q.fire ? "disabled" : ""}>💥 Strike this site <small>${q.fire} missiles · ${Math.floor(q.have)} left</small></button>
+      <p class="hint">Its air defence stops ${Math.round((1 - q.leak) * 100)}% of missiles; destroying it takes ${q.need} hits. Radars and air-defence sites first blind the enemy; air and naval bases ground its aircraft and ships.</p>`;
+  }
   // Clicking a base pins its card on the map and highlights it in the dossier list.
   function pickZone(z, fly) {
     pickedZone = z.name;
@@ -2383,7 +2497,8 @@
       <div class="bc-kind">${z.host ? "Forces abroad" : "Home base"} · ${esc(c.name)}</div>
       <h4>${esc(z.name)}</h4>${host ? `<span class="tag">${esc(host)}</span>` : ""}
       <dl>${zoneStats(c, z).map(t => { const [n, ...rest] = t.split(" "); return `<div><dd>${n}</dd><dt>${rest.join(" ")}</dt></div>`; }).join("")}</dl>
-      <p>${esc(z.note)}</p>
+      ${z.lost ? `<p class="bad">${lostLine(z)}</p>` : ""}<p>${esc(z.note)}</p>
+      ${strikeHtml(c.iso3, z)}
       <p class="fortline">🛡️ Fortification <b>${fortOf(c.iso3, z)}/10</b> · ${esc(window.fortLabel(fortOf(c.iso3, z)))} <small>(fixed)</small></p>
       <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
       ${G.canCommand(c.iso3) ? `<p class="hint">Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
@@ -2394,6 +2509,8 @@
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, baseK());
     const bp = baseCard.querySelector(".bc-play");
     if (bp) bp.onclick = ev => { ev.preventDefault(); const err = G.choose(c.iso3); if (err) return toast(err); toast(`You now command ${c.name}. Drag its units, or a whole base marker, to move them.`); drawDeploy(); refresh(); pickZone(z, false); };
+    const bk = baseCard.querySelector(".bc-strike");
+    if (bk) bk.onclick = () => { const err = G.strikeSite(c.iso3, z.name); if (err) return toast(err); toast(G.state.log[0].msg); drawDeploy(); refresh(); const nz = myBases.find(x => x.name === z.name); if (nz) pickZone(nz, false); };
     const bs = baseCard.querySelector(".bc-sel");
     if (bs) bs.onclick = () => selectAllAt(c.iso3, z.name);
     if (fly) flyTo(z.at, baseK());
@@ -2927,7 +3044,7 @@
     const shareTxt = p => (p >= 0.995 ? "100%" : p >= 0.01 ? Math.round(p * 100) + "%" : "<1%");
     const zoneLi = z => `<li data-zone="${esc(z.name)}" tabindex="0" title="Show on map">
           <div class="z-h"><b>${esc(z.name)}</b><span>${z.groundPct > 0 ? shareTxt(z.groundPct) + " of troops" : z.navalPct > 0 ? shareTxt(z.navalPct) + " of navy" : shareTxt(z.airPct) + " of aircraft"}</span></div>
-          ${z.host ? `<span class="tag">${esc(hostName(z.host))}</span>` : ""}
+          ${z.host ? `<span class="tag">${esc(hostName(z.host))}</span>` : ""}${z.lost ? `<span class="tag warn">${z.lost.st === "x" ? "💥 destroyed" : "🚩 captured"}</span>` : ""}
           <div class="z-bar"><i style="width:${(Math.max(z.groundPct, z.navalPct, z.airPct) / maxShare) * 100}%;background:${z.navalPct > z.groundPct ? COL.teal : COL.brass}"></i></div>
           <div class="z-stats">${zoneStats(c, z).join(" · ")}</div>
           <p class="z-note">${esc(z.note)}</p></li>`;
@@ -3357,7 +3474,7 @@
   let lastTick = performance.now();
   setInterval(() => {
     const now = performance.now(), dt = Math.min(5000, now - lastTick);
-    lastTick = now;
+    lastTick = now; lastTickAnim = now;
     if (document.hidden) return; // the clock stops while the tab is in the background
     const r = G.tick(dt);
     clockChip();

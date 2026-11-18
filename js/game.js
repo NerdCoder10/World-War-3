@@ -397,25 +397,152 @@
   // One day's salvo from countries fighting together, against `targetIso`'s air defence: each fires
   // 4% of each stock (at least 5 if it has any). Hits = fired × (1 − 0.08 × air defence); a ballistic
   // hit is worth 2.5 combat power, a cruise missile 1.5.
+  // ── Sites in war: captured and destroyed ──
+  // Every home site (base, air and naval base, missile, air-defence and radar site) can fall during a
+  // war. Ground advances capture sites front-first (nearest the invaders' starting point) in step
+  // with the war's progress; missile hits destroy them, radars and air defences first, as real
+  // campaigns open by blinding the enemy (one site per 40 hits, at most two a day: sites are hardened and dispersed, and many missiles go at cities); and you can strike any site of
+  // a country you're at war with. Losing sites costs the owner: aircraft and ships lose the bases
+  // they fly and sail from, air defence its batteries and radars, the missile force its launchers.
+  // Destroyed sites are rebuilt 20 days after the owner's wars end (45 days if still fighting); captured ones return when the
+  // invaders leave, and pass to the conqueror with the country.
+  // s.sites["ISO|name"] = { st: "x" (destroyed) | "c" (captured), by, t }
+  const siteListMemo = {};
+  function siteList(iso) {
+    if (siteListMemo[iso]) return siteListMemo[iso];
+    const isAD = z => window.AD_SITE_RX.test(z.name) || /^Air-defence site/.test(z.note || "");
+    const isMis = z => (window.MISSILE_SITE_RX.test(z.name) || /^Missile (base|brigade)/.test(z.note || "")) && !window.AD_SITE_RX.test(z.name);
+    const seen = new Set();
+    return (siteListMemo[iso] = (window.DEPLOYMENTS[iso] || []).filter(r => !r[7]).map(r => {
+      let name = r[0]; while (seen.has(name)) name += " ·"; seen.add(name);
+      const z = { name, note: r[6] || "" };
+      return { name, at: [r[1], r[2]], g: r[3] || 0, a: r[4] || 0, n: r[5] || 0, radar: window.isRadarSite(z), ad: isAD(z), mis: isMis(z) && !(r[4] > 0 || r[5] > 0) };
+    }));
+  }
+  const siteKey = (iso, name) => iso + "|" + name;
+  const siteSt = (iso, name) => (G.state.sites || {})[siteKey(iso, name)] || null;
+  let siteMemo = { st: null, ver: -1, v: {} };
+  const siteDirty = () => (G.state.siteVer = (G.state.siteVer || 0) + 1);
+  // Share of a country's sites of one kind still standing in its hands (by weight for bases, by count
+  // for missile, air-defence and radar sites); null if it has none of that kind.
+  function siteFrac(iso, kind) {
+    const s = G.state;
+    if (siteMemo.st !== s || siteMemo.ver !== (s.siteVer || 0)) siteMemo = { st: s, ver: s.siteVer || 0, v: {} };
+    const ck = iso + kind;
+    if (ck in siteMemo.v) return siteMemo.v[ck];
+    const L = siteList(iso), w = x => (kind === "g" || kind === "a" || kind === "n" ? x[kind] : x[kind] ? 1 : 0);
+    let all = 0, up = 0;
+    if (s.sites && Object.keys(s.sites).some(k2 => k2.startsWith(iso + "|"))) L.forEach(x => { const v = w(x); all += v; if (!siteSt(iso, x.name)) up += v; });
+    else { L.forEach(x => (all += w(x))); up = all; }
+    return (siteMemo.v[ck] = all > 0 ? up / all : null);
+  }
+  const SITE_CLASS = { fighters: "a", aircraft: "a", helis: "a", ships: "n", subs: "n", carriers: "n" };
+  function siteFactor(iso, key) {
+    const k2 = SITE_CLASS[key];
+    if (!k2 || !G.state.sites) return 1;
+    const f = siteFrac(iso, k2);
+    return f == null ? 1 : 0.4 + 0.6 * f;
+  }
+  function loseSite(iso, x, st, by) {
+    const s = G.state;
+    (s.sites = s.sites || {})[siteKey(iso, x.name)] = { st, by, t: s.turn };
+    siteDirty();
+  }
+  const sideOf = iso => G.state.owner[iso] || iso;
+  const siteWho = by => (by === G.state.player ? "Your forces" : BY[by].name);
+  // Ground advance: sites fall front-first, up to 85% of them as the war's progress reaches 100%.
+  function captureFront(T, by, fromIso, prog) {
+    const s = G.state, L = siteList(T), P = window.CENTROIDS || {};
+    if (!L.length || !P[fromIso]) return;
+    const mine = L.filter(x => { const st = siteSt(T, x.name); return st && st.st === "c" && st.by === by; }).length;
+    const want = Math.floor(Math.max(0, Math.min(1, prog)) * 0.85 * L.length) - mine;
+    if (want <= 0) return;
+    const from = P[fromIso], free = L.filter(x => !siteSt(T, x.name)).sort((p, q) => d3.geoDistance(p.at, from) - d3.geoDistance(q.at, from));
+    const got = free.slice(0, want);
+    got.forEach(x => loseSite(T, x, "c", by));
+    if (got.length && (by === s.player || owns(T))) {
+      const names = got.slice(0, 3).map(x => x.name).join(", ") + (got.length > 3 ? ` and ${got.length - 3} more` : "");
+      log(`🚩 ${siteWho(by)} captured ${got.length} site${got.length > 1 ? "s" : ""} in ${BY[T].name}: ${names}.`, owns(T) ? "bad" : "good");
+    }
+  }
+  // Missile hits destroy sites: radars, then air defences, then missile sites, air bases, naval bases, the rest.
+  const SITE_PRIORITY = x => (x.radar ? 0 : x.ad ? 1 : x.mis ? 2 : x.a >= 0.5 ? 3 : x.n >= 0.5 ? 4 : 5) * 1000 - (x.a + x.n + x.g);
+  function strikeSites(T, hits, by) {
+    const s = G.state, n = Math.min(2, Math.floor(hits / 40));
+    if (n <= 0) return;
+    const got = siteList(T).filter(x => !siteSt(T, x.name)).sort((p, q) => SITE_PRIORITY(p) - SITE_PRIORITY(q)).slice(0, n);
+    got.forEach(x => loseSite(T, x, "x", by));
+    if (got.length && (by === s.player || owns(T)))
+      log(`💥 ${by === s.player ? "Your missiles" : `${BY[by].name}'s missiles`} destroyed ${got.length} site${got.length > 1 ? "s" : ""} in ${BY[T].name}: ${got.slice(0, 3).map(x => x.name).join(", ")}${got.length > 3 ? ` and ${got.length - 3} more` : ""}.`, owns(T) ? "bad" : "good");
+  }
+  // Your strike order on one site: missiles from your empire's stocks against its air defence.
+  const SITE_HARD = x => (x.radar ? 2 : x.ad || x.mis ? 4 : x.a >= 0.5 || x.n >= 0.5 ? 6 : 3);
+  const atWarWith = iso => { const s = G.state, o = sideOf(iso); return !!(s.wars[iso] || Object.keys(s.wars).some(w => sideOf(w) === o) || s.enemies.some(e => e.vsPlayer && sideOf(e.nat) === o) || isHostile(o)); };
+  function strikeQuote(iso, name) {
+    const x = siteList(iso).find(y => y.name === name);
+    if (!x) return { err: "No such site." };
+    const leak = Math.max(0.05, 1 - 0.08 * effectiveAD(iso)), need = SITE_HARD(x), fire = Math.ceil(need / leak);
+    const have = empire().reduce((a, c) => { const st = missileStock(c.iso3); return a + st.bm + st.cm; }, 0);
+    return { x, need, fire, leak, have };
+  }
+  function strikeSite(iso, name) {
+    const err = ready(); if (err) return err;
+    const s = G.state;
+    if (owns(iso)) return "That site is yours.";
+    if (siteSt(iso, name)) return "That site is already destroyed or captured.";
+    if (!atWarWith(iso)) return `You aren't at war with ${BY[sideOf(iso)].name}. Invade it first, or wait until it attacks you.`;
+    const q = strikeQuote(iso, name);
+    if (q.err) return q.err;
+    if (q.have < q.fire) return `This strike needs ${q.fire} missiles (its air defence stops ${Math.round((1 - q.leak) * 100)}%); you have ${Math.floor(q.have)}.`;
+    let left = q.fire;
+    empire().forEach(c => { const st = missileStock(c.iso3); ["cm", "bm"].forEach(k2 => { const u = Math.min(st[k2], left); st[k2] -= u; left -= u; }); });
+    loseSite(iso, q.x, "x", s.player);
+    provoke(sideOf(iso));
+    log(`💥 Your strike destroyed ${name} in ${BY[iso].name}: ${q.fire} missiles fired, ${Math.round(q.fire * q.leak)} got through its air defence.`, "good");
+    save();
+    return null;
+  }
+  // Daily: rebuild destroyed sites 20 days after the owner's wars end; hand back captured sites when
+  // the invaders have gone; drop captured marks once the captor holds the whole country.
+  function sitesDay() {
+    const s = G.state;
+    if (!s.sites) return;
+    let changed = false;
+    Object.entries(s.sites).forEach(([k2, v]) => {
+      const iso = k2.slice(0, 3), o = sideOf(iso);
+      const fighting = atWar(iso) || s.enemies.some(e => e.to === iso) || s.armies.some(a => a.to === iso && !owns(iso));
+      if (v.st === "c" && (o === v.by || !fighting)) { delete s.sites[k2]; changed = true; }
+      else if (v.st === "x" && s.turn - v.t >= (fighting ? 45 : 20)) { delete s.sites[k2]; changed = true; }
+    });
+    if (changed) siteDirty();
+  }
+  // Lost sites of a country, for the map and the base cards.
+  const siteStatus = (iso, name) => siteSt(iso, name);
+
   // ── Radar coverage (js/radars.js) ──
   // A country's radar sites against the sites it needs. Air defence works at 60% with no radar
   // network and in full with complete coverage; strategic early-warning radars add half a point
   // against incoming missiles. Coverage also helps spot attacks as they launch.
-  const radarMemo = {};
+  let radarMemo = {}, radarMemoKey = null;
   function radarInfo(iso) {
+    const mk = G.state;
+    if (radarMemoKey !== mk || radarMemo.__ver !== (mk.siteVer || 0)) { radarMemo = { __ver: mk.siteVer || 0 }; radarMemoKey = mk; }
     if (radarMemo[iso]) return radarMemo[iso];
-    const rows = (window.DEPLOYMENTS[iso] || []).filter(r => !r[7] && window.isRadarSite({ name: r[0], note: r[6] }));
+    const rows = (window.DEPLOYMENTS[iso] || []).filter(r => !r[7] && window.isRadarSite({ name: r[0], note: r[6] }) && !siteSt(iso, r[0]));
     const ew = rows.filter(r => window.isEarlyWarning({ name: r[0], note: r[6] })).length, need = window.RADARS_NEEDED(BY[iso]);
     return (radarMemo[iso] = { sites: rows.length, ew, need, cov: need ? Math.min(1, rows.length / need) : 0 });
   }
-  const effectiveAD = iso => { const r = radarInfo(iso); return Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) + (r.ew ? 0.5 : 0)); };
+  // Destroyed or captured air-defence sites take their batteries with them.
+  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) + (r.ew ? 0.5 : 0)); };
   function missileSalvo(shooters, targetIso) {
     const leak = 1 - 0.08 * effectiveAD(targetIso);
     let power = 0, fired = 0, hits = 0;
     [...new Set(shooters)].forEach(iso => {
       const st = missileStock(iso);
       ["bm", "cm"].forEach(k2 => {
-        const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04)));
+        // Lost missile sites mean fewer launchers to fire from.
+        const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = fm == null ? 1 : 0.3 + 0.7 * fm;
+        const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04 * rate)));
         st[k2] -= n; fired += n; hits += n * leak; power += n * leak * (k2 === "bm" ? 2.5 : 1.5);
       });
     });
@@ -441,7 +568,7 @@
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
   // Each kind of unit counts by its real models (js/models.js) and the country's readiness.
   // `models` ({kind: {model: count}}) gives an army's actual mix; otherwise the national fleet mix is used.
-  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[iso], u.key, models && models[u.key]) * partsFactor(iso, u.key), 0);
+  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[iso], u.key, models && models[u.key]) * partsFactor(iso, u.key) * siteFactor(iso, u.key), 0);
   // ── Spare parts with no trade (js/maintenance.js) ──
   // Parts still come from the country itself, its owner's other lands, your allies (if it is
   // yours) and its treaty partners. The rest is cut off: once a country is at war, that share of
@@ -513,7 +640,7 @@
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
   // An attacking force's strength in the target's terrain: each kind of unit counts by how well it
   // fights there (tanks bog down in mountains and jungle, aircraft lose targets under canopy).
-  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key) * nightKind(to, nat, u.key), 0);
+  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * siteFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key) * nightKind(to, nat, u.key), 0);
   // ── Weather and seasons (js/weather.js) ──
   // Each day's weather in the country being fought over cuts what each kind of unit can do, less
   // for forces used to that climate or trained for it. Jets with modern all-weather radar keep
@@ -1239,6 +1366,8 @@
     s.armies = s.armies.filter(a => total(a.units) >= 0.05);
     const left = armiesAt(iso);
     const prog = warProgress(iso);
+    if (left.length) captureFront(iso, s.player, left[0].from || left[0].nat, prog);
+    strikeSites(iso, mine.hits, s.player);
     if (!left.length) {
       delete s.wars[iso];
       log(`🛡️ Your invasion of ${t.name} was destroyed. ${t.name} holds.`, "bad");
@@ -1561,11 +1690,14 @@
   function aiWarRound(T) {
     const s = G.state, c = BY[T], foes = enemiesAt(T);
     const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + missileSalvo(foes.map(e => e.nat), T).power, D = defenceOf(T, foes[0].nat).total + missileSalvo([T], foes[0].nat).power, r = E / (E + D);
+    const sE = missileSalvo(foes.map(e => e.nat), T), sD = missileSalvo([T], foes[0].nat);
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + sE.power, D = defenceOf(T, foes[0].nat).total + sD.power, r = E / (E + D);
+    strikeSites(T, sE.hits, sideOf(w.by)); strikeSites(foes[0].nat, sD.hits, T);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
     const left = enemiesAt(T), by = BY[w.by].name;
+    if (left.length && w.p0 > 0) captureFront(T, sideOf(w.by), left[0].from || left[0].nat, (1 - rawPower(forces(T), T) / w.p0) / 0.8);
     if (!left.length) {
       delete s.aiWars[T];
       log(`🌍 ${c.name} defeated the invasion by ${by}.`, "world");
@@ -1597,6 +1729,9 @@
     inv.progress = Math.max(0, inv.progress + 50 * (r - 0.5));
     const by = [...new Set(foes.map(e => BY[e.nat].name))].join(" and ");
     const left = enemiesAt(iso);
+    if (left.length) captureFront(iso, sideOf(left[0].nat), left[0].from || left[0].nat, inv.progress / 100);
+    strikeSites(iso, theirs.hits, sideOf(foes[0].nat));
+    strikeSites(foes[0].nat, mine.hits, s.player);
     if (!left.length || left.reduce((x, e) => x + enemyPower(e), 0) <= 0.1 * inv.e0) {
       left.forEach(e => (s.enemies = s.enemies.filter(x => x !== e)));
       delete s.invasions[iso];
@@ -1704,6 +1839,7 @@
     produce();
     droneDay();
     spyDay();
+    sitesDay();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
@@ -1869,6 +2005,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
