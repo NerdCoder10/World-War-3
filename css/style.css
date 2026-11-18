@@ -587,3 +587,6 @@ circle.garrison.captured { stroke: #e2654f !important; stroke-width: 2.5; }
 .veh .top { fill: #8a6a2c; stroke: #0b1012; stroke-width: 0.7; vector-effect: non-scaling-stroke; }
 .veh.enemy .top { fill: #8c3020; }
 .veh.aiwar .top { fill: #6e4a94; }
+.bc-port { display: block; width: 100%; margin: 6px 0; padding: 7px 10px; background: #4cb5a822; border: 1px solid var(--teal); color: var(--fg); border-radius: 4px; cursor: pointer; font-weight: 600; }
+.bc-port:disabled { opacity: .5; cursor: not-allowed; }
+.bc-port small { font-weight: 400; color: var(--muted); margin-left: 6px; }

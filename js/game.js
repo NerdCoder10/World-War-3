@@ -1211,6 +1211,45 @@
     return null;
   }
 
+  // ── Building ports ──
+  // At any of your coastal bases (within ~55 km of open water): a harbour, then a naval station,
+  // naval base and major deep-water base. Building takes days, faster with better logistics.
+  const PORT_BUILD = { harbour: [150, 7], station: [500, 20], base: [2000, 45], major: [8000, 90] };
+  const portKey = (iso, base) => iso + "|" + base;
+  const portBuilt = (iso, base) => ((G.state.ports || {})[portKey(iso, base)] || null);
+  const portBuilding = (iso, base) => ((G.state.portBuild || {})[portKey(iso, base)] || null);
+  const portCoastal = (iso, base) => !!window.navNearSea(window.basePoint(iso, base), 1);
+  function portQuote(iso, base, cls) {
+    const [cost, days] = PORT_BUILD[cls] || [0, 0];
+    return { cost, days: Math.max(3, Math.round(days * (1.3 - 0.03 * ms(iso).logistics))) };
+  }
+  function buildPort(iso, base, cls) {
+    const err = ready(); if (err) return err;
+    const s = G.state;
+    if (!canCommand(iso)) return "You can only build ports in your own nations.";
+    if (!PORT_BUILD[cls]) return "Unknown kind of port.";
+    if (portBuilding(iso, base)) return "A port is already being built there.";
+    if (!portCoastal(iso, base)) return `${base} is inland: ports need open water within about 55 km.`;
+    const cur = window.basePort(iso, base), rank = { harbour: 1, station: 2, base: 3, major: 4 };
+    if (cur && rank[cur.cls] >= rank[cls]) return `${base} already has a ${cur.label.toLowerCase()}.`;
+    const q = portQuote(iso, base, cls);
+    if (s.coins < q.cost) return `You need ${fmtCoins(q.cost - s.coins)} more coins.`;
+    s.coins -= q.cost;
+    (s.portBuild = s.portBuild || {})[portKey(iso, base)] = { cls, done: s.turn + q.days };
+    log(`🏗️ Work began on a ${window.PORT_CLASSES[cls].label.toLowerCase()} at ${base} (${BY[iso].name}): ready in ${q.days} days.`, "good");
+    save(); return null;
+  }
+  function portsDay() {
+    const s = G.state;
+    Object.entries(s.portBuild || {}).forEach(([k2, v]) => {
+      if (s.turn < v.done) return;
+      const [iso, base] = [k2.slice(0, 3), k2.slice(4)];
+      delete s.portBuild[k2];
+      if (!owns(iso)) return;
+      (s.ports = s.ports || {})[k2] = v.cls;
+      log(`⚓ The ${window.PORT_CLASSES[v.cls].label.toLowerCase()} at ${base} (${BY[iso].name}) is finished: up to ${window.PORT_CLASSES[v.cls].cap} vessels can dock${v.cls === "major" ? ", carriers included" : ""}.`, "good");
+    });
+  }
   // Why ships (or a seaborne army) can't get there.
   function seaWhy(to, r) {
     return r.noSea === "landlocked"
@@ -1299,6 +1338,12 @@
     // Ships sail by sea; ground units drive, or ship across when water lies between the bases.
     const kinds = new Set(UNITS.filter(x => u[x.key]).map(x => x.kind)), times = [], paths = [];
     if (kinds.has("naval")) {
+      // Ships can only dock at a port with a free berth; carriers only at a major naval base.
+      const port = window.basePort && window.basePort(iso, to), nV = (u.ships || 0) + (u.subs || 0) + (u.carriers || 0);
+      if (!port) return { err: `${to} has no port, so ships can't dock there. Pick a naval base, or build a port there from its base card.` };
+      if (port.lost) return { err: `${to} is destroyed or captured: its port can't take ships.` };
+      if ((u.carriers || 0) > 0 && !port.carriers) return { err: `${to} is a ${port.label.toLowerCase()}: carriers can only dock at a major naval base.` };
+      if (port.used + nV > port.cap) return { err: `${to} has only ${Math.max(0, port.cap - port.used)} free berths (${port.cap} in all) for ${Math.round(nV)} vessels.` };
       const sp = window.navSea(pa, pb);
       if (!sp) return { err: "Ships can only sail by sea, and no sea route links these two bases." };
       UNITS.filter(x => x.kind === "naval" && u[x.key]).forEach(x => times.push(sp.km / SPEED[x.key]));
@@ -1987,6 +2032,7 @@
     droneDay();
     spyDay();
     sitesDay();
+    portsDay();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
     empire().forEach(c => {
       const iso = c.iso3;
@@ -2152,6 +2198,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

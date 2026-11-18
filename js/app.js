@@ -264,6 +264,29 @@
   };
   window.basePoint = (iso, name) => { const z = deploymentFor(iso).find(x => x.name === name); return z ? z.at : (window.CENTROIDS || {})[iso]; };
   window.baseKit = (iso, name) => { const z = computeDeployment(iso).find(x => x.name === name); return z ? z.kit : null; };
+  // ── Ports: where ships can dock ──
+  // Every base's harbour, by class: a major deep-water naval base (carriers can berth, 60+ vessels),
+  // a naval base (25+), a naval station (10+) or a small harbour (4). Capacity also covers the fleet
+  // the port really hosts (×1.3). Bases with no naval role have no port until you build one. Ships can
+  // only be moved to a port with a free berth (carriers only to a major base); destroyed or captured
+  // bases can't take ships.
+  const PORT_RANK = { harbour: 1, station: 2, base: 3, major: 4 };
+  function portOf(iso, z) {
+    if (!z || z.patrol) return null;
+    const c = BY[iso], natVessels = (c.ships || 0) + (c.subs || 0) + (c.carriers || 0), base0 = (z.navalPct || 0) * natVessels;
+    const kitV = z.kit ? (z.kit.ships || 0) + (z.kit.subs || 0) + (z.kit.carriers || 0) : 0;
+    let cls = null;
+    if (z.navalPct > 0 || kitV >= 1) {
+      const carriers = (z.kit && z.kit.carriers >= 1) || namedAt(iso, z.name).some(sh => sh.kind === "carrier");
+      cls = carriers || base0 >= 40 ? "major" : /naval (base|station)|navy|fleet|base navale|arsenal|naval/i.test(z.name) || base0 >= 12 ? "base" : base0 >= 3 ? "station" : "harbour";
+    }
+    const built = G.portBuilt(iso, z.name);
+    if (built && (!cls || PORT_RANK[built] > PORT_RANK[cls])) cls = built;
+    if (!cls) return null;
+    const P = window.PORT_CLASSES[cls], incoming = (G.state.moves || []).filter(m => m.iso === iso && m.to === z.name).reduce((a, m) => a + (m.units.ships || 0) + (m.units.subs || 0) + (m.units.carriers || 0), 0);
+    return { cls, label: P.label, cap: Math.max(P.cap, Math.ceil(base0 * 1.3)), used: Math.round(kitV + incoming), carriers: !!P.carriers, lost: !!z.lost };
+  }
+  window.basePort = (iso, name) => { const z = computeDeployment(iso).find(x => x.name === name); return z ? portOf(iso, z) : null; };
   // A country's bases, plus its submarine patrol areas at sea (js/subpatrols.js), which hold
   // only submarines: the share of the force deployed at any time.
   function deploymentFor(iso) {
@@ -2504,6 +2527,21 @@
       return `<div class="mline">${icon}<span>${body}</span></div>`;
     }).join("");
   }
+  // The base's port: class, berths, and (for your coastal bases) building or upgrading it.
+  function portHtml(iso, z) {
+    if (z.patrol) return "";
+    const pt = portOf(iso, z), b = G.portBuilding(iso, z.name);
+    const line = pt ? `⚓ <b>${esc(pt.label)}</b>: ${pt.used} of ${pt.cap} berths in use${pt.carriers ? " · carriers can dock" : ""}${pt.lost ? " · unusable while the base is lost" : ""}.` : "⚓ No port: ships can't dock here.";
+    let act = "";
+    if (G.canCommand(iso) && !z.host && !z.lost) {
+      if (b) act = `<p class="hint">🏗️ ${esc(window.PORT_CLASSES[b.cls].label)} under construction: ready on day ${b.done}.</p>`;
+      else if (G.portCoastal(iso, z.name)) {
+        const next = ["harbour", "station", "base", "major"].find(k => !pt || window.PORT_CLASSES[k] && PORT_RANK[k] > PORT_RANK[pt.cls]);
+        if (next) { const q = G.portQuote(iso, z.name, next); act = `<button class="bc-port" data-cls="${next}" ${G.state.coins < q.cost ? "disabled" : ""}>🏗️ ${pt ? "Upgrade to" : "Build"} ${esc(window.PORT_CLASSES[next].label.toLowerCase())} <small>${G.fmtCoins(q.cost)} coins · ${q.days} days</small></button>`; }
+      } else act = `<p class="hint">Inland: no port can be built here.</p>`;
+    }
+    return `<p class="hint">${line}</p>${act}`;
+  }
   // A strike order on an enemy site: missiles needed against its air defence.
   function strikeHtml(iso, z) {
     if (!G.state.player || G.owns(iso) || z.lost || z.host || z.patrol) return "";
@@ -2525,6 +2563,7 @@
       <dl>${zoneStats(c, z).map(t => { const [n, ...rest] = t.split(" "); return `<div><dd>${n}</dd><dt>${rest.join(" ")}</dt></div>`; }).join("")}</dl>
       ${z.lost ? `<p class="bad">${lostLine(z)}</p>` : ""}<p>${esc(z.note)}</p>
       ${strikeHtml(c.iso3, z)}
+      ${portHtml(c.iso3, z)}
       <p class="fortline">🛡️ Fortification <b>${fortOf(c.iso3, z)}/10</b> · ${esc(window.fortLabel(fortOf(c.iso3, z)))} <small>(fixed)</small></p>
       <div class="bc-models">${modelLines(c, zoneUnits(c, z))}</div>
       ${G.canCommand(c.iso3) ? `<p class="hint">Zoom in to see every unit here. To move units: select them (click a unit, shift-click or shift-drag for more, double-click for a whole model, or the button below), click the destination (another of your bases or any country), then press <b>Confirm</b>.</p><button class="bc-sel">Select units to move</button> ` : `<p class="hint">Zoom in to see every unit here, with its real model and specs. ${G.state.player ? `Conquer, court or buy ${esc(c.name)} to command them.` : G.isLocked(c.iso3) ? `Buy ${esc(c.name)} or play a playable nation to command units.` : `<a href="#" class="bc-play">Play as ${esc(c.name)}</a> to command them.`}</p>`}<button class="bc-fly">Zoom to base</button>`;
@@ -2535,6 +2574,8 @@
     baseCard.querySelector(".bc-fly").onclick = () => flyTo(z.at, baseK());
     const bp = baseCard.querySelector(".bc-play");
     if (bp) bp.onclick = ev => { ev.preventDefault(); const err = G.choose(c.iso3); if (err) return toast(err); toast(`You now command ${c.name}. Drag its units, or a whole base marker, to move them.`); drawDeploy(); refresh(); pickZone(z, false); };
+    const bpt = baseCard.querySelector(".bc-port");
+    if (bpt) bpt.onclick = () => { const err = G.buildPort(c.iso3, z.name, bpt.dataset.cls); if (err) return toast(err); toast(G.state.log[0].msg); refresh(); pickZone(z, false); };
     const bk = baseCard.querySelector(".bc-strike");
     if (bk) bk.onclick = () => { const err = G.strikeSite(c.iso3, z.name); if (err) return toast(err); toast(G.state.log[0].msg); drawDeploy(); refresh(); const nz = myBases.find(x => x.name === z.name); if (nz) pickZone(nz, false); };
     const bs = baseCard.querySelector(".bc-sel");
