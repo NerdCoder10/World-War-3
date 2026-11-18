@@ -573,6 +573,39 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   Allies in a bloc with the US or UK share warnings. The attacker's counter-intelligence and deception slow everything but radar and civilians. Examples for a three-day ground invasion: Israel spots an Iranian move in about 2 hours (its agents), Ukraine a Russian one in 12, Estonia in 33 (satellites), and Mali only near the end.
 
   An attack stays hidden on the map until it's noticed, and the warning says what noticed it and how long after it set off. If nothing notices before it lands, it's a surprise attack: the defenders fight at ×0.85 in the first round, and that works for your attacks too. Attack forecasts tell you whether you'd arrive unnoticed, and every dossier shows how fast that country would spot an invasion and an air strike.
+- **Military philosophy: every nation fights, and supplies its forces, its own way** (`js/doctrine.js`). 24 doctrines, each from that military's real thinking:
+  - **US** joint all-domain combined arms: air power first, a combined-arms bonus, expeditionary sealift and airlift.
+  - **UK, France, Australia** expeditionary quality forces; **NATO Europe** mission command with host-nation support; **Poland and Greece** a heavy armoured shield.
+  - **Russia** deep battle and mass fires: artillery +25%, commits 30% more to an attack, rail-bound supply.
+  - **China** systems-destruction warfare: missile salvos +40%, anti-access at sea, opening shock.
+  - **Israel** pre-emption and the decisive short war: +25% in the first 10 days, tiring after a month.
+  - **Iran** asymmetric mosaic defence: missiles +50%, drones +30%, hard to occupy.
+  - **North Korea and Eritrea** fortress state; **Vietnam, Cuba, Afghanistan, Venezuela and others** people's war (home +30%, resistance +50%).
+  - **The Nordics, Baltics, Switzerland, Austria, Singapore and Indonesia** total defence; **Taiwan** porcupine; **Ukraine** drone-enabled mission command (drones +40%); **Turkey and Azerbaijan** drone-led combined arms.
+  - **India** Cold Start; **Pakistan** offensive defence; **South Korea** kill chain; **Japan** exclusively defence-oriented.
+  - **Gulf monarchies** bought air power; **Egypt, Iraq and others** positional mass; **much of Africa** light infantry; **Latin America** internal security first; **small states** constabulary forces.
+
+  **What a doctrine does:**
+  - multipliers for each kind of unit in attack and defence;
+  - strength on home ground or abroad;
+  - an opening shock or long-war fatigue;
+  - a combined-arms bonus when a force mixes ground, air and naval power;
+  - missile fire rate and drone edge;
+  - how hard its people resist an occupier;
+  - how much of its army the AI commits;
+  - defensive doctrines never start wars of choice.
+
+  **Supply methods**, which change the strain of fighting far from home:
+  - **Expeditionary:** barely notices the sea, and lives on pre-positioned stocks for its first 10 days at war.
+  - **Rail-bound:** strong within 800 km of its railheads and poor beyond them; Russia's armies keep 98% of their strength at 500 km but 79% at 2,000 km.
+  - **Joint logistic support force:** strong within 1,500 km.
+  - **Short interior lines.**
+  - **Host-nation support:** strong next to its allies.
+  - **Territorial depots.**
+  - **Light and irregular:** modest needs but poor reach (65% overseas).
+  - **Contractor-run.**
+
+  **Where to see it:** each dossier explains the doctrine and supply method, and attack forecasts show both sides' doctrine multipliers.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.

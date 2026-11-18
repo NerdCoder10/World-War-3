@@ -2843,6 +2843,26 @@
     const t = d => (d.by ? `${G.fmtDur(d.h)} (${esc(d.by)})` : "not before it arrives");
     return `<p class="hint">👁️ <b>Invasion warning</b>: it would spot a ground invasion by ${esc(BY[nb].name)} (3 days' march) after ${t(land)}, and an air strike (3 hours out) after ${t(air)}${land.shared ? ", with warnings shared by its allies" : ""}. Spy networks, satellites, radar, connected civilians and good intelligence all shorten this; the attacker's counter-intelligence lengthens it.</p>`;
   }
+  // Military philosophy: how this nation fights and supplies its forces.
+  const KIND_LABEL = { troops: "infantry", tanks: "tanks", afv: "armoured vehicles", arty: "artillery", fighters: "fighters", aircraft: "other aircraft", helis: "helicopters", ships: "warships", subs: "submarines", carriers: "carriers" };
+  function doctrineHtml(c) {
+    const d = G.doc(c.iso3), f = d.fight, m = window.SUPPLY_METHODS[d.supply] || {};
+    const pct = v => `${v >= 1 ? "+" : "−"}${Math.round(Math.abs(v - 1) * 100)}%`;
+    const list = side => Object.entries(f[side] || {}).filter(([, v]) => v !== 1).map(([k, v]) => `${KIND_LABEL[k]} ${pct(v)}`).join(", ");
+    const items = [
+      list("atk") && `attacking: ${list("atk")}`, list("def") && `defending: ${list("def")}`,
+      f.home && f.home !== 1 && `on home ground ${pct(f.home)}`, f.abroad && f.abroad !== 1 && `abroad ${pct(f.abroad)}`,
+      f.early && `first ${f.earlyDays || 7} days of a war ${pct(f.early)}`, f.late && `after a month of war ${pct(f.late)}`,
+      f.combined && `combined arms ${pct(1 + f.combined)}`, f.missile && f.missile !== 1 && `missile fire rate ${pct(f.missile)}`,
+      f.drone && f.drone !== 1 && `drone edge ${pct(f.drone)}`, f.resist && f.resist !== 1 && `resistance to occupiers ${pct(f.resist)}`,
+      f.commit && f.commit !== 1 && `commits ${pct(f.commit)} of the usual force to an attack`, f.defensive && "never starts a war of choice",
+    ].filter(Boolean);
+    const sup = [m.near && `within ${num(m.near)} km: strain ${pct(m.n)}`, m.f && `beyond: ${pct(m.f)}`, m.sea && `overseas: ${pct(m.sea)}`, m.prepos && `first 10 days of war: ${pct(m.prepos)}`, m.allied && `next to its allies: ${pct(m.allied)}`].filter(Boolean);
+    return `<div class="section"><h3>Military philosophy <small>${esc(d.name)}</small></h3>
+      <p class="hint">${esc(d.note)}</p>
+      <p class="hint">🎖️ In battle: ${items.length ? esc(items.join(" · ")) : "no distinctive strengths or weaknesses"}.</p>
+      <p class="hint">🚚 Supply: <b>${esc(m.label || d.supply)}</b> (${esc(sup.join(" · "))}). Lower strain means its armies keep more of their strength far from home.</p></div>`;
+  }
   function allianceHtml(c) {
     if (G.isAlly(c.iso3)) { const L = G.allyLoyalty(c.iso3); return `<p class="hint">🤝 <b>Your ally.</b> Loyalty to you <b>${L.score}</b> ${stanceTag(L.stance)}: ${L.score >= 70 ? "defends your nations it can reach with 15% of its forces and joins your invasions with 10%" : L.score >= 50 ? "defends your nations, but joins your invasions with only half its contingent" : L.score >= 30 ? "wavering: sends half to defend you and won't join attacks" : "about to betray you"}. Under 30 it betrays you.</p>${partsList(L.parts)}<button class="btn ghost" data-act="unally">End alliance</button>`; }
     const t = G.allianceTerms(c.iso3);
@@ -2911,6 +2931,7 @@
       const w = G.weather(c.iso3), n = G.nightInfo(c.iso3);
       vs += ` ${w.type !== "clear" ? `${w.icon} ${w.label}, ${w.temp}°C · ` : ""}${window.moonIcon(n.moon)} ${Math.round(n.dark)}h of darkness in ${c.name} today: this army fights ×${G.weatherMix(p.units, p.src.nat, c.iso3).toFixed(2)}, its defenders ×${G.weatherMix(G.forces(c.iso3), c.iso3, c.iso3).toFixed(2)}.`;
       vs += ` 🛸 Drones: yours +${Math.round(G.droneEdge(p.src.nat, c.iso3, c.iso3) * 100)}%, theirs +${Math.round(G.droneEdge(c.iso3, c.iso3, p.src.nat) * 100)}%.`;
+      { const da = G.doc(p.src.nat), dd = G.doc(c.iso3); vs += ` 🎖️ ${BY[p.src.nat].name} fights by ${da.name.toLowerCase()} (this force ×${(G.docMix(p.units, p.src.nat, "atk") * (da.fight.abroad || 1) * G.docCombined(p.units, p.src.nat)).toFixed(2)}${da.fight.early ? `, ×${da.fight.early} in the first ${da.fight.earlyDays || 7} days` : ""}); ${c.name} defends by ${dd.name.toLowerCase()} (×${(G.docMix(G.forces(c.iso3), c.iso3, "def") * (dd.fight.home || 1)).toFixed(2)}).`; }
       if (p.route && p.route.ok) { const dt = G.detectTime(c.iso3, p.src.nat, p.route.mode, p.route.hours);
         vs += dt.by ? ` 👁️ ${c.name} would notice this force after about ${G.fmtDur(dt.h)} (of ${G.fmtDur(p.route.hours)} under way), through ${dt.by}.` : ` 👁️ ${c.name} wouldn't notice this force before it lands: a surprise attack (its defenders fight at ×0.85 in the first round).`; }
     }
@@ -3140,6 +3161,7 @@
         ${terrainHtml(c)}
         ${blocLoyaltyHtml(c)}
         ${occupationHtml(c)}
+        ${doctrineHtml(c)}
         ${weatherHtml(c)}
         ${nightHtml(c)}
         ${droneHtml(c)}
