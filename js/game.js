@@ -574,7 +574,7 @@
       const st = missileStock(iso);
       ["bm", "cm"].forEach(k2 => {
         // Lost missile sites mean fewer launchers to fire from.
-        const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = fm == null ? 1 : 0.3 + 0.7 * fm;
+        const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = (fm == null ? 1 : 0.3 + 0.7 * fm) * (docF(iso).missile || 1);
         const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04 * rate)));
         st[k2] -= n; fired += n; hits += n * leak; power += n * leak * (k2 === "bm" ? 2.5 : 1.5);
       });
@@ -664,10 +664,48 @@
   // logistics 10 (strategic airlift and sealift, tankers, prepositioned stocks and bases worldwide),
   // fights at full strength anywhere; Russia (6) loses a few percent next door and about 25% in
   // the Caribbean.
+  // ── Military philosophy (js/doctrine.js) ──
+  // Each nation fights the way its doctrine teaches: which arms hit harder, how well it holds its own
+  // ground, the shock of its opening blows, combined-arms bonuses, missile and drone use, how hard its
+  // people resist occupation and how much the AI commits. Its supply method shapes the strain of
+  // fighting far from home (supply below).
+  const docMemo = {};
+  const doc = iso => docMemo[iso] || (docMemo[iso] = window.doctrineOf(iso));
+  const docF = iso => doc(iso).fight;
+  const docUnit = (iso, key, side) => (docF(iso)[side] || {})[key] || 1;
+  function docMix(units, iso, side) {
+    let a = 0, b = 0;
+    UNITS.forEach(u => { const v = (units[u.key] || 0) * u.power; a += v; b += v * docUnit(iso, u.key, side); });
+    return a ? b / a : 1;
+  }
+  // Combined arms: at least two of ground, air and naval power, each 15%+ of the force.
+  function docCombined(units, iso) {
+    const f = docF(iso).combined || 0;
+    if (!f) return 1;
+    const by = { ground: 0, air: 0, naval: 0 };
+    UNITS.forEach(u => (by[u.kind] += (units[u.key] || 0) * u.power));
+    const tot = by.ground + by.air + by.naval;
+    return tot && Object.values(by).filter(v => v / tot >= 0.15).length >= 2 ? 1 + f : 1;
+  }
+  // Opening shock and long-war fatigue.
+  function docEarly(iso, days) {
+    const f = docF(iso);
+    if (f.early && days < (f.earlyDays || 7)) return f.early;
+    if (f.late && days > 30) return f.late;
+    return 1;
+  }
+  const docAttack = (units, iso) => docMix(units, iso, "atk") * (docF(iso).abroad || 1) * docCombined(units, iso);
+  const docDefend = (units, iso) => docMix(units, iso, "def") * (docF(iso).home || 1);
   function supply(nat, to, km, sea) {
     const lack = (10 - ms(nat).logistics) / 10, dist = Math.min(1, km / (sea ? 9000 : 2500));
     const harsh = window.terrainOf ? window.terrainOf(to).harsh : 0;
-    return Math.max(0.45, 1 - lack * dist * (sea ? 0.5 : 0.35) * (1 + 0.6 * harsh));
+    // The supply method: rail-bound armies are strong near their railheads and weak beyond them,
+    // expeditionary ones barely notice the sea and live on pre-positioned stocks for 10 days, and so on.
+    const m = window.SUPPLY_METHODS[doc(nat).supply] || {};
+    let f = sea ? m.sea || 1 : km <= (m.near || 1000) ? m.n || 1 : m.f || 1;
+    if (m.allied && blocsOf(to).concat(...(window.NEIGHBORS[to] || []).map(n => blocsOf(n))).some(({ members }) => members.includes(nat))) f = Math.min(f, m.allied);
+    if (m.prepos && warDaysOf(nat) <= 10) f *= m.prepos;
+    return Math.max(0.45, 1 - lack * dist * (sea ? 0.5 : 0.35) * (1 + 0.6 * harsh) * f);
   }
   // Good logistics also moves armies faster: travel times ×1.3 − 0.03 × logistics (US ×1.0).
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
@@ -884,7 +922,7 @@
     const t = window.droneTech(nat);
     if (!t.level) return 0;
     const enemy = vs && BY[vs] ? window.droneTech(vs).counter : 0, n = nightInfo(at);
-    return 0.03 * t.level * (1 - 0.06 * enemy) * (window.DRONE_WEATHER[weather(at).type] ?? 1) * (t.level >= 6 ? 1 : 1 - 0.3 * n.frac) * Math.min(1, droneStock(nat) / 10);
+    return (docF(nat).drone || 1) * 0.03 * t.level * (1 - 0.06 * enemy) * (window.DRONE_WEATHER[weather(at).type] ?? 1) * (t.level >= 6 ? 1 : 1 - 0.3 * n.frac) * Math.min(1, droneStock(nat) / 10);
   }
   function droneDay() {
     const s = G.state;
@@ -911,7 +949,7 @@
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
     const home = owns(a.to) || a.to === a.nat;
-    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) : powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : (1 + droneEdge(a.nat, a.to, G.state.owner[a.to])) * (1 + spyEdge(a.nat, G.state.owner[a.to])));
+    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) * docDefend(a.units, a.nat) : docAttack(a.units, a.nat) * powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : (1 + droneEdge(a.nat, a.to, G.state.owner[a.to])) * (1 + spyEdge(a.nat, G.state.owner[a.to])));
   };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
@@ -938,7 +976,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * docDefend(forces(iso), iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -1452,7 +1490,7 @@
     const surprised = armies.some(a => !a.fought && a.detectAt != null && a.detectAt >= (a.etaH != null ? a.etaH : a.eta * 24));
     armies.forEach(a => (a.fought = true));
     const D = defenceOf(iso).total * (surprised ? 0.85 : 1) + theirs.power;
-    const A = armies.reduce((x, a) => x + armyPower(a) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help) + mine.power;
+    const A = armies.reduce((x, a) => x + armyPower(a) * docEarly(a.nat, s.turn - war.start) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help) + mine.power;
     const r = A / (A + D);
     scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r));
     const al = Math.min(0.6, 0.3 * (1 - r));
@@ -1620,7 +1658,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * (1 + spyEdge(e.nat, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
+  const enemyPower = e => docAttack(e.units, e.nat) * (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * (1 + spyEdge(e.nat, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
     (e.sea ? subScreen(e.to, owns(e.to) ? homeShare(e.to).subs : forces(e.to).subs, e.units, e.nat) : 1) /
     (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
@@ -1633,7 +1671,7 @@
   // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
   function homeDefence(iso, attacker) {
     const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
-    return rawPower(u, iso) * weatherMix(u, iso, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+    return rawPower(u, iso) * weatherMix(u, iso, iso) * docDefend(u, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
       (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
@@ -1643,7 +1681,7 @@
   function launchEnemy(A, T) {
     const s = G.state, f = forces(A), land = (window.NEIGHBORS[A] || []).includes(T), vsPlayer = owns(T);
     // Send about 1.45× what defends the target, within a share of the army that grows with hostility.
-    const cap = !vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3;
+    const cap = Math.min(0.6, (!vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3) * (docF(A).commit || 1));
     const want = targetDefence(T, A) * 1.45 / Math.max(1, rawPower(f, A) * ms(A).skill);
     const share = Math.max(0.03, Math.min(cap, want));
     const units = {};
@@ -1764,7 +1802,7 @@
     const rt = (s.resTension = s.resTension || {});
     C.forEach(c => {
       const A = c.iso3;
-      if (!aiFree(A) || isAlly(A) || s.enemies.some(e => e.nat === A) || active >= 8) return;
+      if (!aiFree(A) || isAlly(A) || docF(A).defensive || s.enemies.some(e => e.nat === A) || active >= 8) return;
       const e = econOf(A);
       if (!e.short.length || e.capacity < 3) return;
       const pa = rawPower(forces(A), A) * ms(A).skill;
@@ -1792,7 +1830,7 @@
     const s = G.state, c = BY[T], foes = enemiesAt(T);
     const w = ((s.aiWars = s.aiWars || {})[T] = s.aiWars[T] || { by: foes[0].nat, start: s.turn, p0: rawPower(forces(T), T) });
     const sE = missileSalvo(foes.map(e => e.nat), T), sD = missileSalvo([T], foes[0].nat);
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + sE.power, D = defenceOf(T, foes[0].nat).total + sD.power, r = E / (E + D);
+    const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - w.start), 0) + sE.power, D = defenceOf(T, foes[0].nat).total + sD.power, r = E / (E + D);
     strikeSites(T, sE.hits, sideOf(w.by)); strikeSites(foes[0].nat, sD.hits, T);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
@@ -1820,7 +1858,7 @@
     const theirs = missileSalvo(foes.map(e => e.nat), iso), mine = missileSalvo(empire().map(c => c.iso3), foes[0].nat);
     const surprised = foes.some(e => e.surprise && !e.fought);
     foes.forEach(e => (e.fought = true));
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + theirs.power, D = homeDefence(iso, foes[0].nat) * (surprised ? 0.85 : 1) + mine.power;
+    const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - inv.start), 0) + theirs.power, D = homeDefence(iso, foes[0].nat) * (surprised ? 0.85 : 1) + mine.power;
     const r = E / (E + D);
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
@@ -1956,7 +1994,7 @@
       const calm = (1 - fx(iso, "stab")) * (1 - TFULL.governance * Math.min(1, techShare(iso, "governance"))) * (armiesAt(iso).length ? 0.3 : 1);
       // Unrest builds each day a territory is weakly held; it rises up when unrest reaches 100%.
       const un = (s.unrest = s.unrest || {});
-      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm * unrestMult(occupation(iso).score);
+      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm * unrestMult(occupation(iso).score) * (docF(iso).resist || 1);
       if (un[iso] >= 1) { un[iso] = 0; startRevolt(c); }
     });
     if (!s.over) aiTurn();
@@ -1967,7 +2005,7 @@
       const iso = c.iso3, o = s.owner[iso];
       if (o === iso || o === s.player || s.enemies.some(e => e.to === iso)) { delete au[iso]; return; }
       const H = occupation(iso).score;
-      au[iso] = H >= 60 ? 0 : (au[iso] || 0) + 0.008 * unrestMult(H);
+      au[iso] = H >= 60 ? 0 : (au[iso] || 0) + 0.008 * unrestMult(H) * (docF(iso).resist || 1);
       if (au[iso] >= 1) {
         delete au[iso]; s.owner[iso] = iso; s.garrison[iso] = 0.5; invalidateGroups();
         log(`🌍 ${c.name} threw off ${BY[o].name}'s occupation (its people's happiness under it: ${H}/100).`, "world");
@@ -2114,6 +2152,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
