@@ -519,6 +519,39 @@
   // Lost sites of a country, for the map and the base cards.
   const siteStatus = (iso, name) => siteSt(iso, name);
 
+  // ── Detection time: how long until a country realises it is being invaded ──
+  // Several ways to notice race each other, and the fastest wins:
+  //  - agents inside the attacker (its spy network there) see the orders, often before the troops move;
+  //  - satellites and reconnaissance (imagery) spot columns and fleets forming up;
+  //  - radar sees aircraft within minutes and ships as they near the coast (its coverage counts);
+  //  - civilians report troops at the border on their phones (connectivity by wealth, more people
+  //    per km² means more eyes);
+  //  - general intelligence analysis, the slow backstop.
+  // Partners in a bloc with a major intelligence power (the US, the UK) or the Five Eyes get warnings
+  // shared. The attacker's counter-intelligence and deception slow everything but radar and
+  // civilians. If nothing notices before the force arrives, it strikes by surprise.
+  function detectTime(T, A, mode, travelH) {
+    const s = G.state, ipT = BY[T].intelProfile, ipA = BY[A].intelProfile, conceal = 1 + 0.05 * (ipA.counter || 0);
+    const side = sideOf(T), net = spyEff(side, sideOf(A)), rad = radarInfo(T);
+    const shared = blocsOf(T).some(({ members }) => members.some(m => m !== T && (m === "USA" || m === "GBR") && s.owner[m] === m));
+    const share = shared ? 0.65 : 1;
+    const c = BY[T], conn = Math.max(0, Math.min(1, Math.log10(Math.max(1, c.gdpPerCap || 1000)) / 5));
+    const density = (c.pop * 1e6) / Math.max(1, (window.AREA_KM2 || {})[T] || 1e5), eyes = Math.min(1, Math.log10(1 + density) / 3);
+    const air = mode === "air" || mode === "airlift", sea = mode === "sea";
+    const ways = [];
+    if (net >= 20) ways.push(["its agents inside " + BY[A].name, Math.max(0, (1 - net / 100) * 30) * conceal]);
+    if (!air) ways.push(["satellite and reconnaissance imagery", (36 / (0.5 + (ipT.imint || 0) / 2)) * conceal * share]);
+    // Radar: aircraft are seen in minutes by a modern network; weak air defences (old radars, few
+    // operators, gaps at low level) take far longer.
+    const adq = Math.max(0, 6 - ((BY[T].missiles && BY[T].missiles.ad) || 0)) * 0.45;
+    if (rad.cov > 0) ways.push(["radar", air ? 0.1 + 1.5 * (1 - rad.cov) * (rad.ew ? 0.6 : 1) + adq : Math.max(0, travelH - (sea ? 12 : 4) * rad.cov)]);
+    if (!air) ways.push(["civilians reporting troops at the border", Math.max(0, travelH - (sea ? 2 : 8) * conn * (0.5 + eyes)) + (1 - conn) * 6]);
+    ways.push(["intelligence analysis", 60 * (1.6 - 0.1 * (ipT.score || 0)) * conceal * share]);
+    const best = ways.reduce((a, b) => (b[1] < a[1] ? b : a));
+    const h = Math.max(0.1, Math.min(travelH, best[1]));
+    return { h, by: h >= travelH ? null : best[0], ways, shared };
+  }
+
   // ── Radar coverage (js/radars.js) ──
   // A country's radar sites against the sites it needs. Air defence works at 60% with no radar
   // network and in full with complete coverage; strategic early-warning radars add half a point
@@ -1001,21 +1034,51 @@
     const need = UNITS.reduce((s, u) => s + (u.lift || 0) * (units[u.key] || 0), 0);
     const cap = UNITS.reduce((s, u) => s + (u.carry || 0) * (units[u.key] || 0), 0) * liftMult(nat);
     const legs = [];
+    // Real paths (js/nav.js): ships only by sea, vehicles only over land. Ships sail from the nearest
+    // water (a naval base is on it), or from the source country's coast facing the target, to the
+    // target's coast facing them; a landlocked country can't be reached by sea at all.
+    const S = fromPt || P[from], T = P[to];
+    const port = S && T && window.navSea ? window.navNearSea(S) || window.navCoast(from, T) : null;
+    const landing = port && T ? window.navCoast(to, port) : null;
+    const sp = port && landing ? window.navSea(port, landing) : null;
+    const paths = [];
     UNITS.filter(u => u.kind === "air" && has(u)).forEach(u => legs.push((km * 1.05) / SPEED[u.key]));
     const navalUnits = UNITS.filter(u => u.kind === "naval" && has(u));
-    navalUnits.forEach(u => legs.push((km * 1.3) / SPEED[u.key]));
-    let mode = !ground && !naval ? "air" : naval ? "sea" : "land", ok = true, air = null;
+    let mode = !ground && !naval ? "air" : naval ? "sea" : "land", ok = true, air = null, noSea = null;
+    if (naval) {
+      if (!sp) { ok = false; noSea = LANDLOCKED.has(to) || !window.navCoast(to, port || S) ? "landlocked" : "nosea"; }
+      else navalUnits.forEach(u => legs.push(sp.km / SPEED[u.key]));
+    }
+    let lp = null, l1 = null, l3 = null;
     if (ground) {
       const slowest = Math.min(...UNITS.filter(u => u.kind === "ground" && has(u)).map(u => SPEED[u.key]));
-      const byLand = land ? (km * 1.25) / slowest : Infinity;
-      // Ground units overseas ride the army's own ships (sealift), with ~2 days to load and unload.
+      lp = land && S && T && window.navLand ? window.navLand(S, T) : null;
+      const byLand = land ? (lp ? lp.km : km * 1.25) / slowest : Infinity;
+      // Overseas, ground units drive to the coast, ride the army's own ships (sealift; ~2 days to load
+      // and unload) and drive in from the landing beach.
       const seaSpeed = navalUnits.length ? Math.min(...navalUnits.map(u => SPEED[u.key])) : 30;
-      const bySea = !land && need <= cap && proj.ok ? (km * 1.3) / seaSpeed + 48 : Infinity;
+      let bySea = Infinity;
+      if (!land && need <= cap && proj.ok && sp) {
+        l1 = window.navNearSea(S) ? null : window.navLand(S, port);
+        l3 = window.navLand(landing, T);
+        bySea = ((l1 ? l1.km : 0) + (l3 ? l3.km : 0)) / slowest + sp.km / seaSpeed + 48;
+      }
       air = airlift(nat, units, km);
       const byAir = air.ok && (land || proj.ok) ? air.hours : Infinity;
       const best = Math.min(byLand, bySea, byAir);
-      if (best === Infinity) ok = false;
+      if (best === Infinity) { ok = false; if (!land && !sp && !air.ok) noSea = noSea || (LANDLOCKED.has(to) ? "landlocked" : "nosea"); }
       else { legs.push(best); mode = best === byAir ? "airlift" : best === bySea ? "sea" : "land"; }
+    }
+    // The path each part of the force follows, leg by leg, for the map.
+    if (S && T) {
+      if (ground && mode === "land") paths.push({ k: "land", pts: lp ? lp.pts : [S, T] });
+      else if (ground && mode === "sea") {
+        if (l1) paths.push({ k: "land", pts: l1.pts });
+        paths.push({ k: "sea", pts: sp.pts });
+        paths.push({ k: "land", pts: l3 ? l3.pts : [landing, T] });
+      } else if (ground && mode === "airlift") paths.push({ k: "air", pts: [S, T], lift: true });
+      else if (naval && sp) paths.push({ k: "sea", pts: sp.pts });
+      else paths.push({ k: "air", pts: [S, T] });
     }
     // Aircraft need a base in range: fighters 2,500 km, helicopters 1,000 km, unless a carrier comes along.
     let airRange = null;
@@ -1026,7 +1089,7 @@
       if (airRange) ok = false;
     }
     const hours = (legs.length ? Math.max(...legs) : 1) * travelMult(nat);
-    return { km, land, sea: mode === "sea" && ground, mode, need, cap, air, proj, airRange, hours: Math.max(0.5, hours), turns: Math.max(1, Math.ceil(hours / 24)), ok };
+    return { km, land, sea: mode === "sea" && ground, mode, need, cap, air, proj, airRange, noSea, paths, hours: Math.max(0.5, hours), turns: Math.max(1, Math.ceil(hours / 24)), ok };
   }
   // When an army leaving now with this route arrives: hours on the clock, and the day (turn).
   const etaOf = hours => { const h = (G.state.clock || 0) + hours; return { etaH: h, eta: Math.floor(h / 24) + 1 }; };
@@ -1110,6 +1173,12 @@
     return null;
   }
 
+  // Why ships (or a seaborne army) can't get there.
+  function seaWhy(to, r) {
+    return r.noSea === "landlocked"
+      ? `${BY[to].name} is landlocked: ships can only sail by sea, and tanks and troops can only reach it overland or by airlift. Send ground forces from a neighbour, or fly them in.`
+      : `No sea route reaches ${BY[to].name} from there: ships can only sail by sea (an inland sea like the Caspian doesn't connect to the ocean).`;
+  }
   // Why an army can't project that far, in plain words.
   function reachWhy(nat, to, r) {
     const pj = r.proj, km = n => Math.round(n).toLocaleString("en-US");
@@ -1124,7 +1193,9 @@
     if (p.err) return p.err;
     if (p.empty) return "Pick at least one unit to send.";
     if (isAlly(to)) return `${BY[to].name} is your ally. End the alliance first (in its dossier) to attack it.`;
+    if (!p.route.ok && p.route.noSea && !(p.units.troops || p.units.tanks || p.units.afv || p.units.arty) ) return seaWhy(to, p.route);
     if (!p.route.ok && (p.route.airRange || (p.route.proj && !p.route.proj.ok))) return reachWhy(p.src.nat, to, p.route);
+    if (!p.route.ok && p.route.noSea) return seaWhy(to, p.route);
     if (!p.route.ok) {
       const a2 = p.route.air || {};
       return `These ground units can't get there: overland is blocked, your ships give ${Math.floor(p.route.cap)} of the ${Math.ceil(p.route.need)} sealift needed, and ${a2.H || a2.T ? `${BY[p.src.nat].name}'s ${a2.H} heavy and ${a2.T} tactical transports available ${a2.H < 1 && (p.units.tanks || p.units.afv || p.units.arty) ? "can't lift vehicles (that needs heavy lifters like the C-17 or Il-76)" : "would need too many sorties"}` : `${BY[p.src.nat].name} has no transport aircraft for an airlift`}. Add ships or carriers, or send fewer ground units.`;
@@ -1139,7 +1210,7 @@
       const out = (((s.baseOut = s.baseOut || {})[src.at] = s.baseOut[src.at] || {})[src.base] = s.baseOut[src.at][src.base] || {});
       UNITS.forEach(u => { if (p.units[u.key]) out[u.key] = (out[u.key] || 0) + p.units[u.key]; });
       const vsPlayer = owns(to);
-      const e = { id: s.nextEnemy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, vsPlayer, detected: true, ordered: true, fromPt: src.pt };
+      const e = { id: s.nextEnemy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, mode: p.route.mode, paths: p.route.paths, vsPlayer, detected: true, ordered: true, fromPt: src.pt };
       if (models) e.models = JSON.parse(JSON.stringify(models));
       if (ships && ships.length) { e.ships = ships.slice(); ships.forEach(h => ((s.shipBase = s.shipBase || {})[h] = { gone: true })); }
       s.enemies.push(e);
@@ -1160,7 +1231,8 @@
         UNITS.forEach(u => { if (p.units[u.key]) out[u.key] = (out[u.key] || 0) + p.units[u.key]; });
       }
     }
-    const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, mode: p.route.mode, fromPt: src.pt };
+    const a = { id: s.nextArmy++, nat: src.nat, from: src.at, to, units: p.units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: p.route.sea, mode: p.route.mode, fromPt: src.pt, paths: p.route.paths };
+    if (!owns(to) && BY[to]) { const dt = detectTime(to, src.nat, p.route.mode, p.route.hours); a.detectAt = (s.clock || 0) + dt.h; a.detectBy = dt.by; }
     if (models) a.models = JSON.parse(JSON.stringify(models));
     else if (src.army && src.army.models) a.models = JSON.parse(JSON.stringify(src.army.models));
     if (ships && ships.length) { a.ships = ships.slice(); ships.forEach(h => ((s.shipBase = s.shipBase || {})[h] = { gone: true })); }
@@ -1184,9 +1256,31 @@
     if (!kit || !window.baseKit(iso, to)) return { err: "Unknown base." };
     const u = clean(units, kit);
     if (!total(u)) return { err: "Pick at least one unit to move." };
-    const pa = window.basePoint(iso, from), pb = window.basePoint(iso, to), km = d3.geoDistance(pa, pb) * 6371;
-    const hours = Math.max(0.5, ...UNITS.filter(x => u[x.key]).map(x => (km * (x.kind === "air" ? 1.05 : x.kind === "naval" ? 1.3 : 1.25)) / SPEED[x.key])) * travelMult(iso);
-    return { u, km, hours, pa, pb };
+    const pa = window.basePoint(iso, from), pb = window.basePoint(iso, to);
+    let km = d3.geoDistance(pa, pb) * 6371;
+    // Ships sail by sea; ground units drive, or ship across when water lies between the bases.
+    const kinds = new Set(UNITS.filter(x => u[x.key]).map(x => x.kind)), times = [], paths = [];
+    if (kinds.has("naval")) {
+      const sp = window.navSea(pa, pb);
+      if (!sp) return { err: "Ships can only sail by sea, and no sea route links these two bases." };
+      UNITS.filter(x => x.kind === "naval" && u[x.key]).forEach(x => times.push(sp.km / SPEED[x.key]));
+      paths.push({ k: "sea", pts: sp.pts }); km = sp.km;
+    }
+    if (kinds.has("ground")) {
+      const slow = Math.min(...UNITS.filter(x => x.kind === "ground" && u[x.key]).map(x => SPEED[x.key])), lp = window.navLand(pa, pb);
+      if (lp) { times.push(lp.km / slow); if (!paths.length) { paths.push({ k: "land", pts: lp.pts }); km = lp.km; } }
+      else {
+        const portA = window.navNearSea(pa) || window.navCoast(iso, pb), portB = window.navNearSea(pb) || window.navCoast(iso, pa);
+        const sp = portA && portB ? window.navSea(portA, portB) : null;
+        if (!sp) return { err: "Tanks and troops can't drive there, and no sea route links the two bases' coasts." };
+        const l1 = window.navNearSea(pa) ? null : window.navLand(pa, portA), l3 = window.navNearSea(pb) ? null : window.navLand(portB, pb);
+        times.push(((l1 ? l1.km : 0) + (l3 ? l3.km : 0)) / slow + sp.km / 30 + 48);
+        if (!paths.length) { if (l1) paths.push({ k: "land", pts: l1.pts }); paths.push({ k: "sea", pts: sp.pts }); if (l3) paths.push({ k: "land", pts: l3.pts }); km = sp.km; }
+      }
+    }
+    if (kinds.has("air")) { UNITS.filter(x => x.kind === "air" && u[x.key]).forEach(x => times.push((d3.geoDistance(pa, pb) * 6371 * 1.05) / SPEED[x.key])); if (!paths.length) paths.push({ k: "air", pts: [pa, pb] }); }
+    const hours = Math.max(0.5, ...times) * travelMult(iso);
+    return { u, km, hours, pa, pb, paths };
   }
   // `ships`: hull numbers of named carriers in the move, so they keep their names at the new base.
   function moveUnits(iso, from, to, units, ships) {
@@ -1198,7 +1292,7 @@
     const a = (mv[from] = mv[from] || {});
     UNITS.forEach(x => { if (u[x.key]) a[x.key] = (a[x.key] || 0) - u[x.key]; });
     const { pa, pb, km, hours } = q;
-    const m = { id: s.nextMove = (s.nextMove || 1), iso, from, to, units: u, sentH: s.clock || 0, ...etaOf(hours), a: pa, b: pb };
+    const m = { id: s.nextMove = (s.nextMove || 1), iso, from, to, units: u, sentH: s.clock || 0, ...etaOf(hours), a: pa, b: pb, paths: q.paths };
     s.nextMove++;
     (s.moves = s.moves || []).push(m);
     if (ships && ships.length) { m.ships = ships.slice(); ships.forEach(h => ((s.shipBase = s.shipBase || {})[h] = { base: to, move: m.id })); }
@@ -1354,7 +1448,10 @@
     if (!s.wars[iso]) blocWar(iso, s.player);
     const war = (s.wars[iso] = s.wars[iso] || { start: s.turn, p0: rawPower(forces(iso), iso) });
     const help = allyHelp(iso, true), mine = missileSalvo(empire().map(c => c.iso3), iso), theirs = missileSalvo([iso], armies[0] ? armies[0].nat : s.player);
-    const D = defenceOf(iso).total + theirs.power;
+    // Your own surprise: armies that arrive before the target noticed them catch it unready (first round).
+    const surprised = armies.some(a => !a.fought && a.detectAt != null && a.detectAt >= (a.etaH != null ? a.etaH : a.eta * 24));
+    armies.forEach(a => (a.fought = true));
+    const D = defenceOf(iso).total * (surprised ? 0.85 : 1) + theirs.power;
     const A = armies.reduce((x, a) => x + armyPower(a) / (a.sea ? 1 : borderMult(iso, yourCrossing(iso, a.from))), 0) + allyTotal(help) + mine.power;
     const r = A / (A + D);
     scaleUnits(forces(iso), 1 - Math.min(0.6, 0.3 * r));
@@ -1560,19 +1657,23 @@
     }
     scaleUnits(units, 1);
     if (rawPower(units, A) < 30) return;
+    // Only by a real route: no sailing to landlocked countries, no driving across the sea.
+    const r = route(A, T, units, A);
+    if (!r.ok) return;
     UNITS.forEach(u => (f[u.key] -= units[u.key] || 0));
-    const r = route(A, T, units, A), hours = r.ok ? r.hours : (r.km * 1.3) / 30 + 48, { eta, etaH } = etaOf(hours);
+    const hours = r.hours, { eta, etaH } = etaOf(hours);
     // Your intelligence decides whether you see the attack coming or only when it lands.
     // Seen if your intelligence beats its counter-intelligence: intel ≥ 3.3 + 0.53 × its counter-intel.
     // ...or if your spy network inside the attacker (30+) sees the orders before the troops move.
-    const detected = !vsPlayer || 0.25 + 0.075 * myIntel() - 0.04 * BY[A].intelProfile.counter + 0.15 * radarInfo(T).cov >= 0.5 || myNet(A) >= 30;
-    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: !land, vsPlayer, detected };
+    // How long until the target notices (detectTime): the force stays hidden until then.
+    const dt = detectTime(T, A, r.mode, hours), detectAt = (s.clock || 0) + dt.h, detected = !vsPlayer ? true : dt.h <= 0.1;
+    const e = { id: s.nextEnemy++, nat: A, from: A, to: T, units, eta, etaH, sent: s.turn, sentH: s.clock || 0, sea: r.mode === "sea", mode: r.mode, paths: r.paths, vsPlayer, detected, detectAt, detectBy: dt.by };
     const fresh = !s.enemies.some(x => x.nat === A && x.to === T);
     s.enemies.push(e);
     if (fresh) blocWar(T, A);
     if (vsPlayer) {
       s.hostile[A] = s.turn;
-      if (detected) log(`🚨 Intelligence warning: ${BY[A].name} launched an attack on ${BY[T].name}: about ${unitList(fuzzUnits(units, A))}. Arrives in ${fmtDur(hours)} (${clockLabel(etaH)}). Send forces to defend it.`, "bad");
+      if (detected) { e.warned = true; log(`🚨 Warning from ${dt.by}: ${BY[A].name} launched an attack on ${BY[T].name}: about ${unitList(fuzzUnits(units, A))}. Arrives in ${fmtDur(hours)} (${clockLabel(etaH)}). Send forces to defend it.`, "bad"); }
     } else log(`🌍 ${BY[A].name} invaded ${BY[T].name} with ${unitList(units)}. Arrives in ${fmtDur(hours)}.`, "world");
   }
 
@@ -1717,7 +1818,9 @@
     const s = G.state, c = BY[iso], foes = enemiesAt(iso);
     const inv = (s.invasions = s.invasions || {})[iso] || (s.invasions[iso] = { start: s.turn, progress: 0, e0: foes.reduce((x, e) => x + enemyPower(e), 0) });
     const theirs = missileSalvo(foes.map(e => e.nat), iso), mine = missileSalvo(empire().map(c => c.iso3), foes[0].nat);
-    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + theirs.power, D = homeDefence(iso, foes[0].nat) + mine.power;
+    const surprised = foes.some(e => e.surprise && !e.fought);
+    foes.forEach(e => (e.fought = true));
+    const E = foes.reduce((x, e) => x + enemyPower(e), 0) + theirs.power, D = homeDefence(iso, foes[0].nat) * (surprised ? 0.85 : 1) + mine.power;
     const r = E / (E + D);
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
@@ -1774,11 +1877,17 @@
       if (a.to === a.nat && owns(a.nat)) { disband(a.id); log(`🏠 Army ${a.id} is home in ${BY[a.nat].name} and back in reserve.`, "info"); }
       else log(`📍 Army ${a.id} arrived in ${BY[a.to].name}${owns(a.to) ? "" : ". It fights at the end of the day"}.`, "info");
     });
+    // An attack is noticed when its detection time comes, if it hasn't landed yet.
+    s.enemies.filter(e => e.vsPlayer && !e.warned && !arrived(e) && e.detectAt != null && (s.clock || 0) >= e.detectAt).forEach(e => {
+      e.warned = true; e.detected = true; n++;
+      log(`🚨 ${BY[e.to].name} spotted an incoming attack by ${BY[e.nat].name} (warned by ${e.detectBy || "intelligence"}, ${fmtDur((s.clock || 0) - e.sentH)} after it set off): about ${unitList(fuzzUnits(e.units, e.nat))}, arriving in ${etaLeft(e)}. Send forces to defend it.`, "bad");
+    });
     s.enemies.filter(e => !e.landed && arrived(e)).forEach(e => {
       e.landed = true;
       if (e.vsPlayer && !e.detected) {
         e.detected = true; n++;
-        log(`💥 Surprise attack! ${BY[e.nat].name} struck ${BY[e.to].name} without warning: about ${unitList(fuzzUnits(e.units, e.nat))}. Better intelligence would have seen it coming.`, "bad");
+        e.surprise = true;
+        log(`💥 Surprise attack! ${BY[e.nat].name} struck ${BY[e.to].name} without warning: about ${unitList(fuzzUnits(e.units, e.nat))}. Nothing noticed it in time: better intelligence, radar, satellites or agents inside ${BY[e.nat].name} would have. Its defenders fight at ×0.85 in the first round.`, "bad");
       } else if (e.vsPlayer) { n++; log(`⚔️ ${BY[e.nat].name}'s forces reached ${BY[e.to].name}.`, "bad"); }
     });
     (s.moves || []).filter(m => arrived(m)).forEach(m => {
@@ -2005,6 +2114,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
