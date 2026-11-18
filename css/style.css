@@ -600,3 +600,6 @@ circle.garrison.captured { stroke: #e2654f !important; stroke-width: 2.5; }
 .battle-legend { padding: 8px 12px 12px; font-size: 12.5px; }
 .battle-legend p { margin: 4px 0; }
 .watch-battle { margin-top: 6px; }
+.battle-tabs { display: flex; gap: 4px; margin-left: auto; margin-right: 8px; }
+.battle-tabs button { background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12.5px; }
+.battle-tabs button[aria-pressed="true"] { background: var(--line); }

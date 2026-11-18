@@ -660,6 +660,9 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **The action:** artillery fires arcing shells, anti-aircraft guns and missiles fire at aircraft, jets make strafing passes, and icons are knocked out in proportion to the day's real losses.
   - **The setting:** the ground follows the country's terrain and weather, and the sky its day or night.
   - **The summary:** it gives the odds and the air, air-defence and artillery contests.
+  - **Sea and air battles too.** Tabs switch between the land, sea and air sides of a battle. The scene opens on the attack's own kind: a fleet's sea battle, an air-only strike's air battle, otherwise the land battle.
+    - **Sea:** warships, carriers launching jets and submarines below the surface. Ships fire anti-ship missiles that skim the waves, submarines fire torpedoes, and close-in guns and missiles fire at aircraft. Ships that are hit burn and sink.
+    - **Air:** modern air combat is fought mostly beyond visual range. Fighters hold patrol lines on their own side and trade lofted long-range radar missiles. Only late in the fight, and less often between modern air forces, do survivors close in for a within-visual-range merge with short-range missiles and guns. Each side's beyond-visual-range share comes from its air force's generation. Bombers and drones strike ground targets, and surface-to-air missiles climb from below.
   - Countries without a researched profile get a modelled estimate based on their budget and economy. The card labels each profile as either "researched profile" or "modelled estimate".
 
 "Secret assets" are, by definition, not public. These numbers are informed open-source estimates for a game. They are not intelligence.

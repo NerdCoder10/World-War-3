@@ -3484,9 +3484,10 @@
     if (mine.length) att = { nat: s.player, units: sum(mine), power: mine.reduce((x, a) => x + G.armyPower(a), 0), label: `You (${BY[s.player].name})`, col: "#f0c66a", dark: "#5a4510" };
     else if (foes.length) att = { nat: foes[0].nat, units: sum(foes), power: foes.reduce((x, e) => x + G.enemyPower(e), 0), label: BY[foes[0].nat].name, col: G.owns(T) ? "#e2654f" : "#c79bf2", dark: "#3a1010" };
     if (!att) return null;
+    const sea = (mine.length ? mine : foes).some(a => a.sea || a.mode === "sea");
     const defUnits = G.forces(T), D = G.owns(T) ? G.homeDefence(T, att.nat) : G.defenceOf(T, att.nat).total;
     const bm = G.battleMods(att.units, att.nat, defUnits, T, T), A = att.power * bm.att, Dp = D * bm.def, r = A / Math.max(1e-9, A + Dp);
-    return { T, att, def: { nat: T, units: defUnits, label: G.owns(T) ? `${BY[T].name} (yours)` : BY[T].name, col: G.owns(T) ? "#f0c66a" : "#8fb3c9", dark: "#1d2a33" }, bm, r };
+    return { T, att, def: { nat: T, units: defUnits, label: G.owns(T) ? `${BY[T].name} (yours)` : BY[T].name, col: G.owns(T) ? "#f0c66a" : "#8fb3c9", dark: "#1d2a33" }, bm, r, sea };
   }
   function openBattleView(T) {
     const b = battleAt(T);
@@ -3497,13 +3498,20 @@
     const ground = snow ? "#d9dee2" : zone === "desert" ? "#c9a96b" : zone === "tropical" || zone === "monsoon" ? "#3f6b33" : zone === "boreal" ? "#56664a" : zone === "savanna" ? "#a08a4f" : "#5d6b3e";
     const weather = /rain|storm|monsoon|cyclone/.test(w.type) ? { fill: "rgba(200,220,255,0.35)", dx: 0.02, dy: 0.9, w: 1, h: 9 } : /snow|blizzard/.test(w.type) ? { fill: "rgba(255,255,255,0.8)", dx: 0.03, dy: 0.12, w: 2.2, h: 2.2 } : /sandstorm/.test(w.type) ? { fill: "rgba(210,170,100,0.35)", dx: 0.6, dy: 0.05, w: 14, h: 2 } : null;
     const lossAtt = Math.min(0.6, 0.3 * (1 - b.r)), lossDef = Math.min(0.6, 0.3 * b.r);
+    // Theatres in this fight: land, sea (when a fleet comes in), air (when aircraft fly). The default
+    // is the attack's own kind: a fleet's sea battle, an air-only strike's air battle, else land.
+    const modes = window.battleModes(b.att.units, b.def.units), au = b.att.units;
+    const fleet = (au.ships || 0) + (au.subs || 0) + (au.carriers || 0) >= 1, groundForce = (au.tanks || 0) + (au.afv || 0) + (au.arty || 0) + (au.troops || 0) >= 1;
+    const mode = fleet && (b.sea || !groundForce) ? "sea" : !groundForce && modes.includes("air") ? "air" : modes[0];
+    // Share of each air force able to fight beyond visual range (radar missiles): generation 4+.
+    const bvr = iso => Math.max(0.1, Math.min(1, (G.airProfile(iso).gen - 2.5) / 1.6));
     window.openBattle({
-      title: `⚔️ Battle for ${esc(BY[T].name)} · ${w.icon} ${esc(w.label)}, ${w.temp}°C`,
+      place: esc(BY[T].name), wx: `${w.icon} ${esc(w.label)}, ${w.temp}°C`, modes, mode,
       seed: T.charCodeAt(0) * 7919 + T.charCodeAt(2) * 31 + G.state.turn,
-      att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4) },
-      def: { ...b.def, aa: window.AD_BATTERIES(BY[T]) },
+      att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4), bvr: bvr(b.att.nat) },
+      def: { ...b.def, aa: window.AD_BATTERIES(BY[T]), bvr: bvr(T) },
       lossAtt, lossDef, ground, weather, night: !window.sunUp(P[0], P[1], ms, doy),
-      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
+      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
     });
   }
   // The air force by model, its artillery and its air defence, from js/airspecs.js and js/missiles.js.
