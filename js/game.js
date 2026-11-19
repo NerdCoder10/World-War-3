@@ -162,7 +162,7 @@
   const inRevolt = iso => !!G.state.revolts[iso];
   // Nations in revolt pay nothing; nations being invaded lose the share the enemy holds.
   const heldShare = iso => 1 - Math.min(1, ((G.state.invasions || {})[iso] || { progress: 0 }).progress / 100);
-  const income = () => Math.round(20 + empire().filter(c => !inRevolt(c.iso3)).reduce((s, c) => s + (c.gdp * 0.02 + industryCoins(c)) * heldShare(c.iso3) * (c.iso3 === G.state.player ? 1 : payShare(occupation(c.iso3).score)), 0) + bonus("inc"));
+  const income = () => Math.round((1 - 0.5 * (G.state.player ? econStrain(G.state.player) : 0)) * (20 + empire().filter(c => !inRevolt(c.iso3)).reduce((s, c) => s + (c.gdp * 0.02 + industryCoins(c)) * heldShare(c.iso3) * (c.iso3 === G.state.player ? 1 : payShare(occupation(c.iso3).score)), 0) + bonus("inc")));
   const loot = t => Math.round((25 + t.gdp * 0.05) * (1 + bonus("loot")));
   function empireSoft() {
     const e = empire();
@@ -884,7 +884,8 @@
     return partsFactorBase(iso, key) * mtKind(iso, key) * techKind(iso, key);
   }
   function partsFactorBase(iso, key) {
-    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso));
+    const bs = window.budgetSustain(BY[iso]);
+    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso)) * (key === "troops" ? 0.85 + 0.15 * bs : 0.55 + 0.45 * bs);
   }
   function partsFactorCore(iso, key) {
     if (key === "troops") return troopDilution(iso) * window.manning(BY[iso]);

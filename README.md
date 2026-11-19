@@ -694,6 +694,11 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
     - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
     - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Peacetime economic upkeep:** can each country's real budget, including off-book spending, keep its forces running?
+    - **Upkeep:** pay for every soldier plus the yearly operating and maintenance cost of each tank, jet, helicopter, ship, submarine and carrier, at local price levels.
+    - **Threshold:** upkeep is normally 60–70% of a defence budget, so a budget under 1.4× upkeep is a hollow force. Equipment readiness falls to ×(0.55 + 0.45 × funding) and troops to ×(0.85 + 0.15 × funding).
+    - **Examples:** North Korea (a vast ageing army on ~$4bn), Bolivia, Turkmenistan, Greece (after its debt crisis) and Thailand are underfunded. Finland and Switzerland are exempt: they keep reserve equipment in cheap, well-kept storage.
+    - **Your income** falls by up to 17% when a long war outruns your country's finances.
   - **Economic upkeep of war** (`ECON_FISCAL`): fiscal capacity from reserves, sovereign wealth, debt, borrowing costs, sanctions and aid.
     - **How long it pays:** a country pays for about 60 + 45 × capacity days of full-scale war (the US and China ~465, Russia ~330, Iran ~150, North Korea ~105). After that, war production and readiness fall by up to 35%.
   - **Paramilitaries** (`js/paramilitary.js`): separate from each military, counted by real fielded strength, training, kit and loyalty.
