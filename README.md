@@ -668,6 +668,12 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Britain ×1.04, Russia ×0.85, Israel ×0.89, Iran ×0.65.**
     - **Collapsed states ×0.23–0.26:** Sudan, Haiti, Mali.
   - Each dossier shows the country's alert, stability and detection speed.
+  - **Border security** (`js/spies.js` BORDERS, about 95 countries researched, the rest estimated). Land frontier, coasts and points of entry are each rated 0–10.
+    - **Spies** come and go through airports and ports, so their exposure is ×(0.8 + 0.04·entry).
+    - **Special-forces teams** slip in by the weakest route, land or sea. Crossing in starts them 60 × (weakest/10)² × (1 − cover/11) of the way to being found: up to ~30% into North Korea or Israel, almost nothing into a porous state. Their resupply exposure is ×(0.8 + 0.04·weakest).
+    - **Invasions:** border guards and coastal watch are now one of the ways an invasion is spotted.
+    - **The US:** land 7 (the most watched southern border in the world yet ~2 million crossings a year at the 2022–23 peak, and a lightly watched Canadian border), coasts 8, entry 9.5 (biometrics and visa vetting).
+    - **Others:** North Korea 10/8/10, Israel 8/9/9.5, Britain's open Irish border and small boats 4/7/9, Schengen's open land borders 4–5, Libya and Somalia 1.
   - **What you see:** your Intel tab, the dossiers and the world spy-war list only show networks that have been exposed. That means publicly known penetrations plus those found during play. Sabotage by an unfound network is "unidentified saboteurs".
   - **Sweeps:** a sweep first hunts for hidden networks and teams, then rolls up only the ones it has found. Services with a strong record may survive several.
   - **Your own networks:** each shows whether the target knows about it and roughly how many days it has left.
