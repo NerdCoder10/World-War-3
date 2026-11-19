@@ -18,10 +18,10 @@
 window.MISSILES = {
   //   ballistic, cruise, air defence, note
   USA: [1200, 8300, 7, "Tomahawk (~3,800 after 2024–25 strikes on the Houthis and Iran), JASSM/JASSM-ER (~4,000 in US service), LRASM (~300); ATACMS (~1,000 left after transfers to Ukraine), PrSM and the first Dark Eagle hypersonic battery. Patriot (15 battalions), THAAD (8 batteries) and Aegis, but interceptor stocks are strained: about a quarter of all THAAD interceptors were fired defending Israel in June 2025, and the homeland has thin cruise-missile defence"],
-  CHN: [2500, 1500, 7, "PLA Rocket Force DF-11/15/16/17/21D/26 conventional brigades, CJ-10/100 cruise missiles; HQ-9 and S-400"],
-  RUS: [900, 2500, 6, "Iskander-M, Kinzhal, Kalibr, Kh-101 and Kh-22/32, rebuilt at ~100+ a month during the war; a dense S-300/400 network that still misses many Ukrainian drones and missiles"],
+  CHN: [2700, 1500, 7, "By the US DoD estimate: ~900 short-range, ~1,300 medium-range (DF-21D, DF-17) and ~500 DF-26 missiles, ~400 CJ-10/100 ground-launched cruise missiles plus air- and ship-launched ones; HQ-9 and S-400"],
+  RUS: [800, 1200, 6, "By Ukrainian intelligence estimates: ~600 Iskander-M plus Kinzhal and North Korean KN-23s, and ~1,200 cruise missiles (Kh-101, Kalibr, Kh-59, old Kh-22/32) on hand, since most new production is fired within weeks; a dense S-300/400 network that still misses many Ukrainian drones and missiles"],
   IRN: [1500, 400, 2.5, "Fateh-110/313, Zolfaghar, Shahab-3, Emad, Kheibar Shekan, Paveh and Hoveyzeh cruise missiles: about 550 ballistic missiles fired at Israel in June 2025 and many launchers destroyed; its S-300s and radars were knocked out, leaving Israeli jets free over Tehran"],
-  PRK: [1000, 100, 3, "KN-23/24/25, Scud and Nodong families; Hwasal cruise missiles"],
+  PRK: [900, 100, 3, "KN-23/24/25, Scud and Nodong families; Hwasal cruise missiles; well over 100 KN-23s shipped to Russia since 2023"],
   ISR: [150, 800, 10, "LORA and air-launched Rampage, Delilah and Air LORA; Iron Dome, David's Sling and Arrow 2/3"],
   IND: [1000, 1500, 6, "Prithvi, Pralay and Agni-family conventional variants, BrahMos and Nirbhay; S-400 and Akash"],
   PAK: [600, 300, 4, "Fatah rockets, Abdali, Ghaznavi and Shaheen conventional, Babur and Ra'ad cruise missiles; HQ-9"],
@@ -103,3 +103,24 @@ window.isStratSite = (iso, z, key) => {
   if (key === "launchers") return (window.MISSILE_SITE_RX.test(z.name) || /^Missile (base|brigade)/.test(z.note || "")) && !window.AD_SITE_RX.test(z.name) && !(z.airPct > 0.02 || z.navalPct > 0.02);
   return window.AD_SITE_RX.test(z.name) || /^Air-defence site/.test(z.note || "");
 };
+
+// Missile reliability (share of missiles fired that fly and hit the target area), from combat use
+// and analysis, not the makers' claims. Not listed: estimated from technology and maintenance.
+window.MISSILE_RELIABILITY = {
+  USA: [0.95, "Tomahawk and JASSM are combat-proven; some ageing ATACMS lots"], ISR: [0.95, "Combat-proven"], GBR: [0.92, "Storm Shadow proven in Ukraine"], FRA: [0.92, "SCALP proven in Ukraine"], DEU: [0.92, "Taurus, well maintained"],
+  RUS: [0.8, "Kh-101 and Iskander mostly work, though Ukraine finds many fired straight off the production line; old Kh-22s, Kh-55s and S-300s pressed into ground attack often miss"],
+  CHN: [0.8, "Untested in war; US intelligence reportedly found Rocket Force missiles filled with water instead of fuel during the 2023 corruption purge"],
+  PRK: [0.55, "About half the KN-23s Russia fired at Ukraine veered off course or broke up in flight (Ukraine's prosecutor general, 2024)"],
+  IRN: [0.7, "In 2024–25 a share of its missiles failed at launch or fell short; others got through Israel's defences"], YEM: [0.6, "Houthi copies of Iranian designs, many fall short"],
+  UKR: [0.85, "The Neptune sank the cruiser Moskva in 2022"], IND: [0.85, "BrahMos well proven in tests; one misfired into Pakistan in 2022"], PAK: [0.8, "Tested"],
+  KOR: [0.9, "Well maintained (though a Hyunmoo-2 crashed at its own base in 2022)"], JPN: [0.92, "Well maintained"], TWN: [0.88, "Tested"], TUR: [0.85, "Tested"],
+  SAU: [0.75, "Ageing Chinese stock"], ARE: [0.85, "Well maintained"], EGY: [0.7, "Ageing Scuds"], SYR: [0.4, "Ruined stocks"], VEN: [0.5, "Poorly maintained"], CUB: [0.4, "Soviet-era"],
+  BLR: [0.75, "Russian-supported"], AZE: [0.85, "Israeli LORA proven in 2020"], ARM: [0.6, "Its Iskanders reportedly failed to explode in 2020"], DZA: [0.75, "Russian-supplied"],
+};
+window.missileReliability = c => {
+  const r = window.MISSILE_RELIABILITY[c.iso3];
+  return r ? r[0] : Math.max(0.4, Math.min(0.85, 0.35 + 0.08 * ((c.tech && c.tech.gen) || 2) + 0.1 * ((c.tech && c.tech.ready) || 0.5)));
+};
+// Countries that make their own air-defence interceptors, and so can refill them in a war with
+// trade cut (others depend on imports: Patriot, NASAMS and IRIS-T buyers).
+window.INTERCEPTOR_MAKERS = new Set(["USA", "RUS", "CHN", "ISR", "FRA", "ITA", "DEU", "KOR", "JPN", "IND", "TUR", "IRN", "TWN", "NOR", "GBR"]);

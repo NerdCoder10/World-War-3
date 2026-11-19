@@ -481,7 +481,7 @@
   function strikeQuote(iso, name) {
     const x = siteList(iso).find(y => y.name === name);
     if (!x) return { err: "No such site." };
-    const leak = Math.max(0.05, 1 - 0.08 * effectiveAD(iso)), need = SITE_HARD(x), fire = Math.ceil(need / leak);
+    const leak = Math.max(0.05, 1 - 0.08 * effectiveAD(iso)), need = SITE_HARD(x), rel = G.state.player ? missileRel(G.state.player) : 0.9, fire = Math.ceil(need / (leak * rel));
     const have = empire().reduce((a, c) => { const st = missileStock(c.iso3); return a + st.bm + st.cm; }, 0);
     return { x, need, fire, leak, have };
   }
@@ -496,6 +496,7 @@
     if (q.have < q.fire) return `This strike needs ${q.fire} missiles (its air defence stops ${Math.round((1 - q.leak) * 100)}%); you have ${Math.floor(q.have)}.`;
     let left = q.fire;
     empire().forEach(c => { const st = missileStock(c.iso3); ["cm", "bm"].forEach(k2 => { const u = Math.min(st[k2], left); st[k2] -= u; left -= u; }); });
+    useInterceptors(iso, q.fire * missileRel(s.player) * (1 - q.leak));
     loseSite(iso, q.x, "x", s.player);
     provoke(sideOf(iso));
     log(`💥 Your strike destroyed ${name} in ${BY[iso].name}: ${q.fire} missiles fired, ${Math.round(q.fire * q.leak)} got through its air defence.`, "good");
@@ -729,7 +730,30 @@
   // Cyber hits (js/cyber.js): a blacked-out grid or hacked command and air-defence networks.
   const cyHit = (iso, k) => (((G.state.cyberHit || {})[iso] || {})[k] || -1) >= G.state.turn;
   const cyberDefMult = iso => (cyHit(iso, "grid") ? 0.95 : 1) * (cyHit(iso, "c2") ? 0.93 : 1);
-  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
+  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) * interceptMult(iso) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
+  // ── Missile upkeep ──
+  // Reliability (js/missiles.js): only that share of missiles fired works. Interceptors: an air
+  // defence has ~30 per battery; each missile it stops costs 1.5 (shoot-look-shoot), and below 30%
+  // of its stock it fights at a fraction of its rating. Refill a day: 0.4% of the full stock for
+  // countries that make their own (0.15% for importers, none for importers in a war with trade
+  // cut). Shelf life: stocks lose up to 0.02% a day to ageing propellant and electronics, more for
+  // poorly maintained arsenals.
+  const missileRel = iso => window.missileReliability(BY[iso]);
+  const interceptPool = iso => window.AD_BATTERIES(BY[iso]) * 30;
+  const interceptFrac = iso => { const v = (G.state.intercept || {})[iso]; return v == null ? 1 : v; };
+  const interceptMult = iso => { const f = interceptFrac(iso); return f >= 0.3 ? 1 : 0.25 + 0.75 * f / 0.3; };
+  function useInterceptors(iso, stopped) {
+    const pool = interceptPool(iso); if (!pool || stopped <= 0) return;
+    const st = (G.state.intercept = G.state.intercept || {}); st[iso] = Math.max(0, interceptFrac(iso) - (stopped * 1.5) / pool);
+  }
+  function munitionsDay() {
+    const s = G.state, st = s.intercept || {};
+    Object.keys(st).forEach(iso => {
+      const maker = window.INTERCEPTOR_MAKERS.has(iso), rate = maker ? 0.004 : warDaysOf(iso) ? 0 : 0.0015;
+      st[iso] = Math.min(1, st[iso] + rate); if (st[iso] >= 1) delete st[iso];
+    });
+    Object.keys(s.missiles || {}).forEach(iso => { const m = s.missiles[iso], age = 1 - 0.0002 * (1.2 - maintCap(iso)); m.bm *= age; m.cm *= age; });
+  }
   function missileSalvo(shooters, targetIso) {
     const leak = 1 - 0.08 * effectiveAD(targetIso);
     let power = 0, fired = 0, hits = 0;
@@ -739,7 +763,9 @@
         // Lost missile sites mean fewer launchers to fire from.
         const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = (fm == null ? 1 : 0.3 + 0.7 * fm) * (docF(iso).missile || 1);
         const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04 * rate)));
-        st[k2] -= n; fired += n; hits += n * leak; power += n * leak * (k2 === "bm" ? 2.5 : 1.5);
+        const work = n * missileRel(iso);
+        st[k2] -= n; fired += n; hits += work * leak; power += work * leak * (k2 === "bm" ? 2.5 : 1.5);
+        useInterceptors(targetIso, work * (1 - leak));
       });
     });
     return { power, fired, hits: Math.round(hits) };
@@ -1289,10 +1315,13 @@
   // cameras (level under 6), and by how many it has left. Stocks (in days of hard use) start at 30,
   // burn a day for each day at war and refill at what its factories make (needing chips, which
   // with no trade only some countries have).
-  const droneStock = iso => { const d = (G.state.drones = G.state.drones || {}); return d[iso] == null ? (d[iso] = window.droneTech(iso).level ? 30 : 0) : d[iso]; };
+  const droneStock = iso => { const d = (G.state.drones = G.state.drones || {}); return d[iso] == null ? (d[iso] = window.droneTech(iso).level ? ((window.DRONE_STOCK[iso] || [30])[0]) : 0) : d[iso]; };
+  // Imported drone parts cut off by a war with no trade, and repair of drones and ground stations
+  // by the country's maintenance capacity.
+  const droneParts = iso => (window.DRONE_PARTS[iso] || [Math.max(0.2, 0.8 - 0.1 * window.droneTech(iso).level)])[0];
   function droneSustain(iso) {
     const t = window.droneTech(iso), e = econOf(iso), chips = e.fill && e.fill.chips != null && isFinite(e.fill.chips) ? Math.min(1, e.fill.chips) : 1;
-    return Math.min(1.5, t.prod / Math.max(5, BY[iso].active * 0.5)) * (0.4 + 0.6 * chips);
+    return Math.min(1.5, t.prod / Math.max(5, BY[iso].active * 0.5)) * (0.4 + 0.6 * chips) * (0.6 + 0.4 * maintCap(iso)) * (warDaysOf(iso) ? 1 - 0.7 * droneParts(iso) : 1);
   }
   function droneEdge(nat, at, vs) {
     const t = window.droneTech(nat);
@@ -1306,7 +1335,8 @@
       const iso = c.iso3;
       if (!window.droneTech(iso).level) return;
       const st = droneStock(iso), sus = droneSustain(iso);
-      s.drones[iso] = atWar(iso) ? Math.max(0, Math.min(60, st - 1 + sus)) : Math.min(Math.max(st, 30), st + sus);
+      const cap = Math.max(60, ((window.DRONE_STOCK[iso] || [30])[0]) * 1.3);
+      s.drones[iso] = atWar(iso) ? Math.max(0, Math.min(cap, st - 1 + sus)) : Math.min(Math.max(st, (window.DRONE_STOCK[iso] || [30])[0]), st + sus);
     });
   }
   const wxTag = (iso, mine, theirs) => { const w = weather(iso), n = nightInfo(iso); return ` ${w.type === "clear" ? "" : `${w.icon} ${w.label}, ${w.temp}°C · `}${window.moonIcon(n.moon)} ${Math.round(n.dark)}h of darkness: your side ×${mine.toFixed(2)}, theirs ×${theirs.toFixed(2)}.`; };
@@ -2437,6 +2467,7 @@
     produce();
     droneDay();
     spyDay();
+    munitionsDay();
     spyUpkeepDay();
     sfDay();
     sfUpkeepDay();
@@ -2608,6 +2639,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

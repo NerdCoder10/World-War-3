@@ -37,3 +37,19 @@ window.droneTech = iso => {
 };
 // Which weather keeps drones on the ground (share still flying).
 window.DRONE_WEATHER = { clear: 1, frost: 0.9, rain: 0.7, fog: 0.7, snow: 0.6, mud: 1, heat: 0.9, storm: 0.25, blizzard: 0.15, sandstorm: 0.2, monsoon: 0.3, cyclone: 0.05 };
+
+// Drone stockpiles at the start, in days of hard use (the standard is 30), from analysis of what each
+// country has built up, not what it declares: Russia stockpiles Geran-2s to launch 500–800 in a night;
+// Iran built up Shaheds for years; the US has few mass-produced small drones despite its 2025 push.
+window.DRONE_STOCK = {
+  RUS: [45, "Stockpiles Geran-2s from the Alabuga plant to launch 500–800 in a single night"], UKR: [40, "Millions of FPV drones a year, used as fast as they are made"],
+  IRN: [50, "Built up Shahed stocks for years"], CHN: [60, "The world's largest drone industry"], USA: [20, "Few mass-produced small drones despite the 2025 'drone dominance' drive; large Reapers and Gray Eagles"],
+  ISR: [30, "Heron, Hermes and loitering munitions"], TUR: [35, "Large Bayraktar fleets"], PRK: [15, "Small, Russian-assisted"], YEM: [30, "Iranian-supplied stocks"],
+};
+// Imported parts in its drones (motors, magnets, cameras, chips, engines), 0–1: cut off in a war
+// with no trade, production falls by up to that share.
+window.DRONE_PARTS = {
+  UKR: [0.6, "Chinese motors, magnets, batteries and cameras; China restricted exports in 2024–25"], RUS: [0.4, "Chinese and smuggled Western electronics; Alabuga localised much of the Geran"],
+  IRN: [0.3, "Smuggled Western chips and engines"], TUR: [0.3, "Canada cut off the TB2's cameras and Austria its engines in 2020; now mostly local"],
+  USA: [0.2, "Many small-drone parts still come from China"], ISR: [0.2, "Mostly local"], CHN: [0.05, "Makes everything itself"], PRK: [0.5, "Depends on Russia and China"],
+};
