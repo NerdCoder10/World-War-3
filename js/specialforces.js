@@ -180,6 +180,13 @@ window.sfUnits = iso => {
   return (sfMemo[iso] = [["Special forces (estimated)", ops, Math.round((3 + 5 * ready) * 10) / 10, 3, "No researched profile; estimated from the army's size and readiness"]]);
 };
 // Effective strength: Σ operators × quality⁶.
-window.sfPower = iso => window.sfUnits(iso).reduce((a, u) => a + u[1] * Math.pow(window.sfQuality(u), 6), 0);
+// Live condition, set by the game (js/game.js): fatigue 0–1 and operators lost and not yet replaced.
+window.sfLive = null;
+window.sfFatigue = (iso, u) => (window.sfLive ? window.sfLive.fat(iso, u[0]) : 0);
+window.sfLost = (iso, u) => (window.sfLive ? window.sfLive.loss(iso, u[0]) : 0);
+// Quality as it is today: a worn-out unit fights up to 30% below its standard.
+window.sfQualityOf = (iso, u) => (u ? window.sfQuality(u) * (1 - 0.3 * window.sfFatigue(iso, u)) : 0);
+window.sfOperators = (iso, u) => Math.max(0, u[1] - window.sfLost(iso, u));
+window.sfPower = iso => window.sfUnits(iso).reduce((a, u) => a + window.sfOperators(iso, u) * Math.pow(window.sfQualityOf(iso, u), 6), 0);
 // The best unit: the one sent on raids.
-window.sfBest = iso => window.sfUnits(iso).reduce((b, u) => (!b || window.sfQuality(u) > window.sfQuality(b) ? u : b), null);
+window.sfBest = iso => window.sfUnits(iso).reduce((b, u) => (!b || window.sfQualityOf(iso, u) > window.sfQualityOf(iso, b) ? u : b), null);
