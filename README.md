@@ -662,6 +662,12 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **US and Russia 7:** Ames and Hanssen, but also the 2010 illegals roll-up, the GRU's Skripal team, and the CIA's lost China network.
     - **Iran 3.5:** plots foiled again and again. **Saudi Arabia 3:** the Khashoggi team was identified within days.
   - **No dice: exposure builds every day.** It builds faster against strong counter-intelligence, for bigger networks, and above all for services with a poor record (a 9 is found about 30× more slowly than a 3). Every operation and sabotage adds to it, and so does every sweep. At 100 the network is found and loses half its agents, or the team is killed or captured. A Cuban network in the US lasts about 13 years; an Iranian one about 9 months.
+  - **Homeland security and stability count too** (`js/spies.js` HOMELAND, about 75 countries researched, the rest estimated from wealth, counter-intelligence, corruption and war). Alert (0–10) is how closely a state watches its own territory: domestic security services, police reach, cameras, border and financial monitoring, and a public primed to report strangers. Stability (0–10) is whether the state holds together: chaos, war and collapse let outsiders move unnoticed. Detection speed is ×(0.4 + 0.08·alert) × (0.4 + 0.07·stability):
+    - **US ×1.03:** alert 9.5 from the FBI's terrorism task forces, DHS, 18,000 police agencies and post-9/11 suspicious-activity reporting; stability 7.
+    - **China ×1.15:** 600+ million cameras.
+    - **Britain ×1.04, Russia ×0.85, Israel ×0.89, Iran ×0.65.**
+    - **Collapsed states ×0.23–0.26:** Sudan, Haiti, Mali.
+  - Each dossier shows the country's alert, stability and detection speed.
   - **What you see:** your Intel tab, the dossiers and the world spy-war list only show networks that have been exposed. That means publicly known penetrations plus those found during play. Sabotage by an unfound network is "unidentified saboteurs".
   - **Sweeps:** a sweep first hunts for hidden networks and teams, then rolls up only the ones it has found. Services with a strong record may survive several.
   - **Your own networks:** each shows whether the target knows about it and roughly how many days it has left.

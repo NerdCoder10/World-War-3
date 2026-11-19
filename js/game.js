@@ -531,7 +531,7 @@
     const key = q.pick.iso + ":" + q.pick.u[0];
     s.sfCool = s.sfCool || {};
     provoke(sideOf(iso));
-    if (q.team) exposeTeam(s.player + ">" + iso, 20 * (ipf(iso).counter / 10) * Math.pow(1 - sfCovert(s.player, teamUnit(s.player, myTeamIn(iso).u)) / 11, 2));
+    if (q.team) exposeTeam(s.player + ">" + iso, 20 * (ipf(iso).counter / 10) * homeF(iso) * Math.pow(1 - sfCovert(s.player, teamUnit(s.player, myTeamIn(iso).u)) / 11, 2));
     if (q.ok) {
       s.sfCool[key] = s.turn + 2;
       loseSite(iso, q.x, "x", s.player);
@@ -966,7 +966,7 @@
         const ms2 = missileStock(c.iso3); ms2.bm *= 0.9; ms2.cm *= 0.9;
         (s.sabotage = s.sabotage || {})[c.iso3] = s.turn + 2;
         log(`🕵️ ${spyKnownBy(S, c.iso3) ? `${BY[S].name}'s agents` : "Unidentified saboteurs"} struck in ${c.name}: missile stocks −10% and its defences shaken for two days. Sweep for spies in the Intel tab.`, "bad");
-        exposeSpy(S, c.iso3, 15 * (ipf(c.iso3).counter / 10) * leakOf(S), "traced from the sabotage");
+        exposeSpy(S, c.iso3, 15 * (ipf(c.iso3).counter / 10) * homeF(c.iso3) * leakOf(S), "traced from the sabotage");
       });
     });
   }
@@ -986,7 +986,9 @@
   const publicNote = (S, T) => !!(((window.SPY_TARGETS[S] || []).find(x => x[0] === T) || [])[2]);
   // Does the target (and the world) know this network exists? Publicly known penetrations start known.
   const spyKnownBy = (S, T) => !!knownStore()[S + ">" + T] || publicNote(S, T);
-  const spyDailyExp = (S, T) => 1.2 * (ipf(T).counter / 10) * leakOf(S) * (0.5 + spyNet(S, T) / 100);
+  // Homeland security and stability of the target (js/spies.js HOMELAND) scale every detection.
+  const homeF = T => window.homelandFactor(BY[T]);
+  const spyDailyExp = (S, T) => 1.2 * (ipf(T).counter / 10) * homeF(T) * leakOf(S) * (0.5 + spyNet(S, T) / 100);
   const spyDaysLeft = (S, T) => { const r = spyDailyExp(S, T); return r > 0 ? Math.max(1, Math.ceil((100 - spyExposure(S, T)) / r)) : Infinity; };
   function exposeSpy(S, T, amt, how) {
     if (spyKnownBy(S, T) && S !== G.state.player) return;
@@ -1005,7 +1007,7 @@
   const sfCovert = (S, u) => 0.5 * trade(S) + 5 * window.sfQuality(u);
   const teamStore = () => (G.state.sfTeams = G.state.sfTeams || {});
   const teamUnit = (S, name) => window.sfUnits(S).find(u => u[0] === name) || window.sfBest(S);
-  const teamDaily = (S, T, name) => 4 * (ipf(T).counter / 10) * Math.pow(1 - sfCovert(S, teamUnit(S, name)) / 11, 2);
+  const teamDaily = (S, T, name) => 4 * (ipf(T).counter / 10) * homeF(T) * Math.pow(1 - sfCovert(S, teamUnit(S, name)) / 11, 2);
   const teamDaysLeft = (k) => { const t = teamStore()[k], [S, T] = k.split(">"), r = teamDaily(S, T, t.u); return r > 0 ? Math.max(1, Math.ceil((100 - t.exp) / r)) : Infinity; };
   function exposeTeam(k, amt) {
     const s = G.state, t = teamStore()[k];
@@ -1060,7 +1062,7 @@
       const fighting = s.enemies.some(e => e.nat === S && e.vsPlayer) || Object.keys(s.wars).some(w => sideOf(w) === S);
       if (mine && ts[mine] && fighting && (s.turn + S.charCodeAt(1)) % 12 === 0) {
         const T = mine.split(">")[1], x = siteList(T).filter(y => !siteSt(T, y.name)).sort((a, b) => SITE_RANK(a) - SITE_RANK(b))[0];
-        if (x) { loseSite(T, x, "x", S); log(`💥 Unidentified commandos destroyed ${x.name} in ${BY[T].name}. Nobody has claimed it; a counter-intelligence sweep may find who is behind it.`, "bad"); exposeTeam(mine, 25 * (ipf(T).counter / 10) * Math.pow(1 - sfCovert(S, teamUnit(S, ts[mine].u)) / 11, 2)); }
+        if (x) { loseSite(T, x, "x", S); log(`💥 Unidentified commandos destroyed ${x.name} in ${BY[T].name}. Nobody has claimed it; a counter-intelligence sweep may find who is behind it.`, "bad"); exposeTeam(mine, 25 * (ipf(T).counter / 10) * homeF(T) * Math.pow(1 - sfCovert(S, teamUnit(S, ts[mine].u)) / 11, 2)); }
       }
     });
   }
@@ -1115,7 +1117,7 @@
       log(`🕵️ Your agents armed the resistance in ${BY[T].name} against ${BY[s.owner[T]].name}: resistance ${Math.round(Math.min(1, au[T]) * 100)}% of the way to liberation.`, "good");
     }
     cd[T] = s.turn;
-    exposeSpy(s.player, T, 30 * (ipf(T).counter / 10) * leakOf(s.player), "traced from the operation");
+    exposeSpy(s.player, T, 30 * (ipf(T).counter / 10) * homeF(T) * leakOf(s.player), "traced from the operation");
     const left = Math.min(spyNet(s.player, T), n - O.burn);
     setNet(s.player, T, left);
     if (left < 15) { provoke(s.owner[T]); log(`🚨 The operation blew your network in ${BY[T].name}: ${BY[s.owner[T]].name} expelled your agents and turned hostile.`, "bad"); }
@@ -1132,8 +1134,8 @@
     if (s.coins < cost) return `You need ${fmtCoins(cost - s.coins)} more coins.`;
     s.coins -= cost; s.sweepAt = s.turn;
     let caught = 0;
-    empire().forEach(c => C.forEach(o => { const S = o.iso3; if (S === s.player || owns(S) || spyNet(S, c.iso3) < 1) return; exposeSpy(S, c.iso3, 60 * (ipf(c.iso3).counter / 10) * leakOf(S), "found by a sweep"); }));
-    Object.keys(teamStore()).forEach(k => { const [S, T] = k.split(">"); if (S !== s.player && owns(T)) exposeTeam(k, 60 * (ipf(T).counter / 10) * Math.pow(1 - sfCovert(S, teamUnit(S, teamStore()[k].u)) / 11, 2)); });
+    empire().forEach(c => C.forEach(o => { const S = o.iso3; if (S === s.player || owns(S) || spyNet(S, c.iso3) < 1) return; exposeSpy(S, c.iso3, 60 * (ipf(c.iso3).counter / 10) * homeF(c.iso3) * leakOf(S), "found by a sweep"); }));
+    Object.keys(teamStore()).forEach(k => { const [S, T] = k.split(">"); if (S !== s.player && owns(T)) exposeTeam(k, 60 * (ipf(T).counter / 10) * homeF(T) * Math.pow(1 - sfCovert(S, teamUnit(S, teamStore()[k].u)) / 11, 2)); });
     empire().forEach(c => C.forEach(o => { const S = o.iso3, n = spyNet(S, c.iso3); if (S === s.player || owns(S) || n < 1 || !spyKnownBy(S, c.iso3)) return; const cut = n * 0.04 * ipf(c.iso3).counter; caught += cut; setNet(S, c.iso3, n - cut); }));
     log(`🔎 Counter-intelligence sweep: rolled up ${Math.round(caught)} points of known foreign networks across your empire. Networks run by services with a strong record may still be hidden.`, "good");
     save(); return null;
