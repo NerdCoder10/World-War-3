@@ -502,6 +502,48 @@
     save();
     return null;
   }
+  // ── Special-forces raids ──
+  // Your best available unit (from any of your nations) raids one enemy site. No dice: it succeeds
+  // when its quality ×10 (+1 with a spy network of 30+ inside to guide it) beats the site's
+  // defence: 2 + half the site's hardness + 4 × the quality of the defender's best unit (its quick
+  // reaction force). A unit needs 2 days to recover after a raid, 7 after a failed one.
+  const sfQ = u => window.sfQuality(u);
+  const raidHard = (iso, x) => 2 + 0.5 * SITE_HARD(x) + 4 * sfQ(window.sfBest(sideOf(iso)) || window.sfBest(iso));
+  function raidQuote(iso, name) {
+    const s = G.state, x = siteList(iso).find(y => y.name === name);
+    if (!x) return { err: "No such site." };
+    const cool = s.sfCool || {}, pool = [];
+    empire().forEach(c => window.sfUnits(c.iso3).forEach(u => pool.push({ iso: c.iso3, u, ready: (cool[c.iso3 + ":" + u[0]] || 0) <= s.turn })));
+    pool.sort((a, b) => sfQ(b.u) - sfQ(a.u));
+    const pick = pool.find(p => p.ready), intel = myNet(sideOf(iso)) >= 30 ? 1 : 0;
+    const score = pick ? 10 * sfQ(pick.u) + intel : 0, need = raidHard(iso, x);
+    return { x, pick, score, need, intel, ok: score > need, best: pool[0] };
+  }
+  function sfRaid(iso, name) {
+    const err = ready(); if (err) return err;
+    const s = G.state;
+    if (owns(iso)) return "That site is yours.";
+    if (siteSt(iso, name)) return "That site is already destroyed or captured.";
+    if (!atWarWith(iso)) return `You aren't at war with ${BY[sideOf(iso)].name}. Invade it first, or wait until it attacks you.`;
+    const q = raidQuote(iso, name);
+    if (q.err) return q.err;
+    if (!q.pick) return "All your special-forces units are recovering from raids.";
+    const key = q.pick.iso + ":" + q.pick.u[0];
+    s.sfCool = s.sfCool || {};
+    provoke(sideOf(iso));
+    if (q.ok) {
+      s.sfCool[key] = s.turn + 2;
+      loseSite(iso, q.x, "x", s.player);
+      log(`🎯 ${q.pick.u[0]} raided ${name} in ${BY[iso].name} and destroyed it (raid ${q.score.toFixed(1)} against its defence ${q.need.toFixed(1)}).`, "good");
+    } else {
+      s.sfCool[key] = s.turn + 7;
+      log(`🎯 ${q.pick.u[0]}'s raid on ${name} in ${BY[iso].name} failed against its defenders (raid ${q.score.toFixed(1)} against ${q.need.toFixed(1)}); the unit needs 7 days to recover.`, "bad");
+    }
+    save();
+    return null;
+  }
+  // Counter-insurgency: a ruler's special forces hunt rebel cells, slowing unrest by up to 25%.
+  const sfCalm = iso => 1 - 0.25 * sfQ(window.sfBest(iso) || ["", 0, 0, 0]);
   // Daily: rebuild destroyed sites 20 days after the owner's wars end; hand back captured sites when
   // the invaders have gone; drop captured marks once the captor holds the whole country.
   function sitesDay() {
@@ -602,10 +644,16 @@
     const cas = 1 + A.air * pa.cas * edge * D.ground * 0.3;
     const ra = artyProfile(aNat), rd = artyProfile(dNat), sa = ra.range * (1 + ra.precision), sd = rd.range * (1 + rd.precision);
     const aEdge = sa + sd > 0 ? sa / (sa + sd) : 0.5;
+    // Special forces (js/specialforces.js): reconnaissance, raids behind the lines, target
+    // designation and sabotage. Half on effective strength (operators × quality⁶), half on the
+    // quality of each side's best unit (to the 4th power), so proven record dominates; the
+    // defender's own units know the ground (×1.25). Up to ±7% each way.
+    const fa = window.sfPower(aNat), fd = window.sfPower(dNat) * 1.25, qa = Math.pow(window.sfQuality(window.sfBest(aNat)), 4), qd = Math.pow(window.sfQuality(window.sfBest(dNat)), 4) * 1.25;
+    const sfEdge = 0.5 * (fa + fd > 0 ? fa / (fa + fd) : 0.5) + 0.5 * (qa + qd > 0 ? qa / (qa + qd) : 0.5);
     return {
-      att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)),
-      def: (1 + D.air * (airD - 1)) * (1 + D.arty * (0.8 + 0.4 * (1 - aEdge) - 1)),
-      edge, aa, aEdge,
+      att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)) * (0.93 + 0.14 * sfEdge),
+      def: (1 + D.air * (airD - 1)) * (1 + D.arty * (0.8 + 0.4 * (1 - aEdge) - 1)) * (0.93 + 0.14 * (1 - sfEdge)),
+      edge, aa, aEdge, sfEdge,
     };
   }
 
@@ -2155,7 +2203,7 @@
       const calm = (1 - fx(iso, "stab")) * (1 - TFULL.governance * Math.min(1, techShare(iso, "governance"))) * (armiesAt(iso).length ? 0.3 : 1);
       // Unrest builds each day a territory is weakly held; it rises up when unrest reaches 100%.
       const un = (s.unrest = s.unrest || {});
-      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm * unrestMult(occupation(iso).score) * (docF(iso).resist || 1);
+      un[iso] = (un[iso] || 0) + (0.06 * (1 - s.garrison[iso]) + 0.01) * calm * unrestMult(occupation(iso).score) * (docF(iso).resist || 1) * sfCalm(s.player);
       if (un[iso] >= 1) { un[iso] = 0; startRevolt(c); }
     });
     if (!s.over) aiTurn();
@@ -2166,7 +2214,7 @@
       const iso = c.iso3, o = s.owner[iso];
       if (o === iso || o === s.player || s.enemies.some(e => e.to === iso)) { delete au[iso]; return; }
       const H = occupation(iso).score;
-      au[iso] = H >= 60 ? 0 : (au[iso] || 0) + 0.008 * unrestMult(H) * (docF(iso).resist || 1);
+      au[iso] = H >= 60 ? 0 : (au[iso] || 0) + 0.008 * unrestMult(H) * (docF(iso).resist || 1) * sfCalm(s.owner[iso]);
       if (au[iso] >= 1) {
         delete au[iso]; s.owner[iso] = iso; s.garrison[iso] = 0.5; invalidateGroups();
         log(`🌍 ${c.name} threw off ${BY[o].name}'s occupation (its people's happiness under it: ${H}/100).`, "world");
@@ -2313,6 +2361,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

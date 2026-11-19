@@ -2555,8 +2555,11 @@
     if (!G.atWarWith(iso)) return `<p class="hint">💥 At war with ${esc(BY[G.state.owner[iso]].name)}, you could strike this site with missiles.</p>`;
     const q = G.strikeQuote(iso, z.name);
     if (q.err) return "";
+    const r = G.raidQuote(iso, z.name);
     return `<button class="bc-strike" ${q.have < q.fire ? "disabled" : ""}>💥 Strike this site <small>${q.fire} missiles · ${Math.floor(q.have)} left</small></button>
-      <p class="hint">Its air defence stops ${Math.round((1 - q.leak) * 100)}% of missiles; destroying it takes ${q.need} hits. Radars and air-defence sites first blind the enemy; air and naval bases ground its aircraft and ships.</p>`;
+      <p class="hint">Its air defence stops ${Math.round((1 - q.leak) * 100)}% of missiles; destroying it takes ${q.need} hits. Radars and air-defence sites first blind the enemy; air and naval bases ground its aircraft and ships.</p>
+      ${r.err ? "" : `<button class="bc-raid" ${r.pick ? "" : "disabled"}>🎯 Special-forces raid <small>${r.pick ? `${esc(r.pick.u[0])}: ${r.score.toFixed(1)} vs defence ${r.need.toFixed(1)} · ${r.ok ? "will succeed" : "will fail"}` : "all units recovering"}</small></button>
+      <p class="hint">No missiles needed. A raid succeeds when your best ready unit's quality ×10 (+1 with a spy network of 30+ inside) beats the site's defence: 2 + half its hardness + 4 × the quality of ${esc(BY[G.state.owner[iso]].name)}'s best unit (${esc((window.sfBest(G.state.owner[iso]) || [""])[0])}). Units rest 2 days after a raid, 7 after a failure.</p>`}`;
   }
   // Clicking a base pins its card on the map and highlights it in the dossier list.
   function pickZone(z, fly) {
@@ -2584,6 +2587,8 @@
     const bpt = baseCard.querySelector(".bc-port");
     if (bpt) bpt.onclick = () => { const err = G.buildPort(c.iso3, z.name, bpt.dataset.cls); if (err) return toast(err); toast(G.state.log[0].msg); refresh(); pickZone(z, false); };
     const bk = baseCard.querySelector(".bc-strike");
+    const br = baseCard.querySelector(".bc-raid");
+    if (br) br.onclick = () => { const err = G.sfRaid(c.iso3, z.name); if (err) return toast(err); toast(G.state.log[0].msg); drawDeploy(); refresh(); const nz = myBases.find(x => x.name === z.name); if (nz) pickZone(nz, false); };
     if (bk) bk.onclick = () => { const err = G.strikeSite(c.iso3, z.name); if (err) return toast(err); toast(G.state.log[0].msg); drawDeploy(); refresh(); const nz = myBases.find(x => x.name === z.name); if (nz) pickZone(nz, false); };
     const bs = baseCard.querySelector(".bc-sel");
     if (bs) bs.onclick = () => selectAllAt(c.iso3, z.name);
@@ -3220,6 +3225,7 @@
         ${occupationHtml(c)}
         ${doctrineHtml(c)}
         ${airArtyHtml(c)}
+        ${sfHtml(c)}
         ${weatherHtml(c)}
         ${nightHtml(c)}
         ${droneHtml(c)}
@@ -3520,7 +3526,9 @@
       const c = BY[iso], ready = {}, q = {};
       window.UNITS.forEach(u => { ready[u.key] = u.key === "troops" ? 1 : window.mcRate(c, u.key) * G.partsFactor(iso, u.key); q[u.key] = u.key === "troops" ? window.infantryFactor(iso) * (0.4 + 0.6 * c.tech.ready) / 0.85 : window.modelMult(c, u.key); });
       const afv = (c.equipment && c.equipment.afv) || [], tot = afv.reduce((a, m) => a + m[1], 0);
-      return { ready, q, atgm: tot ? afv.reduce((a, m) => a + m[1] * (((window.modelSpec("afv", m[0]).ratings || {}).atgm) || 0), 0) / tot : 0 };
+      const pw = window.sfPower(iso), best = window.sfBest(iso);
+      const sf = { n: Math.max(0, Math.min(8, Math.round(Math.log2(1 + pw / 50)))), ops: window.sfUnits(iso).reduce((a, u) => a + u[1], 0), best: best ? best[0] : "", q: best ? window.sfQuality(best) : 0 };
+      return { ready, q, sf, atgm: tot ? afv.reduce((a, m) => a + m[1] * (((window.modelSpec("afv", m[0]).ratings || {}).atgm) || 0), 0) / tot : 0 };
     };
     window.openBattle({
       place: esc(BY[T].name), wx: `${w.icon} ${esc(w.label)}, ${w.temp}°C`, modes, mode,
@@ -3528,8 +3536,18 @@
       att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4), bvr: bvr(b.att.nat), ...ability(b.att.nat) },
       def: { ...b.def, aa: window.AD_BATTERIES(BY[T]), bvr: bvr(T), ...ability(T) },
       lossAtt, lossDef, ground, weather, night: !window.sunUp(P[0], P[1], ms, doy),
-      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. Grey units are down for maintenance and sit the battle out; better kit fires faster. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
+      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker; special forces ${Math.round(b.bm.sfEdge * 100)}% to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. Grey units are down for maintenance and sit the battle out; better kit fires faster. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
     });
+  }
+  // Special forces (js/specialforces.js): every unit, its training and proven record.
+  function sfHtml(c) {
+    const us = window.sfUnits(c.iso3).slice().sort((a, b) => window.sfQuality(b) - window.sfQuality(a)), best = us[0], s = G.state;
+    const pw = window.sfPower(c.iso3), rank = C.map(o => [o.iso3, window.sfPower(o.iso3)]).sort((a, b) => b[1] - a[1]).findIndex(([i]) => i === c.iso3) + 1;
+    const cool = s.sfCool || {};
+    const qrank = C.map(o => [o.iso3, window.sfQuality(window.sfBest(o.iso3))]).sort((a, b) => b[1] - a[1]).findIndex(([i]) => i === c.iso3) + 1;
+    return `<div class="section"><h3>Special forces <small>strength #${rank} · best-unit quality #${qrank} of ${C.length}</small></h3>
+      <table class="wetable"><tr><th>Unit</th><th>Operators</th><th>Training</th><th>Proven</th><th>Quality</th><th>Record</th></tr>${us.map(u => `<tr><td>${esc(u[0])}${cool[c.iso3 + ":" + u[0]] > s.turn ? ` <small class="bad">resting ${cool[c.iso3 + ":" + u[0]] - s.turn} d</small>` : ""}</td><td>${num(u[1])}</td><td>${u[2]}/10</td><td><b>${u[3]}/10</b></td><td>${Math.round(window.sfQuality(u) * 100)}%</td><td><small>${esc(u[4])}</small></td></tr>`).join("")}</table>
+      <p class="hint">Effective strength <b>${num(Math.round(pw))}</b> (operators × quality⁶, quality = 35% training + 65% proven record, so a few hundred proven operators outweigh tens of thousands of untested ones). In every battle the two sides' special forces contest reconnaissance, raids and target designation behind the lines, half on effective strength and half on the quality of each side's best unit: up to ±7% (the defender ×1.25 on home ground). Its best unit, ${esc(best[0])}, guards its sites against raids, and its special forces slow unrest in lands it rules by ${Math.round((1 - G.sfCalm(c.iso3)) * 100)}%.${G.owns(c.iso3) ? " At war, open an enemy base to send a raid." : ""}</p></div>`;
   }
   // The air force by model, its artillery and its air defence, from js/airspecs.js and js/missiles.js.
   function airArtyHtml(c) {
