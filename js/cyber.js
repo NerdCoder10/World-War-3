@@ -39,3 +39,26 @@ window.cyber = c => {
   const f = x => Math.round(Math.max(1, Math.min(7, x)) * 10) / 10;
   return { off: f((c.secret && c.secret.cyber) || 1), def: f(1 + 1.6 * lg + 0.2 * counter - 0.15 * (m.corruption || 5)), note: "", est: true };
 };
+
+// Sustainment (0–1): what keeps a cyber force working: hackers and their training pipeline, budget,
+// a domestic tech industry, and the patching and upkeep of its own networks. It sets how fast
+// burned tools are rebuilt after operations (exploits and malware are spent once exposed) and how
+// close its defence stays to its rating. Not listed: estimated from wealth and corruption.
+window.CYBER_SUSTAIN = {
+  USA: [0.95, "NSA and Cyber Command budgets in the billions and the world's largest tech industry, though it struggles to keep talent from the private sector"],
+  CHN: [0.95, "A state-driven ecosystem of ministries, universities, contractors (the leaked i-Soon files) and hacking contests that feed it zero-days"],
+  ISR: [0.95, "Unit 8200 feeds a booming cyber industry and back again"], GBR: [0.9, "GCHQ and a deep tech sector"], FRA: [0.85, "Steady investment"],
+  RUS: [0.75, "Capable, but some 100,000 IT workers fled after 2022 and sanctions cut it off from Western hardware and software"],
+  PRK: [0.85, "Self-funding: its hackers' crypto thefts pay for the programme"], IRN: [0.65, "Sanctions and a brain drain to the West hollow its talent pool"],
+  UKR: [0.85, "Western-funded, with a big IT sector and volunteers"], KOR: [0.85, "Large tech industry"], JPN: [0.8, "Strong industry, short of cyber talent"],
+  NLD: [0.85, "Strong"], AUS: [0.85, "REDSPICE funding"], CAN: [0.8, "Steady"], DEU: [0.75, "Chronic shortage of cyber specialists in government"],
+  SGP: [0.9, "Well funded"], ARE: [0.8, "Buys talent and tools from abroad"], SAU: [0.65, "Depends on foreign contractors"], TUR: [0.65, "Growing"], IND: [0.65, "Huge talent pool, little government cyber funding"],
+  VNM: [0.65, "State-backed"], EST: [0.85, "A digital state that trains its people"], TWN: [0.75, "Chip industry, government short of specialists"],
+  BLR: [0.5, "Brain drain after 2020"], VEN: [0.3, "Collapsed"], CUB: [0.35, "Poor and cut off"], SYR: [0.2, "Rebuilding"],
+};
+window.cyberSustainBase = c => {
+  const r = window.CYBER_SUSTAIN[c.iso3];
+  if (r) return r[0];
+  const lg = Math.log10(1 + c.gdp / Math.max(c.pop, 0.001)), m = c.milStats || {};
+  return Math.round(Math.max(0.3, Math.min(0.85, 0.3 + 0.22 * lg - 0.03 * (m.corruption || 5))) * 100) / 100;
+};

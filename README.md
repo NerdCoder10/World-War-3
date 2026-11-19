@@ -662,6 +662,12 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Hack command and air defence (+2.5):** its air defence −2 and defence ×0.93 for 3 days.
   - **Attribution:** an attack is traced to you when the target's defence plus half its counter-intelligence beats your tradecraft + 3, and a traced attack turns it hostile.
   - **Hostile powers with offence 6+** attack your richest nation every 11 days. They are identified or "unidentified hackers" by the same rule, and stopped if your defence holds.
+  - **Maintenance of cyber power.** Every country has a sustainment rating (0–1): its hackers and their training pipeline, budget, domestic tech industry, and the upkeep of its own networks. About 30 are researched (`CYBER_SUSTAIN`); the rest are estimated from wealth and corruption.
+    - **Examples:** the US and China 0.95, Israel 0.95, North Korea 0.85 (self-funded by crypto theft), Russia 0.75 (~100,000 IT workers fled after 2022, Western hardware and software cut off), Iran 0.65 (sanctions and brain drain), Venezuela 0.3.
+    - **Burned tools:** every operation, yours or the AI's, burns tools: banks 0.4, grid 0.8, command networks 1.2 off offence. They rebuild at 0.06 × sustainment a day.
+    - **Defence upkeep:** defence holds at (0.8 + 0.2 × sustainment) of its rating.
+    - **War without trade:** sustainment sinks over 4 months toward what the country's own tech industry can supply. After 90 days of war, Russia's falls to 52%.
+    - **Dossier:** shows each country's upkeep, current offence, burned tools and how fast they recover.
 - **Every country researched.** All 196 countries now have a researched entry in every table, not estimates from wealth: readiness and technology, real training, experience, logistics, leadership and corruption, homeland security alert and stability, border security, and spy tradecraft. Notes are shown in the dossier.
   - Africa's juntas and collapsed states, the Balkans, Central Asia, the Caribbean and the Pacific islands.
   - States with no army (Iceland, Costa Rica, Panama, the microstates).

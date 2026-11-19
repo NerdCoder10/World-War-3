@@ -655,7 +655,7 @@
     const sfEdge = 0.5 * (fa + fd > 0 ? fa / (fa + fd) : 0.5) + 0.5 * (qa + qd > 0 ? qa / (qa + qd) : 0.5);
     // Cyber (js/cyber.js): each side's offence against the other's defence, up to +6% (command
     // networks, sensors and logistics disrupted).
-    const cA = window.cyber(BY[aNat]), cD = window.cyber(BY[dNat]);
+    const cA = cyOf(aNat), cD = cyOf(dNat);
     const cyA = 1 + 0.06 * (cA.off / 10) * (1 - cD.def / 12), cyD = 1 + 0.06 * (cD.off / 10) * (1 - cA.def / 12);
     return {
       att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)) * (0.93 + 0.14 * sfEdge) * cyA,
@@ -990,8 +990,16 @@
     c2: { label: "Hack command & air defence", hard: 2.5, what: "Its air defence −2 and defence ×0.93 for 3 days" },
     finance: { label: "Raid its banks", hard: 0.5, what: "Steal funds: coins worth 0.3% of its GDP" },
   };
-  const cyOf = iso => window.cyber(BY[iso]);
-  const myCyber = () => empire().reduce((a, c) => Math.max(a, cyOf(c.iso3).off), 0);
+  // Maintenance of cyber power: tools burned by operations rebuild at the sustainment rate; defence
+  // holds at (0.8 + 0.2 × sustainment) of its rating; in a war with trade cut, sustainment sinks over
+  // 4 months toward what the country's own tech industry can supply (js/maintenance.js maintSkill).
+  const cySustain = iso => { const b = window.cyberSustainBase(BY[iso]), d = warDaysOf(iso), sk = window.maintSkill(iso); return d ? b * (sk + (1 - sk) * Math.max(0, 1 - d / window.PARTS_DAYS)) : b; };
+  const cyBurnOf = iso => ((G.state.cyberBurn || {})[iso] || 0);
+  const cyOf = iso => { const y = window.cyber(BY[iso]), su = cySustain(iso); return { off: Math.max(0, y.off - cyBurnOf(iso)), def: y.def * (0.8 + 0.2 * su), baseOff: y.off, baseDef: y.def, sustain: su, burn: cyBurnOf(iso) }; };
+  const CY_BURN = { finance: 0.4, grid: 0.8, c2: 1.2 };
+  const burnCyber = (iso, k) => { const b = (G.state.cyberBurn = G.state.cyberBurn || {}); b[iso] = Math.min(6, (b[iso] || 0) + CY_BURN[k]); };
+  const myCyberIso = () => empire().reduce((a, c) => (!a || cyOf(c.iso3).off > cyOf(a).off ? c.iso3 : a), null);
+  const myCyber = () => { const i = myCyberIso(); return i ? cyOf(i).off : 0; };
   function cyberQuote(T, k) {
     const O = CYBER_OPS[k], access = myNet(sideOf(T)) >= 30 ? 1 : 0, power = myCyber() + access, need = cyOf(T).def + O.hard;
     const traced = cyOf(T).def + ipf(T).counter / 2 > trade(G.state.player) + 3;
@@ -1006,6 +1014,7 @@
     if (at[T] != null && s.turn - at[T] < 5) return `Your hackers are still covering their tracks in ${BY[T].name} (${5 - (s.turn - at[T])} more days).`;
     const q = cyberQuote(T, k);
     at[T] = s.turn;
+    burnCyber(myCyberIso(), k);
     if (q.ok) {
       if (k === "finance") { const g = Math.round(BY[T].gdp * 0.003 * 10); s.coins += g; log(`🖥️ Your hackers raided ${BY[T].name}'s banks: +${fmtCoins(g)} coins.`, "good"); }
       else { markHit(T, k); log(`🖥️ Your cyber operation hit ${BY[T].name}: ${O.what.toLowerCase()} (offence ${q.power.toFixed(1)} against its defence ${q.need.toFixed(1)}).`, "good"); }
@@ -1015,7 +1024,8 @@
   }
   // Hostile powers with real cyber forces (offence 6+) attack your richest nation every 11 days.
   function cyberDay() {
-    const s = G.state;
+    const s = G.state, b = s.cyberBurn || {};
+    Object.keys(b).forEach(iso => { b[iso] = Math.max(0, b[iso] - 0.06 * cySustain(iso)); if (!b[iso]) delete b[iso]; });
     if (!s.player) return;
     const home = empire().slice().sort((a, b) => b.gdp - a.gdp)[0];
     if (!home) return;
@@ -1025,7 +1035,9 @@
       if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
       const off = cyOf(S).off;
       if (off < 6 || (s.turn + S.charCodeAt(2)) % 11) return;
-      const k = kinds[(s.turn + S.charCodeAt(0)) % 3], who = cyOf(T).def + ipf(T).counter / 2 > trade(S) + 3 ? `${BY[S].name}'s hackers` : "Unidentified hackers";
+      const k = kinds[(s.turn + S.charCodeAt(0)) % 3];
+      burnCyber(S, k);
+      const who = cyOf(T).def + ipf(T).counter / 2 > trade(S) + 3 ? `${BY[S].name}'s hackers` : "Unidentified hackers";
       if (off > cyOf(T).def + CYBER_OPS[k].hard) {
         if (k === "finance") { const g = Math.round(Math.min(s.coins * 0.05, BY[T].gdp * 0.002 * 10)); s.coins = Math.max(0, s.coins - g); log(`🖥️ ${who} raided banks in ${BY[T].name}: −${fmtCoins(g)} coins.`, "bad"); }
         else { markHit(T, k); log(`🖥️ ${who} ${k === "grid" ? "blacked out the power grid" : "broke into command and air-defence networks"} in ${BY[T].name}: ${CYBER_OPS[k].what.toLowerCase()}.`, "bad"); }
@@ -2540,6 +2552,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, CYBER_OPS, cyberQuote, cyberOp, cyHit, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
