@@ -1307,17 +1307,19 @@
     e.wing.forEach(a => (by[a.model] = (by[a.model] || 0) + 1));
     return `${Object.entries(by).map(([m, n]) => `${n} × ${m}`).join(", ")}; ${deck} on deck, ${e.wing.length - deck} in the hangar`;
   }
+  const ratingText = r => r.firepower != null ? `firepower ${r.firepower}, protection ${r.protection}, mobility ${r.mobility}${r.sights != null ? `, sights ${r.sights}` : r.atgm ? ", anti-tank missiles" : ""} (of 10)` : r.range != null ? `range ${r.range} km, precision ${Math.round(r.precision * 100)}%` : `air-to-air ${r.a2a}, air-to-ground ${r.a2g} (of 10), generation ${r.gen}, combat radius ${r.radius} km`;
   const specLine = (k2, v) => (v ? `<div class="k">${k2}: ${esc(v)}</div>` : "");
   function entTip(ev, e) {
     const c = BY[e.iso];
     if (e.key === "troops") {
-      tip.innerHTML = `${soldierPic(e.iso)}<b>Infantry squad</b> <span class="k">${num(e.n * 10)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)}</div>${unitHint(e)}`;
+      tip.innerHTML = `${soldierPic(e.iso)}<b>Infantry squad</b> <span class="k">${num(e.n * 10)} soldiers</span><div class="k">${esc(c.name)} · ${esc(e.base)}</div><div class="tipnote">${esc(c.equipment.small)}</div><div class="k">Readiness ${Math.round(c.tech.ready * 100)}% · training ×${c.milStats.skill.toFixed(2)} · infantry ×${window.infantryFactor(c.iso3).toFixed(2)}${window.INFANTRY[c.iso3] ? ` (training ${window.INFANTRY[c.iso3][0]}, experience ${window.INFANTRY[c.iso3][1]}, kit ${window.INFANTRY[c.iso3][2]} of 10)` : ""}</div>${unitHint(e)}`;
       return placeTip(ev);
     }
     const m = window.modelSpec(e.key, e.model), sp = m.specs, mc = window.mcRate(c, e.key, e.ship ? null : e.model);
     tip.innerHTML = `${unitPic(e.shape, window.unitPalette(e.iso, e.key))}<b>${esc(e.label ? `${e.label} (${e.ship.hull})` : e.model)}</b>${e.n > 1 ? ` <span class="k">×${e.n}</span>` : ""}<div class="k">${esc(m.family)} · ${esc(c.name)} · ${esc(e.base)}</div>
       ${e.maint ? `<div class="k bad">🔧 ${e.ship ? `${esc(e.ship.status)}: can't sail` : "In maintenance: not mission-capable right now"}</div>` : ""}${wingLine(e)}
       <div class="k wrap">Combat value ×${m.mult.toFixed(2)} of a typical ${esc(window.UNITS.find(u => u.key === e.key).label.toLowerCase())} · ${Math.round(mc * 100)}% of ${esc(c.name)}'s fleet of these mission-capable · readiness ${Math.round(c.tech.ready * 100)}%</div>
+      ${m.ratings ? `<div class="k wrap">Abilities: ${esc(ratingText(m.ratings))}</div>` : ""}
       <div class="tipnote">${specLine("Weapons", sp.arm)}${specLine("Speed", sp.speed)}${specLine("Range", sp.range)}${specLine("Protection", sp.protect)}${specLine("Crew", sp.crew)}</div>
       ${unitHint(e)}`;
     placeTip(ev);
@@ -2814,6 +2816,11 @@
       return `<p class="hint"><b>${esc(bloc)}</b>${war ? ` · if ${esc(BY[test[0]].name)} attacked ${esc(BY[test[1]].name)}` : ""}: loyalty <b>${L.score}</b> ${stanceTag(L.stance)}</p>${partsList(L.parts)}`;
     }).join("")}<p class="hint">Test other wars in the Alliances tab.</p></div>`;
   }
+  // Infantry quality (js/groundspecs.js): training, combat experience and kit.
+  function infantryHtml(c) {
+    const r = window.INFANTRY[c.iso3], f = window.infantryFactor(c.iso3);
+    return `<p class="mcline">🪖 <b>Infantry</b> ×${f.toFixed(2)}${r ? `: training <b>${r[0]}/10</b>, combat experience <b>${r[1]}/10</b>, kit <b>${r[2]}/10</b> (${esc(r[3])})` : " (no researched profile: its technology and readiness set its quality)"}. Small arms: ${esc((c.equipment && c.equipment.small) || "standard")}.</p>`;
+  }
   // Spare parts with no trade: which kinds depend on parts from countries that won't supply them.
   function partsHtml(c) {
     const info = G.partsInfo(c.iso3).filter(x => x.share >= 0.05), sk = window.maintSkill(c.iso3), war = G.warDaysOf(c.iso3), skNote = (window.MAINT_SKILL[c.iso3] || [0, ""])[1];
@@ -3195,8 +3202,10 @@
     const equipHtml = `<div class="section"><h3>Equipment <span class="tag">${c.equipSource === "researched" ? "researched" : esc(c.equipSource.replace("_", " ")) + " template"}</span></h3>
         <div class="bc-models">${modelLines(c, G.baseForces(c))}</div>
         <p class="mcline">🔧 <b>Mission-capable</b> (the rest is in maintenance and can't fight): ${window.UNITS.filter(u => u.key !== "troops" && G.baseForces(c)[u.key] >= 1).map(u => `${esc(u.label.toLowerCase())} <b>${Math.round(window.mcRate(c, u.key) * 100)}%</b>`).join(" · ")}</p>
+        <p class="mcline">🛠️ <b>War wear</b> (maintenance capacity ${Math.round(G.maintCap(c.iso3) * 100)}%): after a month of sustained fighting, ${window.UNITS.filter(u => u.key !== "troops" && G.baseForces(c)[u.key] >= 1).map(u => `${esc(u.label.toLowerCase())} <b>${Math.round(G.wearFactor(c.iso3, u.key, 30) * 100)}%</b>`).join(" · ")} of the mission-capable share stays in action${G.warDaysOf(c.iso3) ? ` (now ${Math.round(G.wearFactor(c.iso3, "fighters") * 100)}% for jets after ${G.warDaysOf(c.iso3)} days)` : ""}.</p>
+        ${infantryHtml(c)}
         ${partsHtml(c)}
-        <p class="hint">×N is each model's combat value against a typical unit of its kind (a 4th-gen tank ×1.8, a 1950s T-55 ×0.45; an F-35 ×2.2, a MiG-21 ×0.45). Only the mission-capable share fights: it follows readiness (${Math.round(c.tech.ready * 100)}%: maintenance, spare parts, funding) and is lower for maintenance-heavy models (F-35, F-22, B-1) and worn-out ones (MiG-21, T-55, anything in reserve). Zoom into a base to inspect every unit's specs; units in maintenance are grey with an orange marker.</p></div>`;
+        <p class="hint">×N is each model's combat value against a typical unit of its kind, from its own abilities: tanks by firepower, protection, mobility and sights (T-55 ×0.45, T-72B3 ×1.0, M1A2 SEPv3 ×1.8); armoured vehicles by firepower, protection, mobility and anti-tank missiles (M113 ×0.5, BMP-2 ×0.8, Puma ×1.5); artillery by range and precision (D-30 ×0.7, PzH 2000 ×1.3, HIMARS ×1.7); jets by air-to-air and air-to-ground ratings and generation (MiG-21 ×0.45, F-16C ×1.0, F-35 ×2.0). Hover a unit at a base for its ratings. Only the mission-capable share fights: it follows readiness (${Math.round(c.tech.ready * 100)}%: maintenance, spare parts, funding) and is lower for maintenance-heavy models (F-35, F-22, B-1) and worn-out ones (MiG-21, T-55, anything in reserve). Zoom into a base to inspect every unit's specs; units in maintenance are grey with an orange marker.</p></div>`;
     const profileHtml = `<div class="section"><h3>Military profile <span class="tag">${ms.estimated ? "estimated" : "researched"}</span></h3>
         <div class="meters">${window.MIL_STATS.map(([k2, label]) => meter(label, ms[k2])).join("")}</div>
         <p class="hint">Unit skill ×${ms.skill.toFixed(2)} (training, experience and leadership, minus corruption) · defending ×${ms.defend.toFixed(2)} (patriotism) .</p>
@@ -3505,13 +3514,21 @@
     const mode = fleet && (b.sea || !groundForce) ? "sea" : !groundForce && modes.includes("air") ? "air" : modes[0];
     // Share of each air force able to fight beyond visual range (radar missiles): generation 4+.
     const bvr = iso => Math.max(0.1, Math.min(1, (G.airProfile(iso).gen - 2.5) / 1.6));
+    // Each side's kit: the share of each kind ready to fight (mission-capable, less spare-parts
+    // shortages and war wear) and its quality by model; troops by training, experience and kit.
+    const ability = iso => {
+      const c = BY[iso], ready = {}, q = {};
+      window.UNITS.forEach(u => { ready[u.key] = u.key === "troops" ? 1 : window.mcRate(c, u.key) * G.partsFactor(iso, u.key); q[u.key] = u.key === "troops" ? window.infantryFactor(iso) * (0.4 + 0.6 * c.tech.ready) / 0.85 : window.modelMult(c, u.key); });
+      const afv = (c.equipment && c.equipment.afv) || [], tot = afv.reduce((a, m) => a + m[1], 0);
+      return { ready, q, atgm: tot ? afv.reduce((a, m) => a + m[1] * (((window.modelSpec("afv", m[0]).ratings || {}).atgm) || 0), 0) / tot : 0 };
+    };
     window.openBattle({
       place: esc(BY[T].name), wx: `${w.icon} ${esc(w.label)}, ${w.temp}°C`, modes, mode,
       seed: T.charCodeAt(0) * 7919 + T.charCodeAt(2) * 31 + G.state.turn,
-      att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4), bvr: bvr(b.att.nat) },
-      def: { ...b.def, aa: window.AD_BATTERIES(BY[T]), bvr: bvr(T) },
+      att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4), bvr: bvr(b.att.nat), ...ability(b.att.nat) },
+      def: { ...b.def, aa: window.AD_BATTERIES(BY[T]), bvr: bvr(T), ...ability(T) },
       lossAtt, lossDef, ground, weather, night: !window.sunUp(P[0], P[1], ms, doy),
-      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
+      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. Grey units are down for maintenance and sit the battle out; better kit fires faster. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
     });
   }
   // The air force by model, its artillery and its air defence, from js/airspecs.js and js/missiles.js.

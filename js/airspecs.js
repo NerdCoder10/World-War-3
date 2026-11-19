@@ -12,6 +12,7 @@ window.AIR_SPECS = [
   [/F-16/, "MR", 4, 550, 7.7, 2.0, 7, 7],
   [/F\/A-18E|F\/A-18F|Super Hornet|EA-18G/, "MR", 4.5, 720, 8.0, 1.6, 8, 8],
   [/F\/A-18|CF-18|EF-18|Hornet/, "MR", 4, 740, 6.2, 1.8, 7, 7],
+  [/F-2\b|F-2A/, "MR", 4.5, 830, 8.0, 2.0, 7, 8],
   [/F-14/, "AS", 4, 925, 6.5, 2.34, 7, 4],
   [/F-4|Phantom/, "MR", 3, 680, 8.5, 2.2, 4, 5],
   [/F-5|Saeqeh|Kowsar|Tiger/, "LA", 3, 300, 3.2, 1.6, 3, 3],
@@ -81,15 +82,24 @@ window.airSpec = model => {
 
 // Artillery and rocket systems: [model pattern, range km (standard rounds; guided where common), precision 0–1].
 window.ARTY_SPECS = [
-  [/HIMARS|M270|M142|MLRS|GMLRS/, 80, 0.9], [/Tornado-S/, 120, 0.6], [/Smerch|Polonez/, 70, 0.4], [/Uragan/, 35, 0.2], [/PHL|PCH-191/, 130, 0.7],
-  [/Pinaka/, 75, 0.6], [/Astros/, 90, 0.5], [/Chunmoo|K239/, 80, 0.8], [/Fajr|Fateh rockets|Fatah/, 75, 0.4], [/Grad|BM-21|Type 63|Type 81|RM-70|rockets?\b/i, 20, 0.1],
+  [/Thunderbolt/, 45, 0.3], [/KN-25/, 380, 0.5], [/M-1978|M-1985 240|240 ?mm/, 43, 0.1], [/K136|Kooryong/, 36, 0.1], [/Koksan|170 ?mm/, 40, 0.15], [/SH-15/, 53, 0.5],
+  [/PLZ-07|Type 54|Type 96 122|Type 96 \/ 54|122 ?mm SP/, 18, 0.2], [/F[ıi]rt[ıi]na|T-155/, 40, 0.6], [/Dhanush|ATAGS/, 38, 0.5], [/Nora/, 40, 0.5], [/FH-2000|Pegasus|SIAC|KH179/, 35, 0.35],
+  [/M110/, 30, 0.3], [/M-?1985 152|M1985/, 24, 0.1], [/Langusta|WR-40|LAROM|A-100|KRL-122|DTI-1|Jobaria|Naiza|WS-22/, 40, 0.25], [/TOS-1/, 10, 0.1], [/Sakr|Bateleur|Golan|Type 63|Type 81|Type 90 rockets|T-122|TRG/, 20, 0.1],
+  [/Type 99 SP|Type 19|Primus|PLZ-45|Palmaria|AuF1|AU-F1|Model 89/, 30, 0.45], [/LG1|M102|M119|OTO Melara 105/, 15, 0.2],
+  [/HIMARS|M270|M142|MLRS|GMLRS|MARS II/, 80, 0.9], [/Tornado-G/, 40, 0.2], [/AS-90/, 30, 0.5], [/Tornado-S/, 120, 0.6], [/Smerch|Polonez/, 70, 0.4], [/Uragan/, 35, 0.2], [/PHL|PCH-191/, 130, 0.7],
+  [/Pinaka/, 75, 0.6], [/Astros/i, 90, 0.5], [/Chunmoo|K239/, 80, 0.8], [/Fajr|Fateh rockets|Fatah/, 75, 0.4], [/Grad|BM-21|Type 63|Type 81|RM-70|rockets?\b/i, 20, 0.1],
   [/PzH ?2000/, 40, 0.7], [/CAESAR/, 40, 0.7], [/Archer/, 40, 0.8], [/K9|Thunder|Vajra|Vidar|AHS Krab|Krab/, 40, 0.6], [/M109A[67]|Paladin/, 30, 0.7], [/M109/, 22, 0.35],
   [/M777/, 30, 0.8], [/2S35|Koalitsiya/, 40, 0.5], [/2S19|Msta/, 29, 0.4], [/2S[13]|Gvozdika|Akatsiya/, 18, 0.2], [/2S7|Pion/, 37, 0.3],
-  [/PLZ-05|PLZ05/, 40, 0.5], [/PCL-181|PCL181/, 40, 0.5], [/Dana|Zuzana/, 30, 0.4], [/G[56]\b|Rhino/, 40, 0.5], [/FH-?77|Bofors/, 30, 0.4], [/FH70/, 24, 0.4],
+  [/PLZ-05|PLZ05/, 40, 0.5], [/PCL-181|PCL181/, 40, 0.5], [/Dana|Zuzana|Morana/i, 30, 0.4], [/G[56]\b|Rhino/, 40, 0.5], [/FH-?77|Bofors/, 30, 0.4], [/FH70/, 24, 0.4],
   [/ATMOS|Soltam/, 40, 0.5], [/L118|L119|light gun/i, 17, 0.4], [/D-30/, 15, 0.1], [/M-46|Type 59-1/, 27, 0.15], [/D-20|Type 66/, 17, 0.1],
   [/M101|M114|M-56|105/, 12, 0.1], [/M198/, 22, 0.3], [/mortar/i, 7, 0.1], [/towed/i, 15, 0.15],
 ];
 window.artySpec = model => {
   for (const part of [model].concat(String(model).split(/\s*\/\s*|\s*&\s*/))) { const r = window.ARTY_SPECS.find(([re]) => re.test(part)); if (r) return { range: r[1], precision: r[2] }; }
   return { range: 18, precision: 0.15 };
+};
+// The model's real entry, or null when it isn't listed (mortars and unnamed towed guns keep their family value).
+window.artyMatch = model => {
+  for (const part of [model].concat(String(model).split(/\s*\/\s*|\s*&\s*/))) { const r = window.ARTY_SPECS.find(([re]) => re.test(part)); if (r && !/^(mortar|towed)$/i.test(r[0].source)) return { range: r[1], precision: r[2] }; }
+  return null;
 };

@@ -639,6 +639,18 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - the artillery duel (longer range and precision win counter-battery fire).
   - **Plane audit:** the fighter and aircraft mixes were checked against public inventories. US bombers were fixed from 520 to 140 (76 B-52H, 45 B-1B, 19 B-2A), along with Russia's (about 130), China's H-6 (about 230) and North Korea's Il-28/H-5 (about 80). Every model mix splits exactly into each country's totals, and every country's planes, ships and vehicles at its bases add up exactly to its national totals.
   - **Base audit:** all 15,409 bases were checked for missing, negative or impossible values. Ships are no longer placed at inland bases unless they are named river or lake flotillas. Carriers deployed at sea now belong to their fleet's main base: the USS Ford's air wing had landed on an Army Reserve centre in Puerto Rico.
+- **What each weapon and soldier can really do** (`js/groundspecs.js`, `js/airspecs.js`, `js/models.js`). Every model's combat value now comes from its own abilities, not just its family:
+  - **Tanks** (160 models): firepower, protection (armour, reactive armour, active protection), mobility, and sights and fire control, each 0–10. Examples: T-55 ×0.45, T-62M ×0.57, T-72B3 ×1.05, Leopard 2A4 ×1.29, M1A1 ×1.43, Type 99A ×1.51, K2 ×1.72, Merkava Mk4 ×1.77, M1A2 SEPv3 ×1.8.
+  - **Armoured vehicles** (217 models): firepower, protection, mobility and anti-tank missiles. Examples: M113 ×0.45, MRAP ×0.54, Stryker ×0.69, BMP-2 ×0.77, ZBD-04A ×1.12, Bradley ×1.18, Puma ×1.49.
+  - **Artillery:** range and precision. Examples: D-30 ×0.7, Grad ×0.76, M777 ×1.28, PzH 2000 ×1.3, HIMARS ×1.68.
+  - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
+  - Hover any unit at a base to see its ratings.
+  - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Maintenance in a long war.** On top of the peacetime mission-capable rate and spare-part shortages:
+  - Engines, tracks, gun barrels and airframes wear out faster than depots can turn them round. Over the first month of a war, availability sinks to a level set by the country's maintenance capacity (readiness and depot skill).
+  - Helicopters wear fastest, then jets, guns and armour; ships wear least. After a month, the US keeps 95% of its helicopters in action, Russia 80% and Saudi Arabia 71%.
+  - The dossier shows each country's war wear.
+- **Battle scenes show it.** Units down for maintenance sit the battle out, parked grey at the back or on the airfield. Better kit fires faster. Tanks, armoured vehicles (with anti-tank missiles where they carry them) and infantry now fire directly. The legend gives each kind's quality and how many are in maintenance.
 - **Surrender.** A country losing badly to a far stronger enemy may capitulate rather than fight to the end.
   - **Diehards never surrender:** countries with patriotism 9–10 (Ukraine, Israel, Finland, North Korea, Vietnam, the Baltic states, Armenia, Azerbaijan, Georgia, Eritrea...) or a people's-war or fortress doctrine fight until conquered.
   - **Everyone else weighs will against pressure.**
