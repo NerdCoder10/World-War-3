@@ -720,11 +720,12 @@
   function battleMods(aUnits, aNat, dUnits, dNat, T) {
     const A = armShares(aUnits, aNat), D = armShares(dUnits, dNat), pa = airProfile(aNat), pd = airProfile(dNat);
     // Air-to-air missiles sharpen each side's air contest (×0.7–1.27 by their combat record).
-    const a2aA = A.airA2A * (0.7 + 0.06 * mtype(aNat, "aam")), a2aD = D.airA2A * (0.7 + 0.06 * mtype(dNat, "aam"));
+    // ...and air ferocity: pilots who press into danger (×0.92–1.08).
+    const a2aA = A.airA2A * (0.7 + 0.06 * mtype(aNat, "aam")) * (0.92 + 0.016 * ms(aNat).airFer), a2aD = D.airA2A * (0.7 + 0.06 * mtype(dNat, "aam")) * (0.92 + 0.016 * ms(dNat).airFer);
     const edge = a2aA + a2aD > 0 ? a2aA / (a2aA + a2aD * 1.2) : 0.5;
     const aa = effectiveAD(T), aaAtt = effectiveAD(aNat) * 0.4;
     const airA = (0.6 + 0.8 * edge) * (1 - 0.04 * aa), airD = (0.6 + 0.8 * (1 - edge)) * (1 - 0.04 * aaAtt);
-    const cas = 1 + A.air * pa.cas * edge * D.ground * 0.3 * (0.7 + 0.06 * mtype(aNat, "agm"));
+    const cas = 1 + A.air * pa.cas * edge * D.ground * 0.3 * (0.7 + 0.06 * mtype(aNat, "agm")) * (0.92 + 0.016 * ms(aNat).airFer);
     const ra = artyProfile(aNat), rd = artyProfile(dNat), sa = ra.range * (1 + ra.precision), sd = rd.range * (1 + rd.precision);
     const aEdge = sa + sd > 0 ? sa / (sa + sd) : 0.5;
     // Special forces (js/specialforces.js): reconnaissance, raids behind the lines, target
@@ -840,7 +841,7 @@
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));
   // Each kind of unit counts by its real models (js/models.js) and the country's readiness.
   // `models` ({kind: {model: count}}) gives an army's actual mix; otherwise the national fleet mix is used.
-  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[iso], u.key, models && models[u.key]) * partsFactor(iso, u.key) * siteFactor(iso, u.key), 0);
+  const rawPower = (units, iso, models) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * (u.kind === "air" ? 0.96 + 0.008 * ms(iso).airFer : u.kind === "naval" ? 0.96 + 0.008 * ms(iso).navFer : 1) * window.unitQuality(BY[iso], u.key, models && models[u.key]) * partsFactor(iso, u.key) * siteFactor(iso, u.key), 0);
   // ── Spare parts with no trade (js/maintenance.js) ──
   // Parts still come from the country itself, its owner's other lands, your allies (if it is
   // yours) and its treaty partners. The rest is cut off: once a country is at war, that share of
@@ -971,7 +972,9 @@
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
   // An attacking force's strength in the target's terrain: each kind of unit counts by how well it
   // fights there (tanks bog down in mountains and jungle, aircraft lose targets under canopy).
-  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * siteFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key) * nightKind(to, nat, u.key), 0);
+  // Air and naval ferocity (js/assessment.js): aircraft and warships on the attack ×0.92–1.08.
+  const domFer = (nat, u) => (u.kind === "air" ? 0.92 + 0.016 * ms(nat).airFer : u.kind === "naval" ? 0.92 + 0.016 * ms(nat).navFer : 1);
+  const powerIn = (units, nat, models, to) => UNITS.reduce((s, u) => s + (units[u.key] || 0) * u.power * domFer(nat, u) * window.unitQuality(BY[nat], u.key, models && models[u.key]) * partsFactor(nat, u.key) * siteFactor(nat, u.key) * window.terrainKind(to, u.key) * weatherKind(to, nat, u.key) * nightKind(to, nat, u.key), 0);
   // ── Weather and seasons (js/weather.js) ──
   // Each day's weather in the country being fought over cuts what each kind of unit can do, less
   // for forces used to that climate or trained for it. Jets with modern all-weather radar keep

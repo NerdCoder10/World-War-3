@@ -664,6 +664,9 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Ferocity** (`FEROCITY`): attack ×(0.9 + 0.02 × ferocity), defence ×(0.95 + 0.01 × ferocity).
     - **US 9.5:** the Marine Corps, known worldwide as the most aggressive force on earth. US amphibious assaults get a further ×1.05.
     - **Israel 9.5, Ukraine 8.5; Saudi Arabia 3, Kuwait 2.**
+  - **Air and naval ferocity** (`AIR_FEROCITY`, `NAVAL_FEROCITY`): how hard air forces and navies press attacks into danger. Aircraft and warships on the attack ×(0.92 + 0.016 × rating), half that in defence. Air ferocity also sharpens the air contest and close air support.
+    - **Air:** Israel 10 (Operation Focus 1967, Osirak, Syria's reactor, over Tehran in 2024–25); the US 9 (Wild Weasels, the 2025 B-2 raid on Fordow); Russia 4 (glide bombs from behind its own lines); Iran 3.
+    - **Naval:** the US 9 (Midway, Operation Praying Mantis, the 2024–25 Red Sea fights); Ukraine 9 (drove the Black Sea Fleet out); Britain 8 (the Falklands); Russia 4 (the Black Sea Fleet hid in port); the Houthis 9.
   - **Historical performance against expectations** (`HIST_PERF`), so armies that beat forecasts are not underestimated and those that fall short are not overestimated.
     - **US ×1.1:** forecasts of 10,000+ dead in Desert Storm; 148 killed in action.
     - **Israel ×1.12:** 1948, 1967, 1973, and Hezbollah and Iran in 2024–25.
