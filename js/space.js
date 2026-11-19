@@ -129,6 +129,22 @@ Object.assign(window.INTEL_AGENCIES, {
   MLI: "Agence nationale de la sécurité d'État (ANSE)", NER: "Direction générale de la documentation et de la sécurité extérieure", TUN: "Intelligence services of the Interior and Defence ministries",
 });
 
+// Counter-intelligence by the analysis (0–10), where the formula above misses: police states that
+// watch everyone score higher than their wealth suggests; services that have been deeply
+// penetrated score lower than their reputation.
+window.COUNTER_INTEL = {
+  PRK: [9, "Every citizen watched; almost no foreign agent has ever operated there for long"], CUB: [8.5, "The DI turned nearly every CIA agent in Cuba in the 1980s and paraded them on television"],
+  CHN: [8.5, "The MSS dismantled the CIA's China network in 2010–12 and runs mass surveillance"], RUS: [8, "The FSB is strong at home, though Ukraine's services still strike deep inside Russia"],
+  USA: [8.5, "The FBI is strong, though Chinese penetrations keep being found"], GBR: [8, "MI5 is among the best"], FRA: [7, "The DGSI is capable"],
+  BLR: [6.5, "The KGB watches closely"], TKM: [6, "A closed police state"], ERI: [6, "A closed police state"], VNM: [6.5, "A watchful one-party state"],
+  NIC: [4.5, "Cuban- and Russian-trained police state"], VEN: [5, "Cuban-run SEBIN and DGCIM"], LAO: [3.5, "A one-party police state"], TJK: [3.5, "Watchful but weak"],
+  UZB: [5.5, "The SGB is a strong domestic service"], KAZ: [5.5, "The KNB"], AZE: [6, "Effective, with Israeli help"], EGY: [6.5, "The GIS and state security watch everyone"],
+  SAU: [6, "The state security presidency"], ARE: [7, "Pervasive surveillance"], JOR: [7, "The GID is among the region's best"], TUR: [6.5, "MIT is strong at home"], PAK: [6.5, "The ISI dominates at home"],
+  IRN: [5.5, "Watches its people closely yet is riddled with Israeli agents: the nuclear archive stolen in 2018, scientists assassinated, the 2025 strikes guided from inside"],
+  TWN: [4.5, "Heavily penetrated by China: dozens of officers convicted of spying for Beijing"], DEU: [5.5, "The BND and BfV have been penetrated by Russia (the 2022 Linke case)"],
+  AUT: [4, "Its old BVT service was raided in 2018 over leaks to Russia; Vienna is a spy hub"],
+};
+
 (function () {
   const C = window.COUNTRIES;
   const FIVE_EYES = ["USA", "GBR", "CAN", "AUS", "NZL"];
@@ -152,6 +168,8 @@ Object.assign(window.INTEL_AGENCIES, {
       shared: fiveEyes ? 2 : nato ? 1 : 0,
     };
     // Overall score: what this country can know about others (allies share some of their picture).
+    const ov = window.COUNTER_INTEL[c.iso3];
+    if (ov) { intel.counter = ov[0]; intel.counterNote = ov[1]; }
     intel.score = cl((intel.humint + intel.sigint + intel.imint + intel.cyber) / 4 + intel.shared * 0.6);
     intel.agencies = window.INTEL_AGENCIES[c.iso3] || (intel.score >= 4 ? "National intelligence and military intelligence services" : "A small security service; relies on partners for foreign intelligence");
     intel.alliance = fiveEyes ? "Five Eyes" : nato ? "NATO intelligence sharing" : "";

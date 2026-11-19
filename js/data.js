@@ -155,7 +155,7 @@ window.COUNTRY_ROWS = [
 ["SAU","SA","682","Saudi Arabia","Asia",35.3,1100,78,260,0,1050,7000,1100,900,280,260,50,0,0,0,48,"Mecca & Medina, sports investments (LIV, Ronaldo), NEOM, 2034 World Cup"],
 ["SGP","SG","702","Singapore","Asia",6,560,14,51,250,170,2400,300,230,100,70,40,4,0,0,55,"Global finance hub, Changi, hawker food, governance model"],
 ["KOR","KR","410","South Korea","Asia",51.7,1790,46,500,3100,2300,4000,6000,1590,410,700,150,22,2,0,64,"K-pop (BTS, Blackpink), K-drama, Samsung, cuisine, Squid Game"],
-["LKA","LK","144","Sri Lanka","Asia",22,99,1.6,300,6,60,400,200,70,10,30,70,0,0,0,30,"Ceylon tea, cricket, ancient Buddhist sites"],
+["LKA","LK","144","Sri Lanka","Asia",22,99,1.6,255,6,60,400,200,70,10,30,70,0,0,0,30,"Ceylon tea, cricket, ancient Buddhist sites"],
 ["SYR","SY","760","Syria","Asia",23.5,20,1,100,0,200,500,300,50,0,20,5,0,0,0,15,"Damascus & Aleppo heritage, Levantine cuisine"],
 ["TWN","TW","158","Taiwan","Asia",23.4,800,19.5,170,1660,750,1500,1800,740,290,230,120,4,0,0,50,"TSMC & semiconductors, bubble tea, night markets, Mandopop (Jay Chou), cinema (Ang Lee)"],
 ["TJK","TJ","762","Tajikistan","Asia",10.6,15,0.2,9,0,40,100,50,15,0,15,0,0,0,0,15,"Pamir Highway, Persian-language heritage"],

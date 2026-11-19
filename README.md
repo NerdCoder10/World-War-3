@@ -646,6 +646,14 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Every country researched.** All 196 countries now have a researched entry in every table, not estimates from wealth: readiness and technology, real training, experience, logistics, leadership and corruption, homeland security alert and stability, border security, and spy tradecraft. Notes are shown in the dossier.
+  - Africa's juntas and collapsed states, the Balkans, Central Asia, the Caribbean and the Pacific islands.
+  - States with no army (Iceland, Costa Rica, Panama, the microstates).
+  - New real special-forces units: Somalia's Danab, Cameroon's BIR, Chad's DGSSIE (Mali 2013), Rwanda's RDF special forces (Cabo Delgado 2021), Uganda's Special Forces Command, Lebanon's commandos, Guatemala's Kaibiles, Croatia's ZSS, Tunisia's GFS and Ireland's Ranger Wing.
+  - **Counter-intelligence by the analysis** where the formula missed:
+    - **Police states rate higher:** North Korea 9, Cuba 8.5 (its DI turned nearly every CIA agent in Cuba in the 1980s), Belarus, Turkmenistan, Eritrea, Vietnam, Egypt, the UAE.
+    - **Penetrated services rate lower:** Iran 5.5 (the nuclear archive theft, assassinations and the 2025 strikes guided from inside), Taiwan 4.5, Germany 5.5, Austria 4.
+  - Sri Lanka's army corrected to ~255,000.
 - **Every major military by the analysis, not its claims.** Sources: IISS Military Balance 2025, the US DoD China report, Oryx-confirmed losses, FAS, RUSI, CSIS, and national audit and parliamentary reports.
   - **China:** ~2,100 combat jets (not 1,580) and ~1,000 helicopters. Armour is counted the IISS way (17,000), not Global Firepower's trucks (35,000). About 210 H-6 bombers.
   - **Russia:** netted against Oryx-confirmed losses: 3,300 tanks, 6,000 guns, 1,000 jets, 1,300 helicopters, 51 submarines, ~1.3 million active and 5,459 warheads.
