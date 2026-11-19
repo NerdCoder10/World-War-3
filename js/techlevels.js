@@ -8,19 +8,67 @@
 // Combat quality = (0.35 + 0.13 × gen) × (0.4 + 0.6 × ready). Countries not listed get a
 // generation and readiness estimated from GDP per capita.
 window.TECH_PROFILE = {
-  USA: [5.0, 0.8], CHN: [4.3, 0.78], RUS: [4.2, 0.55], IND: [3.7, 0.62], GBR: [4.7, 0.8], FRA: [4.6, 0.82],
-  DEU: [4.4, 0.62], JPN: [4.6, 0.88], KOR: [4.6, 0.9], ISR: [4.8, 0.92], TUR: [4.0, 0.8], PAK: [3.3, 0.7],
-  IRN: [2.8, 0.55], PRK: [2.0, 0.4], EGY: [3.5, 0.62], SAU: [4.3, 0.6], ARE: [4.4, 0.8], QAT: [4.4, 0.7],
-  ITA: [4.3, 0.75], ESP: [4.2, 0.75], POL: [4.3, 0.8], UKR: [3.9, 0.75], TWN: [4.2, 0.72], SGP: [4.6, 0.92],
-  AUS: [4.6, 0.85], CAN: [4.2, 0.7], NLD: [4.4, 0.8], NOR: [4.5, 0.85], SWE: [4.5, 0.85], FIN: [4.3, 0.9],
-  DNK: [4.3, 0.8], BEL: [4.0, 0.6], GRC: [3.9, 0.72], BRA: [3.4, 0.65], IDN: [3.3, 0.6], VNM: [3.2, 0.65],
-  THA: [3.5, 0.65], MYS: [3.5, 0.6], PHL: [3.0, 0.6], MEX: [3.0, 0.65], ARG: [2.8, 0.5], VEN: [3.0, 0.4],
-  CUB: [2.0, 0.35], SYR: [2.2, 0.35], IRQ: [3.2, 0.5], DZA: [3.6, 0.65], MAR: [3.7, 0.7], NGA: [2.7, 0.5],
-  ZAF: [3.5, 0.5], ETH: [2.8, 0.55], KAZ: [3.2, 0.6], BLR: [3.4, 0.6], AZE: [3.7, 0.75], ARM: [3.0, 0.65],
+  USA: [5.0, 0.8], CHN: [4.4, 0.7], RUS: [3.9, 0.55], IND: [3.7, 0.6], GBR: [4.7, 0.7], FRA: [4.6, 0.78],
+  DEU: [4.4, 0.6], JPN: [4.6, 0.8], KOR: [4.6, 0.8], ISR: [4.8, 0.85], TUR: [4.0, 0.75], PAK: [3.3, 0.68],
+  IRN: [2.8, 0.45], PRK: [2.0, 0.4], EGY: [3.5, 0.5], SAU: [4.3, 0.5], ARE: [4.4, 0.8], QAT: [4.4, 0.6],
+  ITA: [4.3, 0.7], ESP: [4.2, 0.7], POL: [4.3, 0.75], UKR: [3.9, 0.7], TWN: [4.2, 0.6], SGP: [4.6, 0.9],
+  AUS: [4.6, 0.78], CAN: [4.2, 0.55], NLD: [4.4, 0.75], NOR: [4.5, 0.82], SWE: [4.5, 0.82], FIN: [4.3, 0.9],
+  DNK: [4.3, 0.8], BEL: [4.0, 0.55], GRC: [3.9, 0.72], BRA: [3.4, 0.6], IDN: [3.3, 0.55], VNM: [3.2, 0.65],
+  THA: [3.5, 0.6], MYS: [3.5, 0.55], PHL: [3.0, 0.55], MEX: [3.0, 0.6], ARG: [2.8, 0.4], VEN: [3.0, 0.3],
+  CUB: [2.0, 0.35], SYR: [2.2, 0.35], IRQ: [3.2, 0.45], DZA: [3.6, 0.6], MAR: [3.7, 0.68], NGA: [2.7, 0.45],
+  ZAF: [3.5, 0.4], ETH: [2.8, 0.55], KAZ: [3.2, 0.6], BLR: [3.4, 0.6], AZE: [3.7, 0.75], ARM: [3.0, 0.55],
   CHL: [3.8, 0.75], COL: [3.4, 0.75], PER: [3.0, 0.6], MNG: [2.4, 0.6], BGD: [2.9, 0.65], ROU: [3.8, 0.7],
   HUN: [4.1, 0.75], CZE: [4.0, 0.75], CHE: [4.4, 0.85], AUT: [4.0, 0.7], PRT: [3.9, 0.7], NZL: [3.8, 0.75],
   LBY: [2.6, 0.35], SDN: [2.5, 0.4], ERI: [1.9, 0.4], AFG: [1.8, 0.35], MMR: [2.6, 0.5], YEM: [2.0, 0.35],
-  JOR: [3.8, 0.75], KWT: [4.2, 0.7], OMN: [4.0, 0.75], BHR: [4.0, 0.7],
+  JOR: [3.8, 0.75], KWT: [4.2, 0.55], OMN: [4.0, 0.75], BHR: [4.0, 0.7],
+};
+
+// Why each readiness is what it is: analysts' assessments (IISS, RUSI, CSIS, national audit and
+// parliamentary reports, combat records), not the country's own claims.
+window.READINESS_NOTES = {
+  CHN: "Modern kit (J-20, Type 055, the Fujian) and more realistic exercises, but no war since 1979, scripted drills the PLA itself calls 'peace disease', and purges of Rocket Force and senior commanders (nine generals expelled in October 2025) for corruption",
+  RUS: "Hardened by the war, but most new soldiers get weeks of training, much of the kit is old stock pulled from storage (T-62s, MT-LBs), and maintenance and junior leadership are poor",
+  IND: "Large and professional, but the air force is down to ~31 of 42 squadrons and Su-30MKI availability is ~60%; ammunition reserves have long been short",
+  GBR: "Very well trained, but parliamentary reports find a hollowed force: ammunition for days of high-intensity war, few destroyers and submarines available at once",
+  FRA: "Highly trained and combat-experienced in Africa, but thin stocks: 'frugal' forces with munitions for weeks",
+  DEU: "Chronic readiness gaps: the army chief said in 2022 it stood 'more or less bare'; rebuilding with the €100bn special fund",
+  JPN: "Well maintained and trained, but no combat experience and small munitions stocks; recruiting shortfalls",
+  KOR: "Well equipped and drilled against the North; a shrinking conscript pool and 18-month service",
+  ISR: "Superbly trained and battle-hardened, but reservists worn by two years of war and interceptor stocks stretched",
+  TUR: "Combat-experienced and largely self-supplied; recovered from the 2016 purges, though its F-16 fleet is ageing",
+  SAU: "Lavishly equipped but weakly trained: it fought poorly in Yemen and depends on foreign contractors to keep jets flying",
+  EGY: "Huge, rote-trained conscript army with large stocks of mixed Western, Russian and Chinese kit, much of it poorly maintained",
+  TWN: "Modern weapons, but analysts find training unrealistic and conscription was only four months until 2024; reservists barely train",
+  CAN: "In a readiness crisis: ~16,000 short of its strength and only about half its key equipment serviceable (2024 DND report)",
+  AUS: "Professional and well trained, but small and short of munitions",
+  IRN: "Its air defences and missile launchers were badly hit by Israel in 2024–25; an old air force; strong missile and drone forces",
+  UKR: "The most combat-experienced army in the world, but rushed training for mobilised recruits and a patchwork of kit under heavy wear",
+  VEN: "Most of its Su-30s and its US F-16s are grounded; soldiers are poorly paid and many have deserted",
+  ARM: "Still rebuilding after its 2020 and 2023 defeats; shifting from Russian to Indian and French kit",
+  QAT: "Modern jets bought faster than it can train crews; a small force reliant on foreign help",
+  KWT: "Well equipped, lightly trained",
+  ITA: "Capable and professional, with munitions shortfalls",
+  ESP: "Professional, under-funded",
+  POL: "Fast-growing with new K2 tanks, K9s and Abrams, but many new units are not yet fully trained",
+  NLD: "Small, professional, well trained",
+  BEL: "Long under-funded, short of personnel",
+  IRQ: "Its counter-terror forces are good; the regular army is uneven and riddled with patronage",
+  NGA: "Stretched across insurgencies; corruption hollows units",
+  ZAF: "In crisis: most of its jets and helicopters are grounded and its submarines rarely sail",
+  MEX: "Built for the cartel war, not conventional battle",
+  BRA: "Large but under-funded for training and spares",
+  PHL: "Modernising, long focused on insurgency",
+  IDN: "Large, mixed kit from many suppliers",
+  THA: "Politicised, conscript-heavy",
+  MYS: "Small, under-funded air force",
+  ARG: "Decades of cuts: few working jets, ships or submarines",
+  DZA: "Large Russian-equipped force, limited combat experience",
+  MAR: "Western-trained, experienced in the Sahara",
+  PAK: "Professional and battle-tested; its air force performed well against India in May 2025",
+  SGP: "Rigorously trained and maintained",
+  FIN: "Conscripts and reserves among Europe's best trained",
+  SWE: "Professional core, rebuilding total defence",
+  NOR: "Small, professional, arctic-trained",
 };
 
 (function () {
@@ -47,25 +95,25 @@ window.TECH_PROFILE = {
 // Countries not listed are estimated from wealth and recent conflicts.
 window.MIL_PROFILE = {
   //     patriotism, training, experience, logistics, leadership, corruption
-  USA: [7, 9, 8, 10, 8, 2], RUS: [6, 5, 8, 6, 4, 8], CHN: [8, 7, 2, 7, 6, 6], UKR: [10, 7, 10, 5, 7, 6],
-  ISR: [10, 9, 9, 7, 8, 3], IND: [8, 6, 5, 6, 6, 6], PAK: [8, 6, 6, 5, 6, 7], GBR: [6, 9, 7, 8, 8, 2],
-  FRA: [6, 8, 8, 8, 8, 2], DEU: [4, 7, 3, 6, 6, 2], TUR: [8, 7, 7, 6, 6, 5], IRN: [7, 5, 6, 4, 5, 7],
-  PRK: [9, 4, 1, 3, 3, 8], KOR: [7, 8, 2, 7, 7, 3], JPN: [5, 8, 1, 7, 7, 2], TWN: [7, 6, 1, 5, 5, 3],
+  USA: [7, 9, 8, 10, 8, 2], RUS: [6, 4, 8, 6, 4, 8], CHN: [8, 6, 2, 7, 6, 6], UKR: [10, 6, 10, 5, 7, 6],
+  ISR: [10, 9, 9, 7, 8, 3], IND: [8, 6, 5, 6, 6, 6], PAK: [8, 6, 6, 5, 6, 7], GBR: [6, 8, 7, 8, 8, 2],
+  FRA: [6, 8, 8, 8, 8, 2], DEU: [4, 6, 3, 6, 6, 2], TUR: [8, 7, 7, 6, 6, 5], IRN: [7, 4, 6, 4, 5, 7],
+  PRK: [9, 3, 1, 3, 3, 8], KOR: [7, 7, 2, 7, 7, 3], JPN: [5, 7, 1, 7, 7, 2], TWN: [7, 4, 1, 5, 5, 3],
   POL: [8, 7, 3, 6, 6, 3], FIN: [9, 8, 2, 6, 7, 1], SWE: [6, 8, 2, 6, 7, 1], NOR: [7, 8, 3, 6, 7, 1],
-  SAU: [6, 5, 5, 6, 4, 6], ARE: [6, 7, 6, 7, 6, 4], EGY: [7, 5, 4, 5, 4, 7], VNM: [9, 6, 3, 5, 6, 6],
-  ITA: [5, 7, 4, 6, 6, 4], ESP: [5, 7, 4, 6, 6, 3], GRC: [8, 6, 2, 5, 5, 5], CAN: [6, 8, 5, 7, 7, 2],
-  AUS: [7, 8, 6, 7, 7, 2], NLD: [5, 8, 4, 6, 7, 2], BRA: [6, 6, 3, 5, 5, 6], MEX: [6, 5, 6, 5, 5, 7],
-  IDN: [8, 6, 3, 5, 5, 6], THA: [7, 6, 3, 5, 5, 6], PHL: [8, 5, 6, 4, 5, 6], SGP: [7, 9, 1, 7, 8, 1],
-  AFG: [8, 4, 9, 2, 5, 8], SYR: [4, 3, 8, 2, 3, 9], IRQ: [5, 5, 8, 4, 4, 8], YEM: [7, 3, 9, 2, 4, 8],
-  ETH: [8, 5, 8, 4, 5, 7], ERI: [9, 5, 6, 3, 5, 6], NGA: [6, 5, 7, 4, 4, 8], DZA: [8, 6, 4, 5, 5, 6],
+  SAU: [6, 4, 5, 6, 4, 6], ARE: [6, 7, 6, 7, 6, 4], EGY: [7, 4, 4, 5, 4, 7], VNM: [9, 6, 3, 5, 6, 6],
+  ITA: [5, 7, 4, 6, 6, 4], ESP: [5, 7, 4, 6, 6, 3], GRC: [8, 6, 2, 5, 5, 5], CAN: [6, 7, 5, 7, 7, 2],
+  AUS: [7, 8, 6, 7, 7, 2], NLD: [5, 8, 4, 6, 7, 2], BRA: [6, 5, 3, 5, 5, 6], MEX: [6, 5, 6, 5, 5, 7],
+  IDN: [8, 5, 3, 5, 5, 6], THA: [7, 5, 3, 5, 5, 6], PHL: [8, 5, 6, 4, 5, 6], SGP: [7, 9, 1, 7, 8, 1],
+  AFG: [8, 4, 9, 2, 5, 8], SYR: [4, 3, 8, 2, 3, 9], IRQ: [5, 4, 8, 4, 4, 8], YEM: [7, 3, 9, 2, 4, 8],
+  ETH: [8, 5, 8, 4, 5, 7], ERI: [9, 5, 6, 3, 5, 6], NGA: [6, 4, 7, 4, 4, 8], DZA: [8, 6, 4, 5, 5, 6],
   MAR: [8, 7, 5, 5, 6, 5], ZAF: [5, 5, 3, 5, 4, 7], KAZ: [6, 5, 2, 5, 5, 7], MNG: [8, 5, 2, 4, 5, 6],
   BGD: [8, 6, 3, 4, 5, 7], ARG: [8, 5, 2, 4, 5, 6], CHL: [7, 7, 2, 5, 6, 3], COL: [7, 7, 8, 5, 6, 5],
-  VEN: [5, 3, 2, 3, 3, 9], CUB: [8, 5, 2, 3, 5, 6], AZE: [9, 7, 8, 5, 6, 6], ARM: [9, 6, 7, 4, 5, 6],
+  VEN: [5, 2, 2, 3, 3, 9], CUB: [8, 4, 2, 3, 5, 6], AZE: [9, 7, 8, 5, 6, 6], ARM: [9, 5, 7, 4, 5, 6],
   GEO: [9, 6, 5, 4, 5, 4], BLR: [5, 5, 2, 5, 4, 7], LBY: [5, 3, 8, 2, 3, 9], SDN: [5, 4, 9, 2, 3, 9],
   MMR: [4, 4, 8, 3, 3, 9], SOM: [6, 3, 9, 2, 3, 9], NPL: [8, 7, 4, 3, 6, 5], LKA: [7, 6, 5, 4, 5, 6],
   CHE: [8, 7, 1, 5, 7, 1], PRT: [6, 7, 3, 5, 6, 3], ROU: [6, 6, 3, 5, 5, 5], HUN: [6, 6, 2, 5, 5, 5],
-  NZL: [6, 8, 4, 5, 7, 1], JOR: [8, 8, 5, 5, 7, 4], OMN: [7, 7, 3, 5, 6, 4], QAT: [6, 6, 2, 5, 5, 3],
-  KWT: [6, 5, 2, 5, 5, 5], DNK: [6, 8, 6, 6, 7, 1], EST: [9, 7, 3, 4, 6, 1], LVA: [8, 6, 3, 4, 5, 2],
+  NZL: [6, 8, 4, 5, 7, 1], JOR: [8, 8, 5, 5, 7, 4], OMN: [7, 7, 3, 5, 6, 4], QAT: [6, 5, 2, 5, 5, 3],
+  KWT: [6, 4, 2, 5, 5, 5], DNK: [6, 8, 6, 6, 7, 1], EST: [9, 7, 3, 4, 6, 1], LVA: [8, 6, 3, 4, 5, 2],
   LTU: [9, 7, 3, 4, 6, 2], RWA: [8, 8, 7, 4, 7, 3], UGA: [6, 6, 7, 4, 5, 7], KEN: [6, 6, 6, 4, 5, 7],
   MLI: [6, 4, 8, 2, 3, 8], BFA: [7, 4, 8, 2, 3, 7], NER: [6, 4, 7, 2, 3, 7], TCD: [6, 5, 8, 3, 4, 8],
   COD: [4, 3, 8, 2, 2, 9], SSD: [5, 3, 8, 2, 2, 9], CAF: [4, 2, 7, 1, 2, 9],
@@ -90,5 +138,13 @@ window.MIL_STATS = [
     // supplied far from home: js/game.js supply.)
     m.skill = (0.8 + 0.0133 * (m.training + m.experience + m.leadership)) * (1 - 0.02 * m.corruption);
     m.defend = 0.8 + 0.04 * m.patriotism;
+    // A country whose readiness is only estimated from its wealth gets it corrected by what is
+    // known of its forces: real training lifts it, corruption that hollows units cuts it
+    // (a rich kleptocracy's paper army is not ready just because the country is rich).
+    if (c.tech.estimated && p) {
+      const r = Math.max(0.25, Math.min(0.85, c.tech.ready * (0.85 + 0.04 * v[1]) * (1.12 - 0.04 * v[5])));
+      c.tech.ready = Math.round(r * 100) / 100;
+      c.tech.quality = (0.35 + 0.13 * c.tech.gen) * (0.4 + 0.6 * c.tech.ready);
+    }
   });
 })();
