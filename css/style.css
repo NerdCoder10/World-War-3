@@ -603,3 +603,6 @@ circle.garrison.captured { stroke: #e2654f !important; stroke-width: 2.5; }
 .battle-tabs { display: flex; gap: 4px; margin-left: auto; margin-right: 8px; }
 .battle-tabs button { background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12.5px; }
 .battle-tabs button[aria-pressed="true"] { background: var(--line); }
+.bc-raid { display: block; width: 100%; margin: 6px 0; padding: 7px 10px; background: #5aff7814; border: 1px solid #4fbf6a; color: var(--fg); border-radius: 4px; cursor: pointer; font-weight: 600; text-align: left; }
+.bc-raid:disabled { opacity: .5; cursor: not-allowed; }
+.bc-raid small { font-weight: 400; color: var(--muted); margin-left: 6px; }

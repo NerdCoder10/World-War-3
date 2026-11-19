@@ -15,13 +15,14 @@
 // grey; better kit (each model's real abilities, js/models.js) fires faster.
 // The ground follows the country's terrain and weather, the sky its day or night.
 (() => {
-  const LABEL = { tanks: "tank", afv: "armoured vehicle", arty: "artillery piece", troops: "infantry squad", fighters: "fighter", aircraft: "bomber or drone", helis: "helicopter", aa: "anti-aircraft launcher", ships: "warship", subs: "submarine", carriers: "carrier" };
-  const MODE_KINDS = { land: ["tanks", "afv", "arty", "troops", "fighters", "helis", "aa"], sea: ["carriers", "ships", "subs", "fighters"], air: ["fighters", "aircraft", "helis", "aa"] };
+  const LABEL = { tanks: "tank", afv: "armoured vehicle", arty: "artillery piece", troops: "infantry squad", sf: "special-forces team", fighters: "fighter", aircraft: "bomber or drone", helis: "helicopter", aa: "anti-aircraft launcher", ships: "warship", subs: "submarine", carriers: "carrier" };
+  const MODE_KINDS = { land: ["tanks", "afv", "arty", "troops", "sf", "fighters", "helis", "aa"], sea: ["carriers", "ships", "subs", "fighters"], air: ["fighters", "aircraft", "helis", "aa"] };
   let open = null;
   const hashRand = seed => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  function tokens(units, aa, kinds) {
+  function tokens(units, aa, kinds, sf) {
     const out = {};
     kinds.forEach(k => {
+      if (k === "sf") { const n = (sf && sf.n) || 0; out[k] = n ? { n, per: Math.ceil(sf.ops / n), real: sf.ops, best: sf.best } : { n: 0, per: 0 }; return; }
       const n = k === "aa" ? aa : k === "troops" ? (units.troops || 0) * 1000 : units[k] || 0;
       if (n < 1) { out[k] = { n: 0, per: 0 }; return; }
       const per = Math.max(1, Math.ceil(n / 14));
@@ -44,13 +45,14 @@
     else if (k === "aa") { P([[-10, 0], [10, 0], [10, -5], [-10, -5]]); ctx.save(); ctx.translate(-2, -6); ctx.rotate(-0.8); ctx.fillRect(0, -2.5, 12, 5); ctx.restore(); [-7, 0, 7].forEach(i => wheel(i, 2)); }
     else if (k === "ships") { P([[26, -2], [18, 4], [-20, 4], [-24, -2]]); P([[-8, -2], [6, -2], [5, -9], [-6, -9]]); P([[-2, -9], [2, -9], [1, -15], [-1, -15]]); ctx.fillRect(10, -4.5, 11, 1.4); ctx.fillStyle = dark; ctx.fillRect(9, -5.5, 4, 3); }
     else if (k === "carriers") { P([[34, -4], [30, 5], [-30, 5], [-34, -4]]); ctx.fillStyle = dark; ctx.fillRect(-34, -5.5, 68, 1.6); ctx.fillStyle = col; P([[6, -5], [14, -5], [13, -14], [8, -14]]); ctx.fillStyle = dark; for (let i = -26; i < 0; i += 8) ctx.fillRect(i, -7.5, 5, 2); }
+    else if (k === "sf") { ctx.fillStyle = dark; for (let j = 0; j < 2; j++) { const ox = j * 7 - 4; ctx.beginPath(); ctx.arc(ox, -8, 1.8, 0, 7); ctx.fill(); ctx.fillRect(ox - 1.2, -6.5, 2.6, 4); ctx.fillRect(ox - 2.2, -2.5, 4.4, 2.5); ctx.fillStyle = col; ctx.fillRect(ox + 0.6, -9, 1.6, 1); ctx.fillRect(ox, -5.5, 6, 0.9); ctx.fillStyle = dark; } }
     else if (k === "subs") { ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.ellipse(0, 0, 24, 3.6, 0, 0, 7); ctx.fill(); ctx.stroke(); P([[-2, -3], [6, -3], [5, -8], [-1, -8]]); P([[-24, 0], [-28, -4], [-28, 4]]); ctx.globalAlpha = 1; }
     ctx.restore();
   }
   // One scene (land, sea or air) on the canvas, until it is switched or closed.
   function scene(cv, W, H, DPR, info, mode) {
     const ctx = cv.getContext("2d"), kinds = MODE_KINDS[mode];
-    const A = tokens(info.att.units, mode === "sea" ? 0 : info.att.aa, kinds), D = tokens(info.def.units, mode === "sea" ? 0 : info.def.aa, kinds);
+    const A = tokens(info.att.units, mode === "sea" ? 0 : info.att.aa, kinds, info.att.sf), D = tokens(info.def.units, mode === "sea" ? 0 : info.def.aa, kinds, info.def.sf);
     const rnd = hashRand(info.seed + mode.length * 7919);
     const horizon = mode === "sea" ? H * 0.46 : mode === "air" ? H * 0.86 : H * 0.62;
     const units = [];
@@ -61,6 +63,7 @@
         const rows = { arty: 0.02, aa: 0.08, afv: 0.17, tanks: 0.25, troops: 0.33 };
         Object.entries(rows).forEach(([k, depth]) => add(k, T[k].n, (i, n) => ({ x: x0 + dir * (depth + 0.012 * (i % 3)) * W, y: horizon + 8 + (i / Math.max(1, n - 1 || 1)) * (H - horizon - 26) })));
         add("fighters", T.fighters.n, i => ({ air: true, lane: 0.1 + 0.05 * (i % 5), phase: rnd() }));
+        add("sf", T.sf.n, i => ({ x: W * (side === "att" ? 0.6 + 0.045 * i : 0.4 - 0.045 * i), y: H - 10 - (i % 2) * 14 }));
         add("helis", T.helis.n, i => ({ heli: true, x: x0 + dir * (0.06 + 0.075 * (i % 5)) * W, y: horizon - 46 - 34 * Math.floor(i / 5) - 9 * (i % 2) }));
       } else if (mode === "sea") {
         const rowY = i => horizon + 14 + (i % 3) * 22;
@@ -136,6 +139,16 @@
             if (tg) { const dir = u.side === "att" ? 1 : -1; tracers.push({ x0: u.x + dir * 14, y0: u.y - 6, x1: tg.x, y1: tg.y - 4, t, missile: u.k === "afv" && u.lastShot % 3 === 0 && ((u.side === "att" ? info.att.atgm : info.def.atgm) || 0) > 0.3, small: u.k === "troops" }); }
           }
         });
+        // Special forces behind the lines mark high-value targets (guns, air defence, armour) with a
+        // laser; a guided bomb follows. Better units mark more often.
+        units.filter(u => u.k === "sf" && u.alive).forEach((u, i) => {
+          const beat = Math.round(2600 / Math.max(0.3, ((u.side === "att" ? info.att.sf : info.def.sf) || {}).q || 0.5));
+          if (Math.floor((t + i * 401) / beat) !== u.lastShot) {
+            u.lastShot = Math.floor((t + i * 401) / beat);
+            const fs = foesOf(u, v => v.k === "arty" || v.k === "aa" || v.k === "tanks"), tg = fs.length ? fs[(u.lastShot + i) % fs.length] : null;
+            if (tg) { tracers.push({ x0: u.x, y0: u.y - 8, x1: tg.x, y1: tg.y - 4, t, laser: true }); shots.push({ x0: tg.x + (u.side === "att" ? -60 : 60), y0: 0, x1: tg.x, y1: tg.y, t: t + 300, dur: 700, arc: 0, bomb: true }); }
+          }
+        });
         units.filter(u => u.k === "arty" && u.alive).forEach((u, i) => {
           const beat = Math.round((1100 + (i % 5) * 170) / q(u));
           if (Math.floor(t / beat) !== u.lastShot) { u.lastShot = Math.floor(t / beat); const fs = foesOf(u, v => !v.air && !v.heli), tg = fs.length ? fs[(u.lastShot + i) % fs.length] : null; shots.push({ x0: u.x, y0: u.y - 8, x1: tg ? tg.x + (((i * 37) % 30) - 15) : W / 2, y1: tg ? tg.y : horizon + 20, t, dur: 1200, arc: 0.35 }); }
@@ -177,7 +190,7 @@
           if (u.ship || u.sub) { const f = Math.min(1, (t - (u.sinkT || t)) / 3000); if (f >= 1) return; ctx.save(); ctx.globalAlpha = 1 - f * 0.7; ctx.translate(u.x, u.y + f * 26); ctx.rotate((u.side === "att" ? 1 : -1) * f * 0.5); if (u.side === "def") ctx.scale(-1, 1); drawUnit(ctx, u.k, 0, 0, u.big ? 1.15 : 1.0, "#555", "#222", now); ctx.restore(); ctx.fillStyle = `rgba(255,140,40,${0.8 - f * 0.8})`; ctx.beginPath(); ctx.arc(u.x, u.y - 8 + f * 26, 6, 0, 7); ctx.fill(); ctx.fillStyle = `rgba(50,50,50,${0.5 - f * 0.5})`; ctx.beginPath(); ctx.arc(u.x - 4, u.y - 20 + f * 20, 9, 0, 7); ctx.fill(); return; }
           ctx.globalAlpha = 0.5; ctx.fillStyle = "#222"; ctx.beginPath(); ctx.ellipse(u.x, u.y + 1, 8, 2.5, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; return;
         }
-        const adv = u.side === "att" && mode === "land" && u.k !== "arty" && u.k !== "aa" ? (t / 12000) * W * 0.06 : mode === "sea" && u.side === "att" ? (t / 12000) * W * 0.04 : 0;
+        const adv = u.side === "att" && mode === "land" && u.k !== "arty" && u.k !== "aa" && u.k !== "sf" ? (t / 12000) * W * 0.06 : mode === "sea" && u.side === "att" ? (t / 12000) * W * 0.04 : 0;
         u.x0 = u.x0 ?? u.x; u.x = u.x0 + adv;
         const bob = u.ship ? Math.sin(now / 600 + u.x0) * 1.4 : u.sub ? Math.sin(now / 900 + u.phase * 9) * 3 : 0;
         ctx.save(); if (u.side === "def") { ctx.translate(u.x, 0); ctx.scale(-1, 1); ctx.translate(-u.x, 0); }
@@ -248,6 +261,7 @@
         const tr = tracers[i], dur = tr.sam ? 1100 : tr.aam ? 700 : 450, f = (t - tr.t) / dur;
         if (f < 0 || f > 1) { tracers.splice(i, 1); continue; }
         const xe = tr.x0 + (tr.x1 - tr.x0) * f, ye = tr.y0 + (tr.y1 - tr.y0) * f;
+        if (tr.laser) { ctx.strokeStyle = "rgba(90,255,120,0.75)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(tr.x0, tr.y0); ctx.lineTo(tr.x1, tr.y1); ctx.stroke(); ctx.setLineDash([]); continue; }
         if (tr.missile) { ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = tr.sam ? 2 : 1.4; ctx.beginPath(); ctx.moveTo(tr.x0 + (tr.x1 - tr.x0) * Math.max(0, f - 0.35), tr.y0 + (tr.y1 - tr.y0) * Math.max(0, f - 0.35)); ctx.lineTo(xe, ye); ctx.stroke(); ctx.fillStyle = "#ffcf6e"; ctx.beginPath(); ctx.arc(xe, ye, 1.8, 0, 7); ctx.fill(); }
         else if (tr.small) { ctx.fillStyle = "rgba(255,220,120,0.9)"; ctx.fillRect(xe - 1, ye - 0.5, 3, 1); }
         else { ctx.strokeStyle = "rgba(255,190,80,0.9)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tr.x0 + (tr.x1 - tr.x0) * Math.max(0, f - 0.25), tr.y0 + (tr.y1 - tr.y0) * Math.max(0, f - 0.25)); ctx.lineTo(xe, ye); ctx.stroke(); }
@@ -266,8 +280,9 @@
     raf = requestAnimationFrame(frame);
     const legend = (T, side) => kinds.filter(k => T[k].n).map(k => {
       const qq = ((info[side].q || {})[k]), bits = [];
-      if (T[k].per > 1) bits.push(`each ≈ ${Math.round(T[k].real / T[k].n).toLocaleString("en-US")}${k === "troops" ? " soldiers" : ""}`);
-      if (qq != null && k !== "aa") bits.push(`quality ×${qq.toFixed(2)}`);
+      if (T[k].per > 1) bits.push(`each ≈ ${Math.round(T[k].real / T[k].n).toLocaleString("en-US")}${k === "troops" ? " soldiers" : k === "sf" ? " operators" : ""}`);
+      if (k === "sf" && T[k].best) bits.push(`best: ${T[k].best}`);
+      if (qq != null && k !== "aa" && k !== "sf") bits.push(`quality ×${qq.toFixed(2)}`);
       if (T[k].down) bits.push(`${T[k].down} in maintenance`);
       return `${T[k].n} × ${LABEL[k]}${bits.length ? ` <small>(${bits.join(", ")})</small>` : ""}`;
     }).join(" · ");
