@@ -646,6 +646,22 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Countries don't know who is inside them.** Foreign spy networks and special-forces teams stay hidden until the target's counter-intelligence uncovers them.
+  - **Tradecraft decides how fast they are found.** Each service has a historical record of staying hidden (0–10, `js/spies.js` TRADECRAFT):
+    - **Cuba 9.5:** Ana Montes inside US intelligence for 17 years, Manuel Rocha for 40.
+    - **Britain and Israel 8.5.**
+    - **China and Ukraine 7.5:** Ukraine prepared Operation Spiderweb inside Russia for 18 months.
+    - **US and Russia 7:** Ames and Hanssen, but also the 2010 illegals roll-up, the GRU's Skripal team, and the CIA's lost China network.
+    - **Iran 3.5:** plots foiled again and again. **Saudi Arabia 3:** the Khashoggi team was identified within days.
+  - **No dice: exposure builds every day.** It builds faster against strong counter-intelligence, for bigger networks, and above all for services with a poor record (a 9 is found about 30× more slowly than a 3). Every operation and sabotage adds to it, and so does every sweep. At 100 the network is found and loses half its agents, or the team is killed or captured. A Cuban network in the US lasts about 13 years; an Iranian one about 9 months.
+  - **What you see:** your Intel tab, the dossiers and the world spy-war list only show networks that have been exposed. That means publicly known penetrations plus those found during play. Sabotage by an unfound network is "unidentified saboteurs".
+  - **Sweeps:** a sweep first hunts for hidden networks and teams, then rolls up only the ones it has found. Services with a strong record may survive several.
+  - **Your own networks:** each shows whether the target knows about it and roughly how many days it has left.
+  - **Covert special-forces teams.** Slip a team into any country from the Intel tab or the dossier.
+    - **Benefits:** while undetected it gives +2 to raids there and ×1.5 to your special forces in battles there.
+    - **Cover:** its cover is your services' tradecraft plus the unit's quality, against the country's counter-intelligence. Delta stays hidden in Russia for about 680 days; an IRGC Quds Force team in the US lasts weeks to months.
+    - **If found:** its operators are killed or captured, the unit is out for 14 days, and a country you aren't at war with turns hostile.
+    - **Hostile powers do the same to you:** their teams sit in your nations unseen. Once at war they destroy a site every 12 days ("unidentified commandos") until your counter-intelligence finds them.
 - **United States, by the analysis and not just the official figures.** Sources: IISS Military Balance 2025, the Air & Space Forces almanac, Navy and Marine Corps aviation plans, CRS, GAO mission-capable reports, FAS and the Heritage Index.
   - **Personnel and ground forces:** 1.316 million active.
     - **Tanks:** 4,640 Abrams. About 2,640 are active (≈750 SEPv3, ≈1,600 SEPv2, Guard M1A1 SA) and about 1,550 sit in storage at Sierra Army Depot, so fewer of them are ready.

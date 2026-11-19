@@ -515,9 +515,9 @@
     const cool = s.sfCool || {}, pool = [];
     empire().forEach(c => window.sfUnits(c.iso3).forEach(u => pool.push({ iso: c.iso3, u, ready: (cool[c.iso3 + ":" + u[0]] || 0) <= s.turn })));
     pool.sort((a, b) => sfQ(b.u) - sfQ(a.u));
-    const pick = pool.find(p => p.ready), intel = myNet(sideOf(iso)) >= 30 ? 1 : 0;
-    const score = pick ? 10 * sfQ(pick.u) + intel : 0, need = raidHard(iso, x);
-    return { x, pick, score, need, intel, ok: score > need, best: pool[0] };
+    const pick = pool.find(p => p.ready), intel = myNet(sideOf(iso)) >= 30 ? 1 : 0, team = myTeamIn(iso) ? 2 : 0;
+    const score = pick ? 10 * sfQ(pick.u) + intel + team : 0, need = raidHard(iso, x);
+    return { x, pick, score, need, intel, team, ok: score > need, best: pool[0] };
   }
   function sfRaid(iso, name) {
     const err = ready(); if (err) return err;
@@ -531,6 +531,7 @@
     const key = q.pick.iso + ":" + q.pick.u[0];
     s.sfCool = s.sfCool || {};
     provoke(sideOf(iso));
+    if (q.team) exposeTeam(s.player + ">" + iso, 20 * (ipf(iso).counter / 10) * Math.pow(1 - sfCovert(s.player, teamUnit(s.player, myTeamIn(iso).u)) / 11, 2));
     if (q.ok) {
       s.sfCool[key] = s.turn + 2;
       loseSite(iso, q.x, "x", s.player);
@@ -648,7 +649,7 @@
     // designation and sabotage. Half on effective strength (operators × quality⁶), half on the
     // quality of each side's best unit (to the 4th power), so proven record dominates; the
     // defender's own units know the ground (×1.25). Up to ±7% each way.
-    const fa = window.sfPower(aNat), fd = window.sfPower(dNat) * 1.25, qa = Math.pow(window.sfQuality(window.sfBest(aNat)), 4), qd = Math.pow(window.sfQuality(window.sfBest(dNat)), 4) * 1.25;
+    const fa = window.sfPower(aNat) * ((G.state.sfTeams || {})[aNat + ">" + T] ? 1.5 : 1), fd = window.sfPower(dNat) * 1.25, qa = Math.pow(window.sfQuality(window.sfBest(aNat)), 4), qd = Math.pow(window.sfQuality(window.sfBest(dNat)), 4) * 1.25;
     const sfEdge = 0.5 * (fa + fd > 0 ? fa / (fa + fd) : 0.5) + 0.5 * (qa + qd > 0 ? qa / (qa + qd) : 0.5);
     return {
       att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)) * (0.93 + 0.14 * sfEdge),
@@ -951,8 +952,11 @@
       r.net += (eq - r.net) * 0.03;
       if (Math.abs(r.net - eq) < 0.5 && !(S === s.player && inv[T])) delete st[k];
     });
-    // Hostile services with deep networks in your nations sabotage them every ten days.
+    // Exposure of networks you run abroad and foreign networks inside your empire.
     if (!s.player) return;
+    C.forEach(c => { const T = c.iso3; if (!owns(T) && spyNet(s.player, T) >= 1) exposeSpy(s.player, T, spyDailyExp(s.player, T)); });
+    empire().forEach(c => C.forEach(o => { const S = o.iso3; if (S !== s.player && !owns(S) && spyNet(S, c.iso3) >= 5 && !spyKnownBy(S, c.iso3)) exposeSpy(S, c.iso3, spyDailyExp(S, c.iso3)); }));
+    // Hostile services with deep networks in your nations sabotage them every ten days.
     empire().forEach(c => {
       C.forEach(o => {
         const S = o.iso3;
@@ -961,8 +965,103 @@
         if (n < 55 || (s.turn + S.charCodeAt(0) + c.iso3.charCodeAt(1)) % 10) return;
         const ms2 = missileStock(c.iso3); ms2.bm *= 0.9; ms2.cm *= 0.9;
         (s.sabotage = s.sabotage || {})[c.iso3] = s.turn + 2;
-        log(`🕵️ ${spyVisible(S, c.iso3) ? `${BY[S].name}'s agents` : "Unidentified saboteurs"} struck in ${c.name}: missile stocks −10% and its defences shaken for two days. Sweep for spies in the Intel tab.`, "bad");
+        log(`🕵️ ${spyKnownBy(S, c.iso3) ? `${BY[S].name}'s agents` : "Unidentified saboteurs"} struck in ${c.name}: missile stocks −10% and its defences shaken for two days. Sweep for spies in the Intel tab.`, "bad");
+        exposeSpy(S, c.iso3, 15 * (ipf(c.iso3).counter / 10) * leakOf(S), "traced from the sabotage");
       });
+    });
+  }
+  // ── Covert presence: who knows what is inside their country ──
+  // Foreign spy networks and special-forces teams stay hidden until the target's counter-
+  // intelligence uncovers them, so a country may not know who is working against it. No dice:
+  // exposure builds every day, faster against strong counter-intelligence, for bigger networks,
+  // and above all for services with a poor record of staying hidden (js/spies.js TRADECRAFT: Cuba's
+  // DI is found ~30× more slowly than Iran's services). Every operation and every sweep adds more.
+  // At 100 it is found: a network loses half its agents, a team is killed or captured.
+  const trade = S => window.tradecraft(BY[S]);
+  const leakOf = S => Math.pow(1 - trade(S) / 11, 2);
+  const expStore = () => (G.state.spyExp = G.state.spyExp || {});
+  const knownStore = () => (G.state.spyKnown = G.state.spyKnown || {});
+  const seedOf = k => { let h = 7; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) % 997; return h % 50; };
+  const spyExposure = (S, T) => { const k = S + ">" + T, e = expStore(); return k in e ? e[k] : seedOf(k); };
+  const publicNote = (S, T) => !!(((window.SPY_TARGETS[S] || []).find(x => x[0] === T) || [])[2]);
+  // Does the target (and the world) know this network exists? Publicly known penetrations start known.
+  const spyKnownBy = (S, T) => !!knownStore()[S + ">" + T] || publicNote(S, T);
+  const spyDailyExp = (S, T) => 1.2 * (ipf(T).counter / 10) * leakOf(S) * (0.5 + spyNet(S, T) / 100);
+  const spyDaysLeft = (S, T) => { const r = spyDailyExp(S, T); return r > 0 ? Math.max(1, Math.ceil((100 - spyExposure(S, T)) / r)) : Infinity; };
+  function exposeSpy(S, T, amt, how) {
+    if (spyKnownBy(S, T) && S !== G.state.player) return;
+    const e = expStore(), k = S + ">" + T, v = spyExposure(S, T) + amt;
+    if (v < 100) { e[k] = v; return; }
+    const s = G.state;
+    e[k] = 0; knownStore()[k] = s.turn + 1;
+    setNet(S, T, spyNet(S, T) * 0.5);
+    if (S === s.player) {
+      if (s.spyInv && s.spyInv[T]) s.spyInv[T] = Math.max(0, s.spyInv[T] - 3);
+      log(`🚨 ${BY[T].name}'s counter-intelligence uncovered your spy network${how ? ` (${how})` : ""}: half your agents arrested. It now knows you are spying on it.`, "bad");
+    } else if (owns(T)) log(`🔎 Your counter-intelligence in ${BY[T].name} uncovered ${BY[S].name}'s spy network${how ? ` (${how})` : ""}: half its agents arrested.`, "good");
+  }
+  // Covert special-forces teams. A team's cover is its service's tradecraft and its unit's quality:
+  // Delta or the SAS stay hidden for months even in Russia; an Iranian team in Israel lasts weeks.
+  const sfCovert = (S, u) => 0.5 * trade(S) + 5 * window.sfQuality(u);
+  const teamStore = () => (G.state.sfTeams = G.state.sfTeams || {});
+  const teamUnit = (S, name) => window.sfUnits(S).find(u => u[0] === name) || window.sfBest(S);
+  const teamDaily = (S, T, name) => 4 * (ipf(T).counter / 10) * Math.pow(1 - sfCovert(S, teamUnit(S, name)) / 11, 2);
+  const teamDaysLeft = (k) => { const t = teamStore()[k], [S, T] = k.split(">"), r = teamDaily(S, T, t.u); return r > 0 ? Math.max(1, Math.ceil((100 - t.exp) / r)) : Infinity; };
+  function exposeTeam(k, amt) {
+    const s = G.state, t = teamStore()[k];
+    if (!t) return;
+    t.exp += amt;
+    if (t.exp < 100) return;
+    const [S, T] = k.split(">");
+    delete teamStore()[k];
+    (s.sfCool = s.sfCool || {})[S + ":" + t.u] = s.turn + 14;
+    if (S === s.player) {
+      const war = atWarWith(T);
+      if (!war) provoke(sideOf(T));
+      log(`🚨 ${BY[T].name}'s security forces found your ${t.u} team after ${s.turn - t.at} days: its operators killed or captured, the unit out for 14 days.${war ? "" : ` A diplomatic incident: ${BY[sideOf(T)].name} turns hostile.`}`, "bad");
+    } else if (owns(T)) log(`🔎 Your security forces found and destroyed a hidden ${BY[S].name} special-forces team (${t.u}) in ${BY[T].name}. It had been there ${s.turn - t.at} days.`, "good");
+  }
+  const myTeamIn = T => teamStore()[G.state.player + ">" + T];
+  function sfInsert(T) {
+    const err = ready(); if (err) return err;
+    const s = G.state, k = s.player + ">" + T;
+    if (owns(T)) return "That is your own nation.";
+    if (teamStore()[k]) return `You already have a team in ${BY[T].name}.`;
+    const cool = s.sfCool || {}, busy = new Set(Object.keys(teamStore()).filter(x => x.startsWith(s.player + ">")).map(x => teamStore()[x].u));
+    const pool = [];
+    empire().forEach(c => window.sfUnits(c.iso3).forEach(u => pool.push({ iso: c.iso3, u })));
+    pool.sort((a, b) => window.sfQuality(b.u) - window.sfQuality(a.u));
+    const pick = pool.find(p => !busy.has(p.u[0]) && (cool[p.iso + ":" + p.u[0]] || 0) <= s.turn);
+    if (!pick) return "All your special-forces units are busy or recovering.";
+    teamStore()[k] = { u: pick.u[0], at: s.turn, exp: 0 };
+    log(`🥷 A ${pick.u[0]} team slipped into ${BY[T].name}. ${BY[T].name} doesn't know it is there; at its counter-intelligence (${ipf(T).counter}/10) it should stay hidden about ${teamDaysLeft(k)} days.`, "good");
+    save(); return null;
+  }
+  function sfWithdraw(T) {
+    const s = G.state, k = s.player + ">" + T, t = teamStore()[k];
+    if (!t) return "No team there.";
+    delete teamStore()[k]; (s.sfCool = s.sfCool || {})[s.player + ":" + t.u] = s.turn + 2;
+    log(`🥷 Your ${t.u} team left ${BY[T].name} unseen.`, "good"); save(); return null;
+  }
+  // Daily: teams' cover wears; hostile powers with good special forces slip teams into your nations
+  // (you don't see them until found) and, once at war, every 12 days they destroy a site; your teams too risk discovery.
+  const SITE_RANK = x => (x.radar ? 0 : x.ad ? 1 : x.mis ? 2 : 3);
+  function sfDay() {
+    const s = G.state, ts = teamStore();
+    Object.keys(ts).forEach(k => { const [S, T] = k.split(">"); if (!BY[S] || !BY[T] || sideOf(T) === sideOf(S)) { delete ts[k]; return; } exposeTeam(k, teamDaily(S, T, ts[k].u)); });
+    if (!s.player) return;
+    const home = empire().slice().sort((a, b) => b.gdp - a.gdp)[0];
+    C.forEach(o => {
+      const S = o.iso3;
+      if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
+      const best = window.sfBest(S); if (!best || window.sfQuality(best) < 0.6) return;
+      const mine = Object.keys(ts).find(k => k.startsWith(S + ">") && owns(k.split(">")[1]));
+      if (!mine && home && (s.turn + S.charCodeAt(0)) % 7 === 0) ts[S + ">" + home.iso3] = { u: best[0], at: s.turn, exp: 0 };
+      const fighting = s.enemies.some(e => e.nat === S && e.vsPlayer) || Object.keys(s.wars).some(w => sideOf(w) === S);
+      if (mine && ts[mine] && fighting && (s.turn + S.charCodeAt(1)) % 12 === 0) {
+        const T = mine.split(">")[1], x = siteList(T).filter(y => !siteSt(T, y.name)).sort((a, b) => SITE_RANK(a) - SITE_RANK(b))[0];
+        if (x) { loseSite(T, x, "x", S); log(`💥 Unidentified commandos destroyed ${x.name} in ${BY[T].name}. Nobody has claimed it; a counter-intelligence sweep may find who is behind it.`, "bad"); exposeTeam(mine, 25 * (ipf(T).counter / 10) * Math.pow(1 - sfCovert(S, teamUnit(S, ts[mine].u)) / 11, 2)); }
+      }
     });
   }
   // Can your counter-intelligence in `T` see who runs a network there?
@@ -1016,7 +1115,8 @@
       log(`🕵️ Your agents armed the resistance in ${BY[T].name} against ${BY[s.owner[T]].name}: resistance ${Math.round(Math.min(1, au[T]) * 100)}% of the way to liberation.`, "good");
     }
     cd[T] = s.turn;
-    const left = n - O.burn;
+    exposeSpy(s.player, T, 30 * (ipf(T).counter / 10) * leakOf(s.player), "traced from the operation");
+    const left = Math.min(spyNet(s.player, T), n - O.burn);
     setNet(s.player, T, left);
     if (left < 15) { provoke(s.owner[T]); log(`🚨 The operation blew your network in ${BY[T].name}: ${BY[s.owner[T]].name} expelled your agents and turned hostile.`, "bad"); }
     save(); return null;
@@ -1032,8 +1132,10 @@
     if (s.coins < cost) return `You need ${fmtCoins(cost - s.coins)} more coins.`;
     s.coins -= cost; s.sweepAt = s.turn;
     let caught = 0;
-    empire().forEach(c => C.forEach(o => { const S = o.iso3, n = spyNet(S, c.iso3); if (S === s.player || owns(S) || n < 1) return; const cut = n * 0.04 * ipf(c.iso3).counter; caught += cut; setNet(S, c.iso3, n - cut); }));
-    log(`🔎 Counter-intelligence sweep: rolled up ${Math.round(caught)} points of foreign networks across your empire.`, "good");
+    empire().forEach(c => C.forEach(o => { const S = o.iso3; if (S === s.player || owns(S) || spyNet(S, c.iso3) < 1) return; exposeSpy(S, c.iso3, 60 * (ipf(c.iso3).counter / 10) * leakOf(S), "found by a sweep"); }));
+    Object.keys(teamStore()).forEach(k => { const [S, T] = k.split(">"); if (S !== s.player && owns(T)) exposeTeam(k, 60 * (ipf(T).counter / 10) * Math.pow(1 - sfCovert(S, teamUnit(S, teamStore()[k].u)) / 11, 2)); });
+    empire().forEach(c => C.forEach(o => { const S = o.iso3, n = spyNet(S, c.iso3); if (S === s.player || owns(S) || n < 1 || !spyKnownBy(S, c.iso3)) return; const cut = n * 0.04 * ipf(c.iso3).counter; caught += cut; setNet(S, c.iso3, n - cut); }));
+    log(`🔎 Counter-intelligence sweep: rolled up ${Math.round(caught)} points of known foreign networks across your empire. Networks run by services with a strong record may still be hidden.`, "good");
     save(); return null;
   }
   // Every network a country runs abroad, and every network inside it (strongest first).
@@ -2194,6 +2296,7 @@
     produce();
     droneDay();
     spyDay();
+    sfDay();
     sitesDay();
     portsDay();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
@@ -2361,6 +2464,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
