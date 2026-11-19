@@ -115,3 +115,41 @@ window.homeland = c => {
 // How fast foreign spies and teams are found here, relative to an ordinary state: ×1.03 in the US,
 // ×1.15 in China, ×0.65 in Iran, ×0.3 in a collapsed state.
 window.homelandFactor = c => { const h = window.homeland(c); return (0.4 + 0.08 * h.alert) * (0.4 + 0.07 * h.stab); };
+
+// Border security: [land frontier, coasts, points of entry (airports, ports, visas, biometrics), why],
+// each 0–10. Spies mostly arrive through points of entry; special-forces teams slip in by the
+// weakest route, land or sea; invading armies are spotted by frontier guards and coastal watch.
+// Landlocked countries' coast rating is their land rating. Not listed: estimated from wealth,
+// counter-intelligence and corruption.
+window.BORDERS = {
+  USA: [7, 8, 9.5, "Customs and Border Protection's 60,000 officers, with sensors, towers and drones on the Mexican border, yet ~2 million crossings a year at the 2022–23 peak; the long Canadian border is lightly watched; biometric entry and visa vetting at airports; the Coast Guard watches the coasts"],
+  CAN: [5, 6, 8.5, "The world's longest undefended border with the US; good airport screening"], MEX: [3, 4, 5, "Cartel-run smuggling routes in the north, a porous Guatemalan border in the south"],
+  CHN: [8.5, 8, 9.5, "Fenced, camera-lined frontiers in Xinjiang and Tibet; strict entry screening and exit controls"],
+  RUS: [6, 5, 7, "A 20,000 km frontier too long to watch fully; the FSB Border Service"], PRK: [10, 8, 10, "The most sealed border on earth: minefields, the DMZ, shoot-to-kill orders"],
+  KOR: [9.5, 8, 9, "The DMZ and constant coastal watch for Northern infiltrators"], JPN: [9, 9, 9, "An island nation with tight immigration"], TWN: [9, 7, 8, "An island, but its coast guard is stretched by Chinese grey-zone pressure"],
+  ISR: [8, 9, 9.5, "Fences and sensors on every front and the world's strictest airport screening, though Hamas breached the Gaza fence on 7 October 2023"],
+  GBR: [4, 7, 9, "An island with Border Force and eGates, but an open land border with Ireland and ~30,000 small-boat crossings a year"],
+  IRL: [4, 6, 7, "Open border with Northern Ireland"], FRA: [5, 6, 8, "Schengen: open land borders, checks only at airports"], DEU: [4, 6, 8, "Schengen: open land borders"],
+  ITA: [4, 4, 7, "Mediterranean arrivals overwhelm coastal control"], ESP: [6, 5, 7.5, "Fenced Ceuta and Melilla, Atlantic arrivals in the Canaries"], GRC: [6, 4, 7, "The Evros fence, but thousands of islands"],
+  NLD: [4, 6, 8.5, "Schengen"], BEL: [4, 6, 8, "Schengen"], CHE: [5, 5, 8.5, "Schengen, landlocked"], AUT: [5, 5, 8, "Schengen, landlocked"], SWE: [4, 6, 8, "Schengen"], NOR: [6, 7, 8, "Arctic border with Russia watched closely"],
+  FIN: [8, 7, 8, "Closed its 1,340 km Russian border in 2023 and is fencing it"], POL: [8, 6, 8, "A steel fence and sensors on the Belarus border against engineered migrant crossings"],
+  EST: [7, 6, 8, "Watched Russian border"], LVA: [7, 6, 8, "Fencing its Russian and Belarusian borders"], LTU: [7, 6, 8, "Fenced Belarus border"], UKR: [7, 5, 6, "A mined, fortified front with Russia"],
+  BLR: [7, 7, 7, "KGB-run border guard, landlocked"], TUR: [7, 6, 7.5, "A 900 km wall on the Syrian border; long coasts"], IRN: [5, 5, 6, "Porous Afghan and Iraqi borders; smuggling across the Gulf"],
+  IRQ: [3, 3, 4, "Porous, militia-controlled crossings"], SYR: [2, 2, 2, "Borders barely controlled"], AFG: [2, 2, 3, "Porous"], PAK: [4, 4, 5, "Fencing the Afghan border, porous in practice"],
+  IND: [6, 5, 7, "Fenced Line of Control and Pakistani border; porous Bangladeshi and open Nepalese borders"], BGD: [3, 3, 4, "Porous"], MMR: [1, 2, 3, "Borders held by rebels"],
+  THA: [4, 4, 6, "Porous Myanmar border"], VNM: [6, 5, 7, "Watched Chinese border"], PHL: [3, 3, 6, "7,600 islands"], IDN: [3, 3, 6, "17,000 islands"], MYS: [4, 4, 7, "Porous Sabah coast"], SGP: [9.5, 9, 9.5, "A city-state with tight checkpoints"],
+  AUS: [9, 8, 9, "An island continent; Operation Sovereign Borders turns back boats"], NZL: [9, 8, 9, "Remote islands, strict biosecurity and entry"],
+  CUB: [9, 7, 8, "An island police state"], BRA: [3, 4, 6, "Vast Amazon frontiers"], COL: [3, 4, 6, "Porous Venezuelan border"], VEN: [2, 3, 4, "Smuggling and armed groups"], ARG: [4, 4, 6, "Porous northern border"],
+  CHL: [5, 5, 7, "Desert frontier"], PER: [4, 4, 6, "Porous"], SAU: [8, 7, 8, "A fenced Yemeni frontier and Iraqi border wall"], ARE: [8, 8, 9.5, "Biometric entry, closely watched coasts"], QAT: [8, 8, 9, "Small, closely watched"],
+  KWT: [8, 7, 8, "Iraq border barrier"], OMN: [6, 6, 8, "Mountainous Yemeni border"], JOR: [7, 5, 8, "Watched Syrian border against smugglers"], EGY: [6, 5, 7, "Sealed Gaza border, porous Libyan and Sudanese desert"],
+  LBY: [1, 1, 2, "No real control"], DZA: [6, 5, 7, "Desert patrols"], MAR: [7, 6, 7, "The Western Sahara berm"], TUN: [5, 5, 7, "Libyan border barrier"], NGA: [2, 3, 4, "Porous"], ETH: [3, 3, 5, "Porous, landlocked"],
+  KEN: [3, 4, 5, "Porous Somali border"], SOM: [1, 1, 1, "No control"], SDN: [1, 1, 2, "Civil war"], ZAF: [3, 5, 6, "Porous Zimbabwean border"], GEO: [5, 5, 7, "Russian-occupied enclaves"], ARM: [6, 6, 7, "Russian border guards on some frontiers"],
+  AZE: [7, 6, 7, "Watched"], KAZ: [5, 5, 7, "Long steppe frontiers"], MNG: [4, 4, 6, "Vast"], HTI: [1, 1, 2, "No control"],
+};
+window.border = c => {
+  const b = window.BORDERS[c.iso3];
+  if (b) return { land: b[0], sea: b[1], entry: b[2], note: b[3], est: false };
+  const lg = Math.log10(1 + c.gdp / Math.max(c.pop, 0.001)), m = c.milStats || {}, counter = (c.intelProfile && c.intelProfile.counter) || 3;
+  const f = x => Math.round(Math.max(1, Math.min(9, x)) * 10) / 10, land = f(1 + 1.3 * lg + 0.2 * counter - 0.15 * (m.corruption || 5));
+  return { land, sea: land, entry: f(2 + 2 * lg + 0.1 * counter - 0.2 * (m.corruption || 5)), note: "", est: true };
+};

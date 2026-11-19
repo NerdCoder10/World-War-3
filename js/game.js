@@ -589,6 +589,8 @@
     const adq = Math.max(0, 6 - ((BY[T].missiles && BY[T].missiles.ad) || 0)) * 0.45;
     if (rad.cov > 0) ways.push(["radar", air ? 0.1 + 1.5 * (1 - rad.cov) * (rad.ew ? 0.6 : 1) + adq : Math.max(0, travelH - (sea ? 12 : 4) * rad.cov)]);
     if (!air) ways.push(["civilians reporting troops at the border", Math.max(0, travelH - (sea ? 2 : 8) * conn * (0.5 + eyes)) + (1 - conn) * 6]);
+    const bd = window.border(c);
+    if (!air) ways.push([sea ? "its coast guard and coastal watch" : "its border guards and frontier surveillance", Math.max(0, travelH - 14 * ((sea ? bd.sea : bd.land) / 10)) + (10 - (sea ? bd.sea : bd.land)) * 0.6]);
     ways.push(["intelligence analysis", 60 * (1.6 - 0.1 * (ipT.score || 0)) * conceal * share]);
     const best = ways.reduce((a, b) => (b[1] < a[1] ? b : a));
     const h = Math.max(0.1, Math.min(travelH, best[1]));
@@ -988,7 +990,12 @@
   const spyKnownBy = (S, T) => !!knownStore()[S + ">" + T] || publicNote(S, T);
   // Homeland security and stability of the target (js/spies.js HOMELAND) scale every detection.
   const homeF = T => window.homelandFactor(BY[T]);
-  const spyDailyExp = (S, T) => 1.2 * (ipf(T).counter / 10) * homeF(T) * leakOf(S) * (0.5 + spyNet(S, T) / 100);
+  // Border security (js/spies.js BORDERS): agents' couriers, officers and money cross through
+  // points of entry; teams are resupplied by the weakest route, land or sea.
+  const bord = T => window.border(BY[T]);
+  const spyBorderF = T => 0.8 + 0.04 * bord(T).entry;
+  const weakest = T => Math.min(bord(T).land, bord(T).sea);
+  const spyDailyExp = (S, T) => 1.2 * (ipf(T).counter / 10) * homeF(T) * spyBorderF(T) * leakOf(S) * (0.5 + spyNet(S, T) / 100);
   const spyDaysLeft = (S, T) => { const r = spyDailyExp(S, T); return r > 0 ? Math.max(1, Math.ceil((100 - spyExposure(S, T)) / r)) : Infinity; };
   function exposeSpy(S, T, amt, how) {
     if (spyKnownBy(S, T) && S !== G.state.player) return;
@@ -1007,7 +1014,7 @@
   const sfCovert = (S, u) => 0.5 * trade(S) + 5 * window.sfQuality(u);
   const teamStore = () => (G.state.sfTeams = G.state.sfTeams || {});
   const teamUnit = (S, name) => window.sfUnits(S).find(u => u[0] === name) || window.sfBest(S);
-  const teamDaily = (S, T, name) => 4 * (ipf(T).counter / 10) * homeF(T) * Math.pow(1 - sfCovert(S, teamUnit(S, name)) / 11, 2);
+  const teamDaily = (S, T, name) => 4 * (ipf(T).counter / 10) * homeF(T) * (0.8 + 0.04 * weakest(T)) * Math.pow(1 - sfCovert(S, teamUnit(S, name)) / 11, 2);
   const teamDaysLeft = (k) => { const t = teamStore()[k], [S, T] = k.split(">"), r = teamDaily(S, T, t.u); return r > 0 ? Math.max(1, Math.ceil((100 - t.exp) / r)) : Infinity; };
   function exposeTeam(k, amt) {
     const s = G.state, t = teamStore()[k];
@@ -1024,6 +1031,9 @@
     } else if (owns(T)) log(`🔎 Your security forces found and destroyed a hidden ${BY[S].name} special-forces team (${t.u}) in ${BY[T].name}. It had been there ${s.turn - t.at} days.`, "good");
   }
   const myTeamIn = T => teamStore()[G.state.player + ">" + T];
+  // Crossing in: exposure 60 × (weakest border / 10)² × (1 − cover / 11). Into North Korea or Israel
+  // a team starts well on its way to being found; into a porous state it barely registers.
+  const teamEntry = (S, T, u) => 60 * Math.pow(weakest(T) / 10, 2) * (1 - sfCovert(S, u) / 11);
   function sfInsert(T) {
     const err = ready(); if (err) return err;
     const s = G.state, k = s.player + ">" + T;
@@ -1036,6 +1046,9 @@
     const pick = pool.find(p => !busy.has(p.u[0]) && (cool[p.iso + ":" + p.u[0]] || 0) <= s.turn);
     if (!pick) return "All your special-forces units are busy or recovering.";
     teamStore()[k] = { u: pick.u[0], at: s.turn, exp: 0 };
+    const entry = teamEntry(s.player, T, pick.u);
+    exposeTeam(k, entry);
+    if (!teamStore()[k]) { save(); return null; }
     log(`🥷 A ${pick.u[0]} team slipped into ${BY[T].name}. ${BY[T].name} doesn't know it is there; at its counter-intelligence (${ipf(T).counter}/10) it should stay hidden about ${teamDaysLeft(k)} days.`, "good");
     save(); return null;
   }
@@ -1058,7 +1071,7 @@
       if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
       const best = window.sfBest(S); if (!best || window.sfQuality(best) < 0.6) return;
       const mine = Object.keys(ts).find(k => k.startsWith(S + ">") && owns(k.split(">")[1]));
-      if (!mine && home && (s.turn + S.charCodeAt(0)) % 7 === 0) ts[S + ">" + home.iso3] = { u: best[0], at: s.turn, exp: 0 };
+      if (!mine && home && (s.turn + S.charCodeAt(0)) % 7 === 0) ts[S + ">" + home.iso3] = { u: best[0], at: s.turn, exp: teamEntry(S, home.iso3, best) };
       const fighting = s.enemies.some(e => e.nat === S && e.vsPlayer) || Object.keys(s.wars).some(w => sideOf(w) === S);
       if (mine && ts[mine] && fighting && (s.turn + S.charCodeAt(1)) % 12 === 0) {
         const T = mine.split(">")[1], x = siteList(T).filter(y => !siteSt(T, y.name)).sort((a, b) => SITE_RANK(a) - SITE_RANK(b))[0];
