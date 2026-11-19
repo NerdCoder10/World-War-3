@@ -9,6 +9,18 @@
 // the SAS, Sayeret Matkal) outweigh tens of thousands of untested or mediocre ones.
 // Countries not listed get a modelled estimate from their army's size and readiness.
 window.SPECIAL_FORCES = {
+  AGO: [["Special forces brigade", 1000, 6, 6, "Civil-war veterans"]],
+  CMR: [["Rapid Intervention Battalion (BIR)", 5000, 7, 7, "Israeli-trained, fighting Boko Haram; accused of abuses"]],
+  TCD: [["DGSSIE and anti-terror group", 2000, 6.5, 8, "Fought jihadists in Mali's Adrar des Ifoghas in 2013"]],
+  RWA: [["Rwanda Defence Force special forces", 1500, 8, 8, "Routed jihadists in Mozambique's Cabo Delgado in 2021"]],
+  SOM: [["Danab Brigade", 1500, 7, 7, "US-trained, the best unit fighting al-Shabaab"]],
+  TUN: [["Special Forces Group (GFS)", 400, 7.5, 6, "Counter-terror operations"]],
+  UGA: [["Special Forces Command", 10000, 7, 7, "The president's guard; fought in Somalia, South Sudan and Congo"]],
+  HRV: [["Special Forces Command (ZSS)", 300, 8.5, 7, "Afghanistan"]],
+  IRL: [["Army Ranger Wing", 150, 9, 6, "Chad, Kabul evacuation 2021"]],
+  LBN: [["Commando and Marine Commando regiments", 2000, 7.5, 7, "Fought jihadists at Nahr al-Bared in 2007 and Arsal in 2017"]],
+  GTM: [["Kaibiles", 1000, 8, 7, "Brutal jungle commandos; some deserters joined the Zetas cartel"]],
+
   USA: [
     // Operators are the trained assaulters, aircrews and specialists, not the support staff around them
     // (analysts' estimates: Naylor's "Relentless Strike", CRS, SOCOM posture statements).

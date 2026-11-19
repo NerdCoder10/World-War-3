@@ -3501,6 +3501,7 @@
       <p class="hint">Known to be spying on it: ${ls(inside)}.</p><p class="hint">Its known networks abroad: ${ls(abroad)}.</p>
       ${(() => { const h = window.homeland(c), f = window.homelandFactor(c); return `<p class="hint">🚔 Homeland security: alert <b>${h.alert}/10</b>, domestic stability <b>${h.stab}/10</b>${h.note ? ` (${esc(h.note)})` : " (estimated)"}: foreign spies and teams are found here ×${f.toFixed(2)} as fast as in an ordinary state.</p>`; })()}
       ${(() => { const b = window.border(c); return `<p class="hint">🛂 Borders: land <b>${b.land}/10</b>, coasts <b>${b.sea}/10</b>, points of entry <b>${b.entry}/10</b>${b.note ? ` (${esc(b.note)})` : " (estimated)"}. Spies coming through its airports and ports are exposed ×${(0.8 + 0.04 * b.entry).toFixed(2)}; special-forces teams slipping in by the weakest route start ${Math.round(60 * Math.pow(Math.min(b.land, b.sea) / 10, 2))}% of the way to being found (less for well-hidden units), and border guards and coastal watch help spot invasions.</p>`; })()}
+      ${c.intelProfile.counterNote ? `<p class="hint">🛡️ Counter-intelligence <b>${c.intelProfile.counter}/10</b> by the analysis: ${esc(c.intelProfile.counterNote)}.</p>` : ""}
       <p class="hint">🫥 Only exposed networks are listed. Its services' tradecraft is <b>${window.tradecraft(c)}/10</b>${window.TRADECRAFT[c.iso3] ? `: ${esc(window.TRADECRAFT[c.iso3][1])}` : ""}. The higher it is, the longer its spies and special forces stay hidden abroad.</p></div>`;
   }
 
