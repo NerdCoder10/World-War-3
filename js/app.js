@@ -3261,6 +3261,7 @@
         <div class="big"><strong>${c.power}</strong><span>/ 100 power index</span></div>
         <div class="techrow"><svg class="${iconClass(c.iso3)}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-jet-${window.techTier(effGen(c.iso3))}"/></svg>
           <span><b>Gen ${effGen(c.iso3).toFixed(1)}</b> ${window.techTier(effGen(c.iso3))} technology · readiness <b>${Math.round(c.tech.ready * 100)}%</b> (${window.readyLabel(c.tech.ready)})${c.tech.estimated ? " <small>estimated</small>" : ""}</span></div>
+          ${window.READINESS_NOTES[c.iso3] ? `<p class="hint">🔍 <b>By the analysis, not its claims:</b> ${esc(window.READINESS_NOTES[c.iso3])}.</p>` : c.tech.estimated && !c.milStats.estimated ? `<p class="hint">🔍 Readiness estimated from its wealth, corrected for its real training (${c.milStats.training}/10) and corruption (${c.milStats.corruption}/10).</p>` : ""}
         <div class="bar"><i style="width:${c.power}%;background:${MODES.power.hi}"></i></div>
         ${mine ? `<p class="hint armory">Each category has an access level from 1 to ${window.LEVEL_MAX}: level 1 lets you call on 10% of it, rising to 100% at level ${window.LEVEL_FULL}.${lockedCount ? ` ${lockedCount} weapon ${lockedCount === 1 ? "category is" : "categories are"} still at level 0 and can't fight.` : ""} You have <b>${G.fmtCoins(G.state.coins)}</b> coins. Usable strength ${window.truePowerWith(c, accShare).toFixed(1)} of ${c.truePower}.</p>` : ""}
         <dl class="assets">${base.join("")}${weaponTiles.join("")}

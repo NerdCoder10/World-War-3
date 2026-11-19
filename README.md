@@ -646,6 +646,14 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Every major military by the analysis, not its claims.** Sources: IISS Military Balance 2025, the US DoD China report, Oryx-confirmed losses, FAS, RUSI, CSIS, and national audit and parliamentary reports.
+  - **China:** ~2,100 combat jets (not 1,580) and ~1,000 helicopters. Armour is counted the IISS way (17,000), not Global Firepower's trucks (35,000). About 210 H-6 bombers.
+  - **Russia:** netted against Oryx-confirmed losses: 3,300 tanks, 6,000 guns, 1,000 jets, 1,300 helicopters, 51 submarines, ~1.3 million active and 5,459 warheads.
+  - **Others:** armoured-vehicle counts corrected for Britain, France, Germany, India, Poland, South Korea and Egypt; fighters for Britain, France, Israel and Egypt.
+  - **Readiness reflects real training and maintenance, with the reason in each dossier**, for about 45 countries. China 0.70 (no war since 1979, "peace disease", 2025 purges). Britain 0.70 (hollowed force). Canada 0.55 (2024 readiness crisis). Saudi Arabia 0.50 (performed poorly in Yemen). Taiwan 0.60. Germany 0.60. Iran 0.45. South Africa 0.40. Venezuela 0.30.
+  - **Training lowered where claims outrun reality:** Russia 4, China 6, Taiwan 4, Saudi Arabia 4, Egypt 4, Iran 4, North Korea 3 and others.
+  - **Missiles:** Iran after the June 2025 war (~1,500 ballistic missiles left, air defence 2.5). Russia's air defence is 6, since it still misses many Ukrainian drones.
+  - **Smaller militaries:** about 100 countries whose readiness was only estimated from wealth are now corrected by their known training and corruption, so a rich kleptocracy's paper army no longer counts as ready.
 - **Countries don't know who is inside them.** Foreign spy networks and special-forces teams stay hidden until the target's counter-intelligence uncovers them.
   - **Tradecraft decides how fast they are found.** Each service has a historical record of staying hidden (0–10, `js/spies.js` TRADECRAFT):
     - **Cuba 9.5:** Ana Montes inside US intelligence for 17 years, Manuel Rocha for 40.

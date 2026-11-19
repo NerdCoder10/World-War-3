@@ -19,8 +19,8 @@ window.MISSILES = {
   //   ballistic, cruise, air defence, note
   USA: [1200, 8300, 7, "Tomahawk (~3,800 after 2024–25 strikes on the Houthis and Iran), JASSM/JASSM-ER (~4,000 in US service), LRASM (~300); ATACMS (~1,000 left after transfers to Ukraine), PrSM and the first Dark Eagle hypersonic battery. Patriot (15 battalions), THAAD (8 batteries) and Aegis, but interceptor stocks are strained: about a quarter of all THAAD interceptors were fired defending Israel in June 2025, and the homeland has thin cruise-missile defence"],
   CHN: [2500, 1500, 7, "PLA Rocket Force DF-11/15/16/17/21D/26 conventional brigades, CJ-10/100 cruise missiles; HQ-9 and S-400"],
-  RUS: [900, 2500, 7, "Iskander-M, Kinzhal, Kalibr, Kh-101 and Kh-22/32, rebuilt at ~100+ a month during the war; S-300/400 network"],
-  IRN: [2000, 500, 4, "Fateh-110/313, Zolfaghar, Shahab-3, Emad, Kheibar Shekan, Paveh and Hoveyzeh cruise missiles, after the 2024–25 exchanges with Israel"],
+  RUS: [900, 2500, 6, "Iskander-M, Kinzhal, Kalibr, Kh-101 and Kh-22/32, rebuilt at ~100+ a month during the war; a dense S-300/400 network that still misses many Ukrainian drones and missiles"],
+  IRN: [1500, 400, 2.5, "Fateh-110/313, Zolfaghar, Shahab-3, Emad, Kheibar Shekan, Paveh and Hoveyzeh cruise missiles: about 550 ballistic missiles fired at Israel in June 2025 and many launchers destroyed; its S-300s and radars were knocked out, leaving Israeli jets free over Tehran"],
   PRK: [1000, 100, 3, "KN-23/24/25, Scud and Nodong families; Hwasal cruise missiles"],
   ISR: [150, 800, 10, "LORA and air-launched Rampage, Delilah and Air LORA; Iron Dome, David's Sling and Arrow 2/3"],
   IND: [1000, 1500, 6, "Prithvi, Pralay and Agni-family conventional variants, BrahMos and Nirbhay; S-400 and Akash"],

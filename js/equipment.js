@@ -54,7 +54,7 @@ window.EQUIPMENT = {
     afv: [["ZBD-04A IFV", 0.15], ["ZBL-08 wheeled IFV", 0.2], ["ZBD-05 amphibious", 0.05], ["ZSL-92 & Type 89", 0.3], ["Dongfeng Mengshi & MRAP", 0.3]],
     arty: [["PLZ-05 155mm SP", 0.15], ["PCL-181 truck howitzer", 0.15], ["PHL-16 / PHL-03 rockets", 0.15], ["PLZ-07 122mm SP", 0.2], ["Towed & older", 0.35]],
     fighters: [["J-10A/C", 0.25], ["J-16", 0.2], ["J-11B / Su-27", 0.15], ["J-20 Mighty Dragon", 0.15], ["J-15 carrier fighter", 0.05], ["JH-7A strike", 0.1], ["J-7 (retiring)", 0.1]],
-    aircraft: [["Y-20 / Y-9 / Y-8 transports", 0.0782], ["H-6K/N bombers", 0.273], ["KJ-500 / KJ-2000 AEW", 0.0235], ["JL-10 / JL-8 trainers", 0.4064], ["Wing Loong / WZ-7 drones", 0.2189]],
+    aircraft: [["Y-20 / Y-9 / Y-8 transports", 0.236], ["H-6K/N bombers", 0.15], ["KJ-500 / KJ-2000 AEW & ISR", 0.071], ["JL-10 / JL-8 trainers", 0.357], ["Wing Loong / WZ-7 drones", 0.186]],
     helis: [["Z-20", 0.15], ["Z-10 attack", 0.2], ["Z-8 / Z-18", 0.1], ["Mi-17", 0.25], ["Z-9 / Z-19", 0.3]],
     ships: [["Type 055 destroyers", 0.01], ["Type 052D destroyers", 0.04], ["Type 054A frigates", 0.05], ["Type 056A corvettes", 0.07], ["Type 075 / 071 amphibious", 0.02], ["Type 022 missile boats & patrol", 0.56], ["Auxiliary", 0.25]],
     subs: [["Type 094 Jin SSBN", 0.09], ["Type 093 Shang SSN", 0.09], ["Type 039A/B Yuan", 0.35], ["Type 039 Song", 0.17], ["Kilo", 0.17], ["Older", 0.13]],
