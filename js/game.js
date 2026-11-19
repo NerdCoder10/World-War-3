@@ -714,16 +714,26 @@
     const ck = iso + key;
     if (partsCache.v[ck] == null) {
       const sk = window.maintSkill(iso), f = sk + (1 - sk) * Math.max(0, 1 - d / window.PARTS_DAYS);
-      partsCache.v[ck] = 1 - partsCut(iso, key).share * (1 - f);
+      partsCache.v[ck] = (1 - partsCut(iso, key).share * (1 - f)) * wearFactor(iso, key, d);
     }
     return partsCache.v[ck];
+  }
+  // Wear from sustained operations: engines, tracks, barrels and airframes wear out faster than
+  // depots can turn them round, so availability sinks over the first month of a war to a level set
+  // by the country's maintenance capacity (readiness and depot skill). Helicopters and jets flying
+  // several sorties a day wear fastest, gun barrels and tank tracks next, ships least.
+  const WEAR = { fighters: 1, aircraft: 0.8, helis: 1.2, tanks: 0.9, afv: 0.8, arty: 1, ships: 0.4, subs: 0.4, carriers: 0.4 };
+  const maintCap = iso => 0.5 * BY[iso].tech.ready + 0.5 * window.maintSkill(iso);
+  function wearFactor(iso, key, d = warDaysOf(iso)) {
+    if (!d || !WEAR[key]) return 1;
+    return 1 - 0.4 * WEAR[key] * (1 - maintCap(iso)) * Math.min(1, d / 30);
   }
   // For the dossier: each kind's dependence on cut-off parts, today and after stocks run out.
   function partsInfo(iso) {
     const sk = window.maintSkill(iso);
     return UNITS.filter(u => u.key !== "troops" && (forces(iso)[u.key] || 0) >= 1).map(u => {
       const c = partsCut(iso, u.key);
-      return { key: u.key, label: u.label, share: c.share, by: c.by, now: partsFactor(iso, u.key), floor: 1 - c.share * (1 - sk) };
+      return { key: u.key, label: u.label, share: c.share, by: c.by, now: partsFactor(iso, u.key), floor: (1 - c.share * (1 - sk)) * (1 - 0.4 * (WEAR[u.key] || 0) * (1 - maintCap(iso))), wear: wearFactor(iso, u.key) };
     });
   }
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
@@ -2303,6 +2313,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

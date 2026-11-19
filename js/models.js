@@ -122,7 +122,16 @@
     const ck = key + "|" + name;
     if (cache[ck]) return cache[ck];
     const row = (F[key] || []).find(r => r[0].test(name)) || [null, "Standard", 1, {}];
-    return (cache[ck] = { name, family: row[1], mult: row[2], specs: row[3] });
+    // The model's own abilities where they are known (js/groundspecs.js, js/airspecs.js), else its family's.
+    let mult = row[2], ratings = null;
+    if (key === "tanks" || key === "afv") { const g = window.groundSpec && window.groundSpec(key, name); if (g) { mult = g.mult; ratings = g.ratings; } }
+    else if (key === "arty" && !/mortar/i.test(name)) { const a = window.artyMatch && window.artyMatch(name); if (a) { mult = 0.25 + 0.1 * Math.sqrt(Math.min(150, a.range)) + 0.6 * a.precision; ratings = { range: a.range, precision: a.precision }; } }
+    else if (key === "fighters") {
+      // Air-to-air and air-to-ground ratings and generation: an F-16C is 1.0, a MiG-21 0.45, a Rafale 1.45; stealth ×1.4.
+      const a = window.airSpec && window.airSpec(name);
+      if (a && a.role !== "BM") { const sc = Math.max(0.5, (a.a2a + a.a2g) / 2 + (a.gen - 4) * 1.5); mult = 0.45 * Math.exp(0.133 * (sc - 1)) * (a.gen >= 5 ? 1.4 : 1); ratings = { a2a: a.a2a, a2g: a.a2g, gen: a.gen, radius: a.radius }; }
+    }
+    return (cache[ck] = { name, family: row[1], mult: Math.round(mult * 100) / 100, specs: row[3], ratings });
   };
   // Average combat value of a category: from given model counts, or the country's fleet mix.
   const avgCache = {};
@@ -182,5 +191,5 @@
   // readiness; equipment by its actual models, only the mission-capable share of which can fight,
   // and that share's crews and supplies (the rest of readiness).
   window.unitQuality = (c, key, models) =>
-    key === "troops" ? (0.35 + 0.13 * c.tech.gen) * (0.4 + 0.6 * c.tech.ready) : 0.8 * fieldValue(c, key, models) * (0.75 + 0.25 * c.tech.ready);
+    key === "troops" ? (0.35 + 0.13 * c.tech.gen) * (0.4 + 0.6 * c.tech.ready) * window.infantryFactor(c.iso3) : 0.8 * fieldValue(c, key, models) * (0.75 + 0.25 * c.tech.ready);
 })();

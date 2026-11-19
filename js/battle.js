@@ -11,6 +11,8 @@
 //         long-range missiles; only late, and less between modern air forces, do survivors merge
 //         into a within-visual-range fight. Bombers and drones strike ground targets, and
 //         surface-to-air missiles climb from below.
+// Units down for maintenance (mission-capable rate and war wear) sit out the fight, parked and
+// grey; better kit (each model's real abilities, js/models.js) fires faster.
 // The ground follows the country's terrain and weather, the sky its day or night.
 (() => {
   const LABEL = { tanks: "tank", afv: "armoured vehicle", arty: "artillery piece", troops: "infantry squad", fighters: "fighter", aircraft: "bomber or drone", helis: "helicopter", aa: "anti-aircraft launcher", ships: "warship", subs: "submarine", carriers: "carrier" };
@@ -74,6 +76,26 @@
       }
     };
     place(A, "att"); place(D, "def");
+    // Units down for maintenance (the country's mission-capable rate, worn down further by a long
+    // war) sit out the fight: parked and grey, at the back, on the airfield or alongside in port.
+    const parked = [];
+    ["att", "def"].forEach(side => {
+      const ready = info[side].ready || {}, T = side === "att" ? A : D, dir = side === "att" ? 1 : -1, edge = side === "att" ? 0.02 : 0.98;
+      let j = 0;
+      kinds.forEach(k => {
+        const mine = units.filter(u => u.side === side && u.k === k), down = Math.min(mine.length, Math.round(mine.length * (1 - (ready[k] ?? 1))));
+        T[k].down = down;
+        mine.slice(mine.length - down).forEach(u => {
+          units.splice(units.indexOf(u), 1);
+          if (u.air || u.heli || u.ship || u.sub) {
+            if (mode === "sea" && (u.air || u.heli)) return;
+            u.x = W * (edge + dir * 0.03 * (j % 6)); u.y = mode === "sea" ? horizon + 10 + 12 * (j % 3) : horizon + 10 + 8 * Math.floor(j / 6); j++;
+          }
+          parked.push(u);
+        });
+      });
+    });
+    const q = (u, k = u.k) => ((u.side === "att" ? info.att.q : info.def.q) || {})[k] || 1;
     const kill = (side, frac) => { const mine = units.filter(u => u.side === side), n = Math.round(mine.length * frac); mine.map(u => [u, rnd()]).sort((a, b) => a[1] - b[1]).slice(0, n).forEach(([u], i) => (u.dieAt = 2500 + (i / Math.max(1, n)) * 8500)); };
     kill("att", info.lossAtt); kill("def", info.lossDef);
     const shots = [], booms = [], tracers = [];
@@ -104,14 +126,24 @@
       units.forEach(u => { if (u.alive && u.dieAt != null && t >= u.dieAt) { u.alive = false; u.sinkT = t; booms.push({ x: u.cx ?? u.x, y: u.cy ?? u.y, t, big: true }); } });
       // ── Fire ──
       if (mode === "land") {
+        // Direct fire, faster and more often from better kit (sights, fire control, autoloaders):
+        // tank guns, autocannon and anti-tank missiles from armoured vehicles, infantry small arms.
+        units.filter(u => (u.k === "tanks" || u.k === "afv" || u.k === "troops") && u.alive).forEach((u, i) => {
+          const beat = Math.round((u.k === "troops" ? 900 : 1900 + (i % 4) * 230) / q(u));
+          if (Math.floor((t + i * 137) / beat) !== u.lastShot) {
+            u.lastShot = Math.floor((t + i * 137) / beat);
+            const fs = foesOf(u, v => !v.air && !v.heli), tg = fs.length ? fs[(u.lastShot + i) % fs.length] : null;
+            if (tg) { const dir = u.side === "att" ? 1 : -1; tracers.push({ x0: u.x + dir * 14, y0: u.y - 6, x1: tg.x, y1: tg.y - 4, t, missile: u.k === "afv" && u.lastShot % 3 === 0 && ((u.side === "att" ? info.att.atgm : info.def.atgm) || 0) > 0.3, small: u.k === "troops" }); }
+          }
+        });
         units.filter(u => u.k === "arty" && u.alive).forEach((u, i) => {
-          const beat = 1100 + (i % 5) * 170;
+          const beat = Math.round((1100 + (i % 5) * 170) / q(u));
           if (Math.floor(t / beat) !== u.lastShot) { u.lastShot = Math.floor(t / beat); const fs = foesOf(u, v => !v.air && !v.heli), tg = fs.length ? fs[(u.lastShot + i) % fs.length] : null; shots.push({ x0: u.x, y0: u.y - 8, x1: tg ? tg.x + (((i * 37) % 30) - 15) : W / 2, y1: tg ? tg.y : horizon + 20, t, dur: 1200, arc: 0.35 }); }
         });
       }
       if (mode === "sea") {
         units.filter(u => (u.k === "ships" || u.k === "carriers") && u.alive).forEach((u, i) => {
-          const beat = 1500 + (i % 4) * 230;
+          const beat = Math.round((1500 + (i % 4) * 230) / q(u));
           if (Math.floor(t / beat) !== u.lastShot) {
             u.lastShot = Math.floor(t / beat);
             const fs = foesOf(u, v => v.ship), tg = fs.length ? fs[(u.lastShot + i) % fs.length] : null;
@@ -131,6 +163,13 @@
           if (air.length && (t + i * 211) % (mode === "air" ? 1500 : 700) < 40) { const a = air[i % air.length]; tracers.push({ x0: u.x, y0: u.y - 10, x1: a.cx, y1: a.cy, t, missile: i % 2 === 0, sam: mode === "air" }); }
         });
       }
+      // ── Units in maintenance ──
+      parked.forEach(u => {
+        ctx.save(); ctx.globalAlpha = 0.45;
+        if (u.side === "def") { ctx.translate(u.x, 0); ctx.scale(-1, 1); ctx.translate(-u.x, 0); }
+        drawUnit(ctx, u.k, u.x, u.y, u.k === "carriers" ? 0.7 : u.ship || u.sub ? 0.6 : u.air || u.heli ? 0.8 : 1.1, "#8a8a8a", "#3a3a3a", 0);
+        ctx.restore(); ctx.fillStyle = "#f39c34"; ctx.beginPath(); ctx.arc(u.x, u.y - 12, 2.2, 0, 7); ctx.fill();
+      });
       // ── Surface units ──
       units.filter(u => !u.air && !u.heli).forEach(u => {
         const [c1, c2] = colOf(u.side);
@@ -180,7 +219,7 @@
         ctx.restore();
         if (u.air) { ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(u.cx - dir * 14, u.cy); ctx.lineTo(u.cx - dir * 60, u.cy); ctx.stroke(); }
         // Fighters fire missiles at enemy aircraft; bombers and strike jets bomb surface targets.
-        if (u.dog && (t + u.lane * 9000) % 1800 < 40) {
+        if (u.dog && (t + u.lane * 9000) % Math.round(1800 / q(u)) < 40) {
           const air = foesOf(u, v => v.air && v.cx != null);
           if (air.length) {
             const a = air[Math.floor(u.lane * 97) % air.length];
@@ -210,7 +249,8 @@
         if (f < 0 || f > 1) { tracers.splice(i, 1); continue; }
         const xe = tr.x0 + (tr.x1 - tr.x0) * f, ye = tr.y0 + (tr.y1 - tr.y0) * f;
         if (tr.missile) { ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = tr.sam ? 2 : 1.4; ctx.beginPath(); ctx.moveTo(tr.x0 + (tr.x1 - tr.x0) * Math.max(0, f - 0.35), tr.y0 + (tr.y1 - tr.y0) * Math.max(0, f - 0.35)); ctx.lineTo(xe, ye); ctx.stroke(); ctx.fillStyle = "#ffcf6e"; ctx.beginPath(); ctx.arc(xe, ye, 1.8, 0, 7); ctx.fill(); }
-        else { ctx.strokeStyle = "rgba(255,190,80,0.9)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tr.x0, tr.y0); ctx.lineTo(xe, ye); ctx.stroke(); }
+        else if (tr.small) { ctx.fillStyle = "rgba(255,220,120,0.9)"; ctx.fillRect(xe - 1, ye - 0.5, 3, 1); }
+        else { ctx.strokeStyle = "rgba(255,190,80,0.9)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tr.x0 + (tr.x1 - tr.x0) * Math.max(0, f - 0.25), tr.y0 + (tr.y1 - tr.y0) * Math.max(0, f - 0.25)); ctx.lineTo(xe, ye); ctx.stroke(); }
       }
       for (let i = booms.length - 1; i >= 0; i--) {
         const b = booms[i], f = (t - b.t) / (b.big ? 900 : 600);
@@ -224,8 +264,14 @@
       raf = requestAnimationFrame(frame);
     }
     raf = requestAnimationFrame(frame);
-    const legend = T => kinds.filter(k => T[k].n).map(k => `${T[k].n} × ${LABEL[k]}${T[k].per > 1 ? ` <small>(each ≈ ${Math.round(T[k].real / T[k].n).toLocaleString("en-US")}${k === "troops" ? " soldiers" : ""})</small>` : ""}`).join(" · ");
-    return { stop: () => cancelAnimationFrame(raf), legendA: legend(A), legendD: legend(D) };
+    const legend = (T, side) => kinds.filter(k => T[k].n).map(k => {
+      const qq = ((info[side].q || {})[k]), bits = [];
+      if (T[k].per > 1) bits.push(`each ≈ ${Math.round(T[k].real / T[k].n).toLocaleString("en-US")}${k === "troops" ? " soldiers" : ""}`);
+      if (qq != null && k !== "aa") bits.push(`quality ×${qq.toFixed(2)}`);
+      if (T[k].down) bits.push(`${T[k].down} in maintenance`);
+      return `${T[k].n} × ${LABEL[k]}${bits.length ? ` <small>(${bits.join(", ")})</small>` : ""}`;
+    }).join(" · ");
+    return { stop: () => cancelAnimationFrame(raf), legendA: legend(A, "att"), legendD: legend(D, "def") };
   }
   // Which theatres a battle has: land if ground forces fight, sea if either side brings a fleet into
   // it, air if aircraft are involved. The default is what the attack really is.
