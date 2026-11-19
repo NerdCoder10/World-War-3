@@ -646,6 +646,22 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Cyber power** (`js/cyber.js`). Every country has a cyber offence and defence (0–10) from the IISS Cyber Capabilities assessments, the Belfer National Cyber Power Index and attributed operations. About 95 are researched with their record; the rest are estimated.
+  - **Researched examples:**
+    - **US 10/8.5:** Stuxnet, but Volt and Salt Typhoon inside its grid and telecoms.
+    - **Israel 9.5/9:** Unit 8200, Pegasus.
+    - **Russia 9/7.5:** Sandworm's grid attacks, NotPetya, the Viasat hack.
+    - **China 9/8.5:** OPM, Volt Typhoon.
+    - **North Korea 8.5/8:** WannaCry, the $1.5bn Bybit theft, and barely online itself.
+    - **Iran 7/5:** Shamoon, but crippled by Predatory Sparrow.
+    - **Estonia 6.5/9:** rebuilt after 2007.
+  - **In battle:** each side's offence against the other's defence adds up to 6% (command networks, sensors, logistics).
+  - **Cyber operations** from any dossier, with no dice. One succeeds when your best offence (+1 with a spy network of 30+ inside) beats the target's defence plus the difficulty:
+    - **Raid its banks (+0.5):** steal 0.3% of its GDP in coins.
+    - **Black out the grid (+1.5):** its defence ×0.95 for 3 days.
+    - **Hack command and air defence (+2.5):** its air defence −2 and defence ×0.93 for 3 days.
+  - **Attribution:** an attack is traced to you when the target's defence plus half its counter-intelligence beats your tradecraft + 3, and a traced attack turns it hostile.
+  - **Hostile powers with offence 6+** attack your richest nation every 11 days. They are identified or "unidentified hackers" by the same rule, and stopped if your defence holds.
 - **Every country researched.** All 196 countries now have a researched entry in every table, not estimates from wealth: readiness and technology, real training, experience, logistics, leadership and corruption, homeland security alert and stability, border security, and spy tradecraft. Notes are shown in the dossier.
   - Africa's juntas and collapsed states, the Balkans, Central Asia, the Caribbean and the Pacific islands.
   - States with no army (Iceland, Costa Rica, Panama, the microstates).

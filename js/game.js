@@ -653,10 +653,14 @@
     // defender's own units know the ground (×1.25). Up to ±7% each way.
     const fa = window.sfPower(aNat) * ((G.state.sfTeams || {})[aNat + ">" + T] ? 1.5 : 1), fd = window.sfPower(dNat) * 1.25, qa = Math.pow(window.sfQuality(window.sfBest(aNat)), 4), qd = Math.pow(window.sfQuality(window.sfBest(dNat)), 4) * 1.25;
     const sfEdge = 0.5 * (fa + fd > 0 ? fa / (fa + fd) : 0.5) + 0.5 * (qa + qd > 0 ? qa / (qa + qd) : 0.5);
+    // Cyber (js/cyber.js): each side's offence against the other's defence, up to +6% (command
+    // networks, sensors and logistics disrupted).
+    const cA = window.cyber(BY[aNat]), cD = window.cyber(BY[dNat]);
+    const cyA = 1 + 0.06 * (cA.off / 10) * (1 - cD.def / 12), cyD = 1 + 0.06 * (cD.off / 10) * (1 - cA.def / 12);
     return {
-      att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)) * (0.93 + 0.14 * sfEdge),
-      def: (1 + D.air * (airD - 1)) * (1 + D.arty * (0.8 + 0.4 * (1 - aEdge) - 1)) * (0.93 + 0.14 * (1 - sfEdge)),
-      edge, aa, aEdge, sfEdge,
+      att: (1 + A.air * (airA - 1)) * cas * (1 + A.arty * (0.8 + 0.4 * aEdge - 1)) * (0.93 + 0.14 * sfEdge) * cyA,
+      def: (1 + D.air * (airD - 1)) * (1 + D.arty * (0.8 + 0.4 * (1 - aEdge) - 1)) * (0.93 + 0.14 * (1 - sfEdge)) * cyD,
+      edge, aa, aEdge, sfEdge, cyEdge: cyA / cyD,
     };
   }
 
@@ -692,7 +696,10 @@
     return (radarMemo[iso] = { sites: rows.length, ew, need, cov: need ? Math.min(1, rows.length / need) : 0 });
   }
   // Destroyed or captured air-defence sites take their batteries with them.
-  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) + (r.ew ? 0.5 : 0)); };
+  // Cyber hits (js/cyber.js): a blacked-out grid or hacked command and air-defence networks.
+  const cyHit = (iso, k) => (((G.state.cyberHit || {})[iso] || {})[k] || -1) >= G.state.turn;
+  const cyberDefMult = iso => (cyHit(iso, "grid") ? 0.95 : 1) * (cyHit(iso, "c2") ? 0.93 : 1);
+  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
   function missileSalvo(shooters, targetIso) {
     const leak = 1 - 0.08 * effectiveAD(targetIso);
     let power = 0, fired = 0, hits = 0;
@@ -972,6 +979,59 @@
       });
     });
   }
+  // ── Cyber operations (js/cyber.js) ──
+  // No dice. An operation succeeds when your best cyber offence across your nations (+1 with a spy
+  // network of 30+ inside for access) beats the target's defence plus the operation's difficulty.
+  // Difficulty: banks +0.5, the power grid +1.5, military command and air-defence networks +2.5
+  // (segregated and partly air-gapped). It is traced to you when the target's defence plus half its counter-intelligence beats your
+  // services' tradecraft + 3; a traced attack turns the target hostile.
+  const CYBER_OPS = {
+    grid: { label: "Black out the grid", hard: 1.5, what: "Its defence ×0.95 for 3 days" },
+    c2: { label: "Hack command & air defence", hard: 2.5, what: "Its air defence −2 and defence ×0.93 for 3 days" },
+    finance: { label: "Raid its banks", hard: 0.5, what: "Steal funds: coins worth 0.3% of its GDP" },
+  };
+  const cyOf = iso => window.cyber(BY[iso]);
+  const myCyber = () => empire().reduce((a, c) => Math.max(a, cyOf(c.iso3).off), 0);
+  function cyberQuote(T, k) {
+    const O = CYBER_OPS[k], access = myNet(sideOf(T)) >= 30 ? 1 : 0, power = myCyber() + access, need = cyOf(T).def + O.hard;
+    const traced = cyOf(T).def + ipf(T).counter / 2 > trade(G.state.player) + 3;
+    return { power, need, ok: power > need, access, traced };
+  }
+  const markHit = (T, k) => { const h = (G.state.cyberHit = G.state.cyberHit || {}); h[T] = Object.assign({}, h[T], { [k]: G.state.turn + 3 }); };
+  function cyberOp(T, k) {
+    const err = ready(); if (err) return err;
+    const s = G.state, O = CYBER_OPS[k], at = (s.cyberAt = s.cyberAt || {});
+    if (!O) return "Unknown operation.";
+    if (owns(T)) return "That is your own nation.";
+    if (at[T] != null && s.turn - at[T] < 5) return `Your hackers are still covering their tracks in ${BY[T].name} (${5 - (s.turn - at[T])} more days).`;
+    const q = cyberQuote(T, k);
+    at[T] = s.turn;
+    if (q.ok) {
+      if (k === "finance") { const g = Math.round(BY[T].gdp * 0.003 * 10); s.coins += g; log(`🖥️ Your hackers raided ${BY[T].name}'s banks: +${fmtCoins(g)} coins.`, "good"); }
+      else { markHit(T, k); log(`🖥️ Your cyber operation hit ${BY[T].name}: ${O.what.toLowerCase()} (offence ${q.power.toFixed(1)} against its defence ${q.need.toFixed(1)}).`, "good"); }
+    } else log(`🖥️ Your cyber operation against ${BY[T].name} failed against its defences (${q.power.toFixed(1)} against ${q.need.toFixed(1)}).`, "bad");
+    if (q.traced) { provoke(sideOf(T)); log(`🚨 ${BY[T].name} traced the attack to you and turned hostile.`, "bad"); }
+    save(); return null;
+  }
+  // Hostile powers with real cyber forces (offence 6+) attack your richest nation every 11 days.
+  function cyberDay() {
+    const s = G.state;
+    if (!s.player) return;
+    const home = empire().slice().sort((a, b) => b.gdp - a.gdp)[0];
+    if (!home) return;
+    const T = home.iso3, kinds = ["grid", "c2", "finance"];
+    C.forEach(o => {
+      const S = o.iso3;
+      if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
+      const off = cyOf(S).off;
+      if (off < 6 || (s.turn + S.charCodeAt(2)) % 11) return;
+      const k = kinds[(s.turn + S.charCodeAt(0)) % 3], who = cyOf(T).def + ipf(T).counter / 2 > trade(S) + 3 ? `${BY[S].name}'s hackers` : "Unidentified hackers";
+      if (off > cyOf(T).def + CYBER_OPS[k].hard) {
+        if (k === "finance") { const g = Math.round(Math.min(s.coins * 0.05, BY[T].gdp * 0.002 * 10)); s.coins = Math.max(0, s.coins - g); log(`🖥️ ${who} raided banks in ${BY[T].name}: −${fmtCoins(g)} coins.`, "bad"); }
+        else { markHit(T, k); log(`🖥️ ${who} ${k === "grid" ? "blacked out the power grid" : "broke into command and air-defence networks"} in ${BY[T].name}: ${CYBER_OPS[k].what.toLowerCase()}.`, "bad"); }
+      } else log(`🛡️ ${BY[T].name}'s cyber defences stopped an attack by ${who.replace("'s hackers", "").replace("Unidentified hackers", "an unidentified group")}.`, "good");
+    });
+  }
   // ── Covert presence: who knows what is inside their country ──
   // Foreign spy networks and special-forces teams stay hidden until the target's counter-
   // intelligence uncovers them, so a country may not know who is working against it. No dice:
@@ -1226,7 +1286,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * docDefend(forces(iso), iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * docDefend(forces(iso), iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * cyberDefMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -1977,7 +2037,7 @@
   // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
   function homeDefence(iso, attacker) {
     const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
-    return rawPower(u, iso) * weatherMix(u, iso, iso) * docDefend(u, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+    return rawPower(u, iso) * weatherMix(u, iso, iso) * docDefend(u, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * cyberDefMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
       (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
@@ -2312,6 +2372,7 @@
     droneDay();
     spyDay();
     sfDay();
+    cyberDay();
     sitesDay();
     portsDay();
     // Occupied territories rise up when weakly held for long enough; your armies stationed there calm them.
@@ -2479,6 +2540,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, CYBER_OPS, cyberQuote, cyberOp, cyHit, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
