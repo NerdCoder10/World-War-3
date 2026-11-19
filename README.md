@@ -646,6 +646,41 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Deeper analysis of real strength.**
+  - **Missiles by type** (`js/missiletypes.js`): air-to-air, surface-to-air, ground-launched ballistic, air-to-ground, anti-ship and anti-tank, each rated 0–10 by combat record rather than brochures, for about 40 countries with their systems (the rest estimated). Each is scaled by maintenance (0.85 + 0.15 × capacity). Examples:
+    - Patriot downed Russia's "unstoppable" Kinzhal in 2023.
+    - Israel's Arrow 3 made the first combat intercepts in space.
+    - Russia's S-400s were destroyed in Crimea by Ukrainian ATACMS and Neptunes.
+    - China's PL-15 (fired by Pakistan) reportedly downed Indian jets in May 2025, while its HQ-9 failed to stop Indian strikes.
+    - About half of North Korea's KN-23s went astray in Ukraine.
+    - Ukraine's Neptune sank the Moskva.
+  - **How missile types affect combat:** air-to-air missiles sharpen the air contest, surface-to-air the air-defence rating, ballistic and air-to-ground missiles the force of strikes, anti-ship missiles navies, and anti-tank missiles infantry and armoured vehicles.
+  - **Logistics by the historical record** (`LOGISTICS_RECORD`), translated to today.
+    - **US 10:** the Berlin Airlift, the 500,000-troop Desert Shield build-up, 20 years of two distant wars.
+    - **Britain 7:** the Falklands, but a much smaller fleet now.
+    - **France 6:** needed US airlift in Mali.
+    - **Russia 5:** the 60 km convoy stalled before Kyiv, rail-bound.
+    - **China 6:** untested beyond its region.
+  - **Ferocity** (`FEROCITY`): attack ×(0.9 + 0.02 × ferocity), defence ×(0.95 + 0.01 × ferocity).
+    - **US 9.5:** the Marine Corps, known worldwide as the most aggressive force on earth. US amphibious assaults get a further ×1.05.
+    - **Israel 9.5, Ukraine 8.5; Saudi Arabia 3, Kuwait 2.**
+  - **Historical performance against expectations** (`HIST_PERF`), so armies that beat forecasts are not underestimated and those that fall short are not overestimated.
+    - **US ×1.1:** forecasts of 10,000+ dead in Desert Storm; 148 killed in action.
+    - **Israel ×1.12:** 1948, 1967, 1973, and Hezbollah and Iran in 2024–25.
+    - **Ukraine ×1.08.**
+    - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
+    - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
+    - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Economic upkeep of war** (`ECON_FISCAL`): fiscal capacity from reserves, sovereign wealth, debt, borrowing costs, sanctions and aid.
+    - **How long it pays:** a country pays for about 60 + 45 × capacity days of full-scale war (the US and China ~465, Russia ~330, Iran ~150, North Korea ~105). After that, war production and readiness fall by up to 35%.
+  - **Paramilitaries** (`js/paramilitary.js`): separate from each military, counted by real fielded strength, training, kit and loyalty.
+    - **Included:** China's People's Armed Police and coast guard, Russia's Rosgvardia and Africa Corps, India's Central Armed Police Forces, Saudi Arabia's National Guard, Iraq's Popular Mobilization Forces (60% loyal), Sudan's RSF (at war with the army, so 0%), Venezuela's militia (4.5 million claimed, ~200,000 counted), North Korea's Red Guard and more.
+    - **Use:** they join home defence when called upon, worn like regular troops by manning, war dilution and economic strain, and count toward assessed strength.
+  - **More dimensions of intelligence:** internet and open-source intelligence, quality of analysis and military intelligence, for about 35 countries from the record (the rest estimated).
+    - **Examples:** Ukraine's battlefield open-source intelligence; Israel's 7 October analytic failure beside its superb 2024–25 targeting; the FSB's 2022 misreading of Ukraine; the BND chief stuck in Kyiv on invasion day.
+    - **Use:** analysis sets how fast an attack is recognised from analysis alone; military intelligence adds to the combat bonus; all of them count in the intelligence score.
+  - **Bases:** added Naval Station Guantanamo Bay. France's Abidjan base was handed to Côte d'Ivoire in February 2025, leaving about 80 trainers. The US, French, Russian, Chinese, Turkish, British, Indian and Gulf positions abroad were checked against 2025 withdrawals and new bases.
+  - **New assessed order:** US, China, India, Russia, South Korea, Israel, Turkey, Ukraine, North Korea, Pakistan, Japan, France.
 - **How strong militaries really are** (`js/assessment.js`, `js/model.js`). The strength index the AI, alliances and rankings use is now an assessment, not a paper count.
   - **Assessed combat strength:** every unit counted by its real models and the share mission-capable. Troops count only by the share present for duty (`MANNING`: ghost soldiers, desertion, unfilled posts, soldiers diverted to construction or business). The whole force is scaled by its real training, experience, leadership and corruption, plus drones, cyber, intelligence, and the missiles that actually work.
   - **Manning examples:**

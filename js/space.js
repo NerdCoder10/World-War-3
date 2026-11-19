@@ -132,6 +132,49 @@ Object.assign(window.INTEL_AGENCIES, {
 // Counter-intelligence by the analysis (0–10), where the formula above misses: police states that
 // watch everyone score higher than their wealth suggests; services that have been deeply
 // penetrated score lower than their reputation.
+// Further dimensions of intelligence (0–10), from the record: internet / open-source intelligence
+// (OSINT, social media, commercial data), the quality of analysis (whether a service reads the
+// evidence right: it sets how fast an attack is recognised from analysis alone), and military
+// intelligence (battlefield reconnaissance and targeting; it adds to the combat bonus).
+// [osint, analysis, military intelligence, record]. Not listed: estimated.
+window.INTEL_EXTRA = {
+  USA: [10, 8, 10, "The world's largest open-source and data-analytics effort (NGA, commercial imagery, Palantir); called Russia's 2022 invasion weeks ahead, though it missed 9/11, got Iraq's weapons wrong and misjudged Kabul's fall in 2021; unmatched battlefield intelligence from drones, satellites and special-operations targeting"],
+  ISR: [9, 7, 10, "Unit 8200's data mining and Unit 9900's imagery; its analysis failed catastrophically before 7 October 2023 (the 'concept' that Hamas was deterred), yet its targeting of Hezbollah and Iran in 2024–25 was superb"],
+  GBR: [9, 8.5, 8, "GCHQ and a strong open-source culture; the Joint Intelligence Committee's assessments are generally sound"],
+  RUS: [7, 4, 7, "Strong cyber and disinformation, but its analysis failed badly in 2022: the FSB told the Kremlin Ukrainians would welcome Russian troops"],
+  CHN: [9, 6, 7, "Mass data collection and internet surveillance; analysis bent by political pressure"],
+  UKR: [9, 8, 9, "World-leading battlefield open-source and drone reconnaissance (the Delta system); read Russian intentions well"],
+  FRA: [7, 7, 7, "Its military intelligence chief was fired in 2022 for failing to foresee Russia's invasion"],
+  DEU: [7, 5, 5, "The BND did not believe the 2022 warnings: its chief was stuck in Kyiv when the invasion began"],
+  IRN: [6, 4, 5, "Watches its own people online closely, yet failed to see Israel's 2024–25 operations coming"],
+  PRK: [5, 4, 4, "Closed and ideological"],
+  IND: [7, 6, 6, "A strong tech base; missed the planning of the 2025 Pahalgam attack"],
+  PAK: [5, 6, 6, ""],
+  TUR: [6, 6, 7, "MIT's drone-based targeting"],
+  KOR: [8, 6, 7, ""],
+  JPN: [7, 6, 6, ""],
+  TWN: [7, 6, 6, ""],
+  NLD: [8, 8, 6, "The AIVD's penetration of Cozy Bear"],
+  EST: [8, 8, 6, "Punches far above its weight on Russia"],
+  AUS: [8, 8, 7, ""],
+  CAN: [7, 7, 6, ""],
+  NZL: [6, 7, 5, ""],
+  SAU: [6, 4, 5, ""],
+  ARE: [8, 6, 6, "Heavy investment in AI surveillance"],
+  EGY: [5, 4, 5, ""],
+  SGP: [8, 8, 7, ""],
+  POL: [7, 7, 6, ""],
+  FIN: [7, 8, 6, ""],
+  SWE: [7, 7, 6, ""],
+  NOR: [7, 7, 6, ""],
+  AZE: [5, 6, 6, ""],
+  ITA: [6, 6, 6, ""],
+  ESP: [6, 6, 5, ""],
+  VNM: [5, 5, 4, ""],
+  CUB: [4, 6, 3, ""],
+  QAT: [5, 5, 4, ""],
+  JOR: [5, 7, 5, ""],
+};
 window.COUNTER_INTEL = {
   PRK: [9, "Every citizen watched; almost no foreign agent has ever operated there for long"], CUB: [8.5, "The DI turned nearly every CIA agent in Cuba in the 1980s and paraded them on television"],
   CHN: [8.5, "The MSS dismantled the CIA's China network in 2010–12 and runs mass surveillance"], RUS: [8, "The FSB is strong at home, though Ukraine's services still strike deep inside Russia"],
@@ -168,9 +211,14 @@ window.COUNTER_INTEL = {
       shared: fiveEyes ? 2 : nato ? 1 : 0,
     };
     // Overall score: what this country can know about others (allies share some of their picture).
+    const ex = window.INTEL_EXTRA[c.iso3];
+    intel.osint = ex ? ex[0] : cl(1 + 1.4 * lg + 0.2 * intel.cyber);
+    intel.analysis = ex ? ex[1] : cl(2 + 0.4 * s.intel + 0.4 * lg - (c.milStats ? 0.15 * c.milStats.corruption : 0.75));
+    intel.milint = ex ? ex[2] : cl(0.5 + 0.8 * ((c.tech && c.tech.gen) || 2) + 0.3 * s.intel);
+    intel.extraNote = ex ? ex[3] : "";
     const ov = window.COUNTER_INTEL[c.iso3];
     if (ov) { intel.counter = ov[0]; intel.counterNote = ov[1]; }
-    intel.score = cl((intel.humint + intel.sigint + intel.imint + intel.cyber) / 4 + intel.shared * 0.6);
+    intel.score = cl((intel.humint + intel.sigint + intel.imint + intel.cyber + intel.osint + intel.analysis) / 6 + intel.shared * 0.6);
     intel.agencies = window.INTEL_AGENCIES[c.iso3] || (intel.score >= 4 ? "National intelligence and military intelligence services" : "A small security service; relies on partners for foreign intelligence");
     intel.alliance = fiveEyes ? "Five Eyes" : nato ? "NATO intelligence sharing" : "";
     c.intelProfile = intel;
@@ -179,7 +227,7 @@ window.COUNTER_INTEL = {
   // assessment, early warning, sabotage behind the lines and cyber attacks on command networks.
   // Each point of intelligence score above 5 adds 3% (a 9.5/10 service like the CIA/NSA or
   // Mossad/Unit 8200 about +13%), each point below takes 3% off, within −12% and +15%.
-  window.intelMult = c => Math.max(0.88, Math.min(1.15, 1 + 0.03 * (c.intelProfile.score - 5)));
+  window.intelMult = c => Math.max(0.86, Math.min(1.18, 1 + 0.02 * (c.intelProfile.score - 5) + 0.015 * ((c.intelProfile.milint || 5) - 5)));
   // Space multiplier for combat: reconnaissance, communications and navigation, plus private
   // constellations in full once the country is at war (otherwise 30%).
   window.spaceMult = (c, atWar) => {

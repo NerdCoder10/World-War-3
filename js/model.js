@@ -84,6 +84,8 @@
     });
     const dr = window.droneTech(c.iso3).level, cy = window.cyber(c).off;
     p *= c.milStats.skill * (1 + 0.025 * dr) * (1 + 0.04 * cy / 10) * (1 + 0.05 * (c.secret.intel || 0) / 10);
+    // Paramilitaries add what they would bring to a defence, as far as they are loyal.
+    if (!share) p += window.paramilitaries(c).reduce((a, x) => a + x[1] * 10 * window.paraQuality(x) * x[4], 0) * window.manning(c) * c.milStats.skill;
     return p + (c.missiles.bm * 2.5 + c.missiles.cm * 1.5) * window.missileReliability(c) * 0.3;
   };
   // Paper strength on the same scale: every unit as officially counted, at its models' face value,

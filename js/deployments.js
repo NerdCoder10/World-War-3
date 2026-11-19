@@ -313,6 +313,7 @@ window.DEPLOYMENTS = {
     ["Kwajalein (Reagan Test Site)", 167.738, 8.725, 0.1, 0, 0, "Missile test range.", "MHL"],
     ["Guantánamo Bay", -75.159, 19.919, 1, 0, 1, "Naval station.", "CUB"],
     ["Soto Cano", -87.614, 14.381, 1.2, 1, 0, "Joint Task Force-Bravo.", "HND"],
+    ["Naval Station Guantanamo Bay", -75.135, 19.905, 0.3, 0.3, 1, "The oldest US overseas base (1903), on land Cuba says is occupied: a naval station, Marine security force and the detention camp.", "CUB"],
     ["Curaçao & Aruba", -68.96, 12.19, 0.05, 0, 0, "Forward operating locations for counter-drug flights.", "NLD"],
     ["Ascension Island", -14.39, -7.97, 0.05, 0, 0, "Airfield and tracking station.", "GBR"],
   ],

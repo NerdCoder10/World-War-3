@@ -528,6 +528,13 @@
   // Ports you built cost 0.2% of their price a day to keep up; unpaid, the costliest falls into disrepair.
   const PORT_COST = { harbour: 150, station: 500, base: 2000, major: 8000 };
   const portUpkeep = () => Object.entries(G.state.ports || {}).reduce((a, [, cls]) => a + (PORT_COST[cls] || 0) * 0.002, 0);
+  // Economic upkeep of war (js/upkeep.js ECON_FISCAL): past what its finances can pay for, war
+  // production falls and readiness sags, up to 35%.
+  const warPayDays = iso => 60 + 45 * window.fiscal(BY[iso]).cap;
+  const econStrain = iso => { const d = warDaysOf(iso), cap = warPayDays(iso); return d > cap ? Math.min(0.35, 0.35 * (d - cap) / cap) : 0; };
+  // Paramilitaries (js/paramilitary.js) defend their own country as far as they are loyal, worn like
+  // the regular troops: the share present for duty, dilution in a long war and the economy's strain.
+  const paraPower = iso => (BY[iso] && G.state.owner[iso] === iso ? window.paramilitaries(BY[iso]).reduce((a, p) => a + p[1] * 10 * window.paraQuality(p) * p[4], 0) * window.manning(BY[iso]) * troopDilution(iso) * (1 - 0.3 * econStrain(iso)) : 0);
   function upkeepDay() {
     const s = G.state, am = (s.ammo = s.ammo || {}), sl = (s.satLoss = s.satLoss || {});
     C.forEach(c => {
@@ -662,7 +669,7 @@
     if (!air) ways.push(["civilians reporting troops at the border", Math.max(0, travelH - (sea ? 2 : 8) * conn * (0.5 + eyes)) + (1 - conn) * 6]);
     const bd = window.border(c);
     if (!air) ways.push([sea ? "its coast guard and coastal watch" : "its border guards and frontier surveillance", Math.max(0, travelH - 14 * ((sea ? bd.sea : bd.land) / 10)) + (10 - (sea ? bd.sea : bd.land)) * 0.6]);
-    ways.push(["intelligence analysis", 60 * (1.6 - 0.1 * (ipT.score || 0)) * conceal * share]);
+    ways.push(["intelligence analysis", 60 * (1.6 - 0.1 * (ipT.analysis || ipT.score || 0)) * conceal * share]);
     const best = ways.reduce((a, b) => (b[1] < a[1] ? b : a));
     const h = Math.max(0.1, Math.min(travelH, best[1]));
     return { h, by: h >= travelH ? null : best[0], ways, shared };
@@ -712,10 +719,12 @@
   // counter-battery fire).
   function battleMods(aUnits, aNat, dUnits, dNat, T) {
     const A = armShares(aUnits, aNat), D = armShares(dUnits, dNat), pa = airProfile(aNat), pd = airProfile(dNat);
-    const edge = A.airA2A + D.airA2A > 0 ? A.airA2A / (A.airA2A + D.airA2A * 1.2) : 0.5;
+    // Air-to-air missiles sharpen each side's air contest (×0.7–1.27 by their combat record).
+    const a2aA = A.airA2A * (0.7 + 0.06 * mtype(aNat, "aam")), a2aD = D.airA2A * (0.7 + 0.06 * mtype(dNat, "aam"));
+    const edge = a2aA + a2aD > 0 ? a2aA / (a2aA + a2aD * 1.2) : 0.5;
     const aa = effectiveAD(T), aaAtt = effectiveAD(aNat) * 0.4;
     const airA = (0.6 + 0.8 * edge) * (1 - 0.04 * aa), airD = (0.6 + 0.8 * (1 - edge)) * (1 - 0.04 * aaAtt);
-    const cas = 1 + A.air * pa.cas * edge * D.ground * 0.3;
+    const cas = 1 + A.air * pa.cas * edge * D.ground * 0.3 * (0.7 + 0.06 * mtype(aNat, "agm"));
     const ra = artyProfile(aNat), rd = artyProfile(dNat), sa = ra.range * (1 + ra.precision), sd = rd.range * (1 + rd.precision);
     const aEdge = sa + sd > 0 ? sa / (sa + sd) : 0.5;
     // Special forces (js/specialforces.js): reconnaissance, raids behind the lines, target
@@ -771,7 +780,7 @@
   // Cyber hits (js/cyber.js): a blacked-out grid or hacked command and air-defence networks.
   const cyHit = (iso, k) => (((G.state.cyberHit || {})[iso] || {})[k] || -1) >= G.state.turn;
   const cyberDefMult = iso => (cyHit(iso, "grid") ? 0.95 : 1) * (cyHit(iso, "c2") ? 0.93 : 1);
-  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) * interceptMult(iso) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
+  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) * interceptMult(iso) * (0.8 + 0.04 * mtype(iso, "sam")) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
   // ── Missile upkeep ──
   // Reliability (js/missiles.js): only that share of missiles fired works. Interceptors: an air
   // defence has ~30 per battery; each missile it stops costs 1.5 (shoot-look-shoot), and below 30%
@@ -805,7 +814,7 @@
         const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = (fm == null ? 1 : 0.3 + 0.7 * fm) * (docF(iso).missile || 1);
         const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04 * rate)));
         const work = n * missileRel(iso);
-        st[k2] -= n; fired += n; hits += work * leak; power += work * leak * (k2 === "bm" ? 2.5 : 1.5);
+        st[k2] -= n; fired += n; hits += work * leak; power += work * leak * (k2 === "bm" ? 2.5 * (0.6 + 0.08 * mtype(iso, "gbm")) : 1.5 * (0.6 + 0.08 * mtype(iso, "agm")));
         useInterceptors(targetIso, work * (1 - leak));
       });
     });
@@ -860,7 +869,18 @@
     return { share: tot ? cut / tot : 0, by };
   }
   let partsCache = { st: null, turn: -1, v: {} };
+  // Missile quality by type (js/missiletypes.js), each scaled by maintenance: 0.85 + 0.15 × capacity.
+  const mtype = (iso, k) => window.missileTypes(BY[iso])[k] * (0.85 + 0.15 * maintCap(iso));
+  // Anti-ship missiles arm warships and submarines (×0.85–1.15); anti-tank missiles arm infantry and
+  // armoured vehicles (×0.9–1.1).
+  const mtKind = (iso, key) => (key === "ships" || key === "subs" ? 0.85 + 0.03 * mtype(iso, "asm") : key === "troops" || key === "afv" ? 0.9 + 0.02 * mtype(iso, "atgm") : 1);
   function partsFactor(iso, key) {
+    return partsFactorBase(iso, key) * mtKind(iso, key);
+  }
+  function partsFactorBase(iso, key) {
+    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso));
+  }
+  function partsFactorCore(iso, key) {
     if (key === "troops") return troopDilution(iso) * window.manning(BY[iso]);
     const d = warDaysOf(iso), am = key === "arty" ? ammoMult(iso) : 1;
     if (!d) return am;
@@ -888,7 +908,7 @@
     const sk = window.maintSkill(iso);
     return UNITS.filter(u => u.key !== "troops" && (forces(iso)[u.key] || 0) >= 1).map(u => {
       const c = partsCut(iso, u.key);
-      return { key: u.key, label: u.label, share: c.share, by: c.by, now: partsFactor(iso, u.key), floor: (1 - c.share * (1 - sk)) * (1 - 0.4 * (WEAR[u.key] || 0) * (1 - maintCap(iso))), wear: wearFactor(iso, u.key) };
+      return { key: u.key, label: u.label, share: c.share, by: c.by, now: partsFactorBase(iso, u.key), floor: (1 - c.share * (1 - sk)) * (1 - 0.4 * (WEAR[u.key] || 0) * (1 - maintCap(iso))), wear: wearFactor(iso, u.key) };
     });
   }
   // Military profile (js/techlevels.js): skill for every unit, patriotism when defending,
@@ -1396,7 +1416,7 @@
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
     const home = owns(a.to) || a.to === a.nat;
-    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) * docDefend(a.units, a.nat) : docAttack(a.units, a.nat) * powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : (1 + droneEdge(a.nat, a.to, G.state.owner[a.to])) * (1 + spyEdge(a.nat, G.state.owner[a.to])));
+    return (home ? rawPower(a.units, a.nat, a.models) * weatherMix(a.units, a.nat, a.to, a.models) * docDefend(a.units, a.nat) : docAttack(a.units, a.nat) * ms(a.nat).attackFer * (a.nat === "USA" && (a.sea || a.mode === "sea") ? 1.05 : 1) * powerIn(a.units, a.nat, a.models, a.to) * supply(a.nat, a.to, distKm(a.from, a.to), a.sea) * (a.sea || a.mode === "sea" ? subScreen(a.to, forces(a.to).subs, a.units, a.nat) : 1)) * (1 + bonus("atk")) * ms(a.nat).skill * isr(a.nat) * (owns(a.to) || a.to === a.nat ? 1 : (1 + droneEdge(a.nat, a.to, G.state.owner[a.to])) * (1 + spyEdge(a.nat, G.state.owner[a.to])));
   };
   // Fortified borders (js/borders.js): an army invading overland across a border of level L fights
   // at 1 / (1 + 0.03 × (L − 2)) of its strength. Forces arriving by sea or air don't cross it.
@@ -1423,7 +1443,7 @@
     const c = BY[iso];
     const allies = alliedSupport(iso, attacker === undefined ? G.state.player : attacker);
     const allyMult = Math.min(2, allies.strength / Math.max(5, c.truePower));
-    const base = rawPower(forces(iso), iso) * weatherMix(forces(iso), iso, iso) * docDefend(forces(iso), iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * cyberDefMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
+    const base = (rawPower(forces(iso), iso) + paraPower(iso)) * weatherMix(forces(iso), iso, iso) * docDefend(forces(iso), iso) * (1 + droneEdge(iso, iso, attacker === undefined ? G.state.player : attacker)) * (1 + spyEdge(iso, spySide((attacker === undefined ? G.state.player : attacker) || iso))) * (sabotaged(iso) ? 0.9 : 1) * cyberDefMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) + 20;
     return { base, allies, allyMult, total: base * (1 + allyMult) };
   }
 
@@ -2130,14 +2150,14 @@
       if (o === s.player || !BY[o]) return;
       const isos = groupOf(o).filter(i => !inRevolt(i)), e = econOf(o), m = mob[o] * fuelProd(o);
       if (!isos.length) return;
-      addOutput(isos, e.perDay, m, 1 + fx(o, "rec"), enemyDeployed);
+      addOutput(isos, e.perDay, m * (1 - econStrain(o)), 1 + fx(o, "rec"), enemyDeployed);
       stockMissiles(isos, e.perDay.missiles * m);
     });
     // Your empire, as one war economy; the Arms production track speeds it up.
     if (s.player && !s.over) {
       const isos = empire().map(c => c.iso3).filter(i => !inRevolt(i)), e = empireEcon();
       const m = Math.max(...isos.map(i => mob[i])) * fuelProd(s.player), boost = (1 + TFULL.production * techShare(s.player, "production")) * (1 + fx(s.player, "rec"));
-      addOutput(isos, e.perDay, m, k => boost * (1 + surge(s.player, k)), deployedFrom); // surge levels (91–100) speed up each kind
+      addOutput(isos, e.perDay, m * (1 - econStrain(s.player)), k => boost * (1 + surge(s.player, k)), deployedFrom); // surge levels (91–100) speed up each kind
       stockMissiles(isos, e.perDay.missiles * m * boost);
     }
   }
@@ -2161,7 +2181,7 @@
   const HOSTILE_TURNS = 12;
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
-  const enemyPower = e => docAttack(e.units, e.nat) * (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * (1 + spyEdge(e.nat, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
+  const enemyPower = e => docAttack(e.units, e.nat) * ms(e.nat).attackFer * (e.nat === "USA" && e.sea ? 1.05 : 1) * (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * (1 + spyEdge(e.nat, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
     (e.sea ? subScreen(e.to, owns(e.to) ? homeShare(e.to).subs : forces(e.to).subs, e.units, e.nat) : 1) /
     (e.sea ? 1 : borderMult(e.to, crossing(e.to, e.from || e.nat, n => n === e.nat || G.state.owner[n] === e.nat)));
   const enemiesAt = iso => G.state.enemies.filter(e => e.to === iso && arrived(e));
@@ -2174,7 +2194,7 @@
   // Your treaty partners (if this nation was in a bloc) join in by their loyalty, as for any member.
   function homeDefence(iso, attacker) {
     const u = homeShare(iso), bloc = alliedSupport(iso, attacker || null);
-    return rawPower(u, iso) * weatherMix(u, iso, iso) * docDefend(u, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * cyberDefMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
+    return (rawPower(u, iso) + paraPower(iso)) * weatherMix(u, iso, iso) * docDefend(u, iso) * (1 + droneEdge(iso, iso, attacker)) * (1 + spyEdge(iso, attacker ? spySide(attacker) : iso)) * (sabotaged(iso) ? 0.9 : 1) * cyberDefMult(iso) * 1.25 * ms(iso).skill * ms(iso).defend * fortMult(iso) * terrainDef(iso) * isr(iso) * (1 + fx(iso, "def")) * (0.5 + 0.5 * G.state.garrison[iso]) *
       (1 + Math.min(2, bloc.strength / Math.max(5, BY[iso].truePower))) +
       armiesAt(iso).reduce((x, a) => x + armyPower(a), 0) + allyTotal(allyHelp(iso, false)) + 10;
   }
@@ -2681,6 +2701,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

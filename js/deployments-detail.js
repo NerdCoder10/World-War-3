@@ -1632,7 +1632,7 @@ window.DEPLOYMENTS_DETAIL = {
     ["Camp de Canjuers", 6.469, 43.646, 0.771, 0.0, 0.0, "Western Europe's largest training ground."],
     ["11th Parachute Brigade (Toulouse)", 1.44, 43.6, 1.542, 0.0, 0.0, "Airborne brigade."],
     ["27th Mountain Infantry Brigade (Varces)", 5.68, 45.09, 1.285, 0.0, 0.0, "Alpine troops."],
-    ["Abidjan (43rd BIMa)", -3.98, 5.3, 0.6, 0.0, 0.0, "French base in Côte d'Ivoire.", "CIV"],
+    ["Abidjan (former 43rd BIMa)", -3.98, 5.3, 0.05, 0.0, 0.0, "Handed to Côte d'Ivoire in February 2025 (now Camp Thomas d'Aquin Ouattara); about 80 French trainers remain.", "CIV"],
     ["3ème Régiment d'hélicoptères de combat", 5.678, 49.225, 0.129, 1.9, 0, "Military airfield. Mapped in OpenStreetMap."],
     ["Apron (MIL)", 166.214, -22.018, 0.129, 1.9, 0, "Military airfield (Aire de stationnement (MIL)). Mapped in OpenStreetMap."],
     ["Aérodrome Le Luc - Le Cannet", 6.385, 43.383, 0.129, 1.9, 0, "Military airfield. Mapped in OpenStreetMap."],
