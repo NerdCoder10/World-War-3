@@ -102,3 +102,33 @@ window.HIST_PERF = {
     const H = window.HIST_PERF[c.iso3]; if (H) m.skill *= H[0];
   });
 })();
+
+// ── Air and naval ferocity: how hard air forces and navies press attacks into danger ──
+// [0–10, the record]. Not listed: the country's overall ferocity.
+window.AIR_FEROCITY = {
+  USA: [9, "Strike packages that fly into the densest air defences (Wild Weasels, 'shock and awe' in 1991 and 2003); B-2s flew from Missouri to bomb Iran's Fordow in 2025"],
+  ISR: [10, "The world's most aggressive air force: destroyed Egypt's on the ground in 1967 (Operation Focus), Osirak in 1981, Syria's reactor in 2007, and flew over Tehran in 2024–25"],
+  UKR: [7, "Flies old jets at low level into dense Russian air defences"], RUS: [4, "Rarely ventures beyond its own lines in Ukraine, lobbing glide bombs from a distance"],
+  CHN: [5, "Aggressive intercepts of US and allied aircraft, untested in combat"], GBR: [7, "The Black Buck raids on the Falklands (1982)"],
+  FRA: [7, "Led the first strikes in Libya (2011) and Syria (2018)"], TUR: [7, "Drone and jet strikes across Syria and Iraq"],
+  IND: [7, "Balakot in 2019 and deep strikes into Pakistan in May 2025"], PAK: [7, "Hit back hard in 2019 and 2025"], IRN: [3, "Its air force stayed grounded against Israel"],
+  PRK: [4, "Old jets rarely flown"], SAU: [6, "Bombed Yemen relentlessly, mostly from high altitude"], ARE: [7, "Struck in Libya and Yemen"], EGY: [5, ""],
+  AUS: [7, ""], JPN: [4, "Constitutional restraint"], KOR: [6, ""], TWN: [5, ""], DEU: [4, ""], ITA: [5, ""], NLD: [6, ""], NOR: [6, ""], POL: [6, ""],
+  AZE: [7, "Its drones hunted Armenian armour in 2020"], SYR: [3, ""], IRQ: [4, ""], YEM: [6, "No real air force, but Houthi drones and missiles strike far into Saudi Arabia and Israel"],
+};
+window.NAVAL_FEROCITY = {
+  USA: [9, "Midway, Leyte Gulf; Operation Praying Mantis sank much of Iran's navy in a day (1988); fought off Houthi missiles and drones in 2024–25"],
+  GBR: [8, "The Falklands: sank the Belgrano and fought through Argentine air attacks"], ISR: [7, "Won the first missile-boat battle at Latakia (1973)"],
+  UKR: [9, "Drove the Black Sea Fleet out of the western Black Sea with drones and missiles"], RUS: [4, "The Black Sea Fleet hid in port after losing the Moskva and a third of its ships"],
+  CHN: [6, "Aggressive grey-zone pressure (water cannon, ramming), no combat since 1988"], FRA: [7, ""], IND: [7, "The 1971 missile-boat raids on Karachi"], PAK: [6, ""],
+  IRN: [7, "IRGC swarm boats harass shipping in Hormuz and seize tankers"], JPN: [5, ""], KOR: [6, ""], TWN: [5, ""], TUR: [7, ""], PRK: [5, ""], AUS: [6, ""],
+  ITA: [5, ""], DEU: [4, ""], ESP: [5, ""], NLD: [5, ""], NOR: [6, ""], EGY: [5, ""], SAU: [4, ""], ARE: [5, ""],
+  YEM: [9, "The Houthis attacked shipping and US warships for two years"], VNM: [7, "Fought at Johnson South Reef (1988) despite heavy losses"],
+};
+(function () {
+  (window.COUNTRIES || []).forEach(c => {
+    const m = c.milStats; if (!m) return;
+    const a = window.AIR_FEROCITY[c.iso3], n = window.NAVAL_FEROCITY[c.iso3];
+    m.airFer = a ? a[0] : m.ferocity; m.navFer = n ? n[0] : m.ferocity;
+  });
+})();
