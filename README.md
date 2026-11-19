@@ -646,6 +646,26 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Technology by domain** (`js/techdomains.js`). How advanced each country really is in seven domains (0–10), from what it designs, builds and fields: aerospace, naval, land systems, electronics and chips, AI and autonomy, space, and hypersonics. About 40 countries are researched, the rest estimated.
+  - **Index top:** US 9.4, China 8.7, Israel and South Korea 7.3, France and Japan 7.1, Britain 6.6, Russia 6.4.
+  - **China** leads in fielded hypersonics, shipbuilding capacity and drones; **Russia** is strong in missiles but cut off from Western chips; **Taiwan** makes ~90% of the world's most advanced chips.
+  - **Effects:**
+    - aircraft, warships and land forces ×(0.94 + 0.012 × domain);
+    - electronics sharpens air defence ×(0.9 + 0.02 × electronics);
+    - AI and autonomy multiply drone warfare ×(0.8 + 0.04 × AI);
+    - each hypersonics point cuts the defender's air defence by 0.15 against that country's ballistic missiles.
+- **War AIs** (`js/warai.js`). Every country fights by its own personality, built from its doctrine, record and leadership. About 40 are researched; the rest are estimated from ferocity, patriotism and intelligence.
+  - **Traits:** aggression, how much of its army it commits, patience between strikes, missile use, when it retreats, reliance on hybrid war, and grit.
+  - **Examples:**
+    - **US "Shock and awe":** slow to start wars with peers, overwhelming retaliation, casualty-sensitive.
+    - **Russia "Grind and terrorise":** commits ×1.3, missiles ×1.6, retreats only below 8% odds, hybrid war often.
+    - **China "Systems destruction":** patient, opens with missiles ×1.8.
+    - **Israel "Pre-emption and decapitation".**
+    - **Iran "Axis of resistance":** proxies, commits ×0.6, hybrid war constantly.
+    - **North Korea "All or nothing"** (never retreats); **India "Calibrated punishment"**; **Taiwan "Porcupine"**; **Japan "Exclusively defensive".**
+  - **What the traits change:** when AI countries strike back and how often, how fast rivalries boil over, how much they send, how many missiles they fire, how often they run cyber, sabotage and covert-team attacks, and whether they pull a losing invasion back.
+  - **Grit** raises the will to fight on. Grit 0.9+ means never surrendering (Russia, North Korea, Yemen's Houthis, Finland, Eritrea).
+  - **Dossier:** each shows its technology and war AI.
 - **Deeper analysis of real strength.**
   - **Missiles by type** (`js/missiletypes.js`): air-to-air, surface-to-air, ground-launched ballistic, air-to-ground, anti-ship and anti-tank, each rated 0–10 by combat record rather than brochures, for about 40 countries with their systems (the rest estimated). Each is scaled by maintenance (0.85 + 0.15 × capacity). Examples:
     - Patriot downed Russia's "unstoppable" Kinzhal in 2023.
