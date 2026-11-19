@@ -603,7 +603,7 @@
     const c = BY[iso], rows = [];
     // Combat jets are the fighter/attack fleet; from other aircraft only bombers and dedicated attack
     // jets count (trainers, transports, tankers and drones are left out).
-    ["fighters", "aircraft"].forEach(key => window.splitModels(c, key, Math.round(c[key] || 0)).forEach(([m, n]) => {
+    ["fighters", "aircraft"].forEach(key => window.splitModels(c, key, Math.round(baseForces(c)[key] || 0)).forEach(([m, n]) => {
       const sp = window.airSpec(m);
       if (!sp || n <= 0 || (key === "aircraft" && !(sp.role === "BM" || sp.role === "CAS" || sp.role === "ST")) || (key === "aircraft" && /trainer|transport|tanker|drone|ISR/i.test(m))) return;
       rows.push({ key, model: m, n, ...sp });
@@ -718,7 +718,7 @@
 
   // ── Units, armies and power ─────────────────────────────────
   const baseForces = c => ({
-    troops: c.active, tanks: c.tanks, afv: c.afv, arty: c.arty, aircraft: Math.max(0, c.aircraft - c.fighters),
+    troops: c.active, tanks: c.tanks, afv: c.afv, arty: c.arty, aircraft: Math.max(0, c.aircraft - c.fighters - c.helis),
     fighters: c.fighters, helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers,
   });
   const forces = iso => (G.state.forces[iso] = G.state.forces[iso] || baseForces(BY[iso]));

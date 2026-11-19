@@ -8,7 +8,7 @@
 // Combat quality = (0.35 + 0.13 × gen) × (0.4 + 0.6 × ready). Countries not listed get a
 // generation and readiness estimated from GDP per capita.
 window.TECH_PROFILE = {
-  USA: [5.0, 0.9], CHN: [4.3, 0.78], RUS: [4.2, 0.55], IND: [3.7, 0.62], GBR: [4.7, 0.8], FRA: [4.6, 0.82],
+  USA: [5.0, 0.8], CHN: [4.3, 0.78], RUS: [4.2, 0.55], IND: [3.7, 0.62], GBR: [4.7, 0.8], FRA: [4.6, 0.82],
   DEU: [4.4, 0.62], JPN: [4.6, 0.88], KOR: [4.6, 0.9], ISR: [4.8, 0.92], TUR: [4.0, 0.8], PAK: [3.3, 0.7],
   IRN: [2.8, 0.55], PRK: [2.0, 0.4], EGY: [3.5, 0.62], SAU: [4.3, 0.6], ARE: [4.4, 0.8], QAT: [4.4, 0.7],
   ITA: [4.3, 0.75], ESP: [4.2, 0.75], POL: [4.3, 0.8], UKR: [3.9, 0.75], TWN: [4.2, 0.72], SGP: [4.6, 0.92],

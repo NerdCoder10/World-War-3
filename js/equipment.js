@@ -7,16 +7,34 @@
 // rest use a template that matches where they buy their weapons.
 window.EQUIPMENT = {
   USA: {
-    small: "M4A1 carbine, XM7 rifle, M249 / M250 machine guns, M240 MG, Javelin and AT4 anti-tank",
-    tanks: [["M1A2 SEPv3 Abrams", 0.4], ["M1A2 SEPv2 Abrams", 0.35], ["M1A1 Abrams", 0.25]],
-    afv: [["M2/M3 Bradley", 0.12], ["Stryker", 0.1], ["JLTV & MRAP", 0.6], ["AMPV", 0.05], ["AAV-7 / ACV", 0.13]],
-    arty: [["M109A7 Paladin", 0.35], ["M777 howitzer", 0.3], ["M142 HIMARS", 0.15], ["M270 MLRS", 0.1], ["M119 howitzer", 0.1]],
-    fighters: [["F-35A/B/C Lightning II", 0.25], ["F-16C/D Fighting Falcon", 0.3], ["F/A-18E/F Super Hornet", 0.18], ["F-15C/E/EX Eagle", 0.13], ["F-22A Raptor", 0.06], ["A-10C Thunderbolt II", 0.08]],
-    aircraft: [["KC-135 / KC-46 tankers", 0.12], ["C-130J Hercules", 0.12], ["C-17A Globemaster III", 0.06], ["B-52H Stratofortress", 0.0058], ["B-1B Lancer", 0.0035], ["B-2A Spirit", 0.0015], ["MQ-9 Reaper & drones", 0.08], ["P-8A Poseidon", 0.03], ["E-3 Sentry AEW", 0.012], ["E-2D Hawkeye", 0.018], ["RC-135 / U-2 & ISR", 0.02], ["T-38 / T-6 trainers", 0.529]],
-    helis: [["UH-60 Black Hawk", 0.4], ["AH-64E Apache", 0.15], ["CH-47F Chinook", 0.1], ["MH-60R/S Seahawk", 0.12], ["AH-1Z / UH-1Y", 0.08], ["CH-53E/K", 0.05], ["Other", 0.1]],
-    ships: [["Arleigh Burke-class destroyers", 0.17], ["Ticonderoga-class cruisers", 0.03], ["Wasp / America-class assault ships", 0.02], ["San Antonio-class LPDs", 0.03], ["Littoral combat ships", 0.06], ["Coast Guard & patrol", 0.5], ["Support & auxiliary", 0.19]],
-    subs: [["Virginia-class SSN", 0.33], ["Los Angeles-class SSN", 0.37], ["Ohio-class SSBN/SSGN", 0.25], ["Seawolf-class SSN", 0.05]],
-    carriers: [["Nimitz-class carrier", 0.9], ["Gerald R. Ford-class carrier", 0.1]],
+    // Analysis-based (IISS Military Balance 2025, Air & Space Forces Magazine almanac, Navy and
+    // Marine Corps aviation plans, CRS, GAO), not just official headline figures: stored kit is
+    // counted and marked, retiring fleets at their real size.
+    small: "M4A1 carbine and the new XM7 rifle (fielding since 2024), M249 / M250 machine guns, M240 MG, Javelin, Carl Gustaf and AT4 anti-tank, Stinger",
+    // ~2,640 active (≈750 SEPv3, ≈1,600 SEPv2, plus Guard M1A1 SA); ~1,550 more in storage at Sierra Army Depot.
+    tanks: [["M1A2 SEPv3 Abrams", 0.16], ["M1A2 SEPv2 Abrams", 0.35], ["M1A1 SA Abrams (National Guard)", 0.16], ["M1A1 Abrams in storage (Sierra Army Depot)", 0.33]],
+    // ~22,000 JLTVs delivered by 2025 and ~9,000 MRAPs kept; Bradleys and Strykers; old M113s in storage being replaced by AMPV.
+    afv: [["M2/M3 Bradley", 0.1], ["Stryker", 0.096], ["AMPV", 0.022], ["M113 in storage (being replaced)", 0.066], ["LAV-25", 0.011], ["AAV-7 / ACV", 0.024], ["JLTV", 0.484], ["MRAP (M-ATV, MaxxPro)", 0.197]],
+    // 671 self-propelled, 1,212 towed, 641 rocket launchers.
+    arty: [["M109A7 Paladin", 0.16], ["M109A6 Paladin", 0.11], ["M777 howitzer", 0.3], ["M119 howitzer", 0.18], ["M142 HIMARS", 0.175], ["M270A2 MLRS", 0.075]],
+    // ~2,930: F-35 ~690 (USAF ~410, Navy ~110, Marines ~170), F-16 ~830, Super Hornet ~540, legacy Hornet ~90 (Marines),
+    // F-15C/D/E/EX ~310, F-22 183, A-10 ~210 (retiring), AV-8B ~80 (retiring).
+    fighters: [["F-35A/B/C Lightning II", 0.2355], ["F-16C/D Fighting Falcon", 0.2833], ["F/A-18E/F Super Hornet", 0.1843], ["F/A-18C/D Hornet (Marines, retiring)", 0.0307], ["F-15C/E/EX Eagle", 0.1058], ["F-22A Raptor", 0.0625], ["A-10C Thunderbolt II", 0.0717], ["AV-8B Harrier II (retiring)", 0.0273]],
+    // ~4,980 non-fighter aircraft and tiltrotors.
+    aircraft: [["KC-135 / KC-46 / KC-130J tankers", 0.1032], ["C-17A Globemaster III", 0.0446], ["C-5M Super Galaxy", 0.0104], ["C-130H/J Hercules", 0.0843], ["C-12 / C-40 / UC-35 utility and VIP transports", 0.0964],
+      ["B-52H Stratofortress", 0.01526], ["B-1B Lancer", 0.00904], ["B-2A Spirit", 0.00382], ["AC-130J / MC-130J special operations", 0.0175], ["MV-22B / CV-22B / CMV-22B Osprey", 0.0904],
+      ["EA-18G Growler", 0.0321], ["P-8A Poseidon", 0.0257], ["E-2D Hawkeye", 0.0171], ["E-3G Sentry AEW (retiring)", 0.0032], ["RC-135 / U-2 / E-6B & ISR", 0.0241],
+      ["MQ-9 Reaper / MQ-1C Gray Eagle drones", 0.0944], ["T-6 / T-38 / T-45 trainers", 0.32068]],
+    // ~5,840 helicopters.
+    helis: [["UH-60 / HH-60 Black Hawk", 0.394], ["AH-64E Apache", 0.137], ["CH-47F Chinook", 0.077], ["MH-60R/S Seahawk", 0.082], ["AH-1Z / UH-1Y", 0.055], ["CH-53E/K", 0.024], ["UH-72 Lakota", 0.077],
+      ["MH-65 / MH-60T (Coast Guard)", 0.024], ["MH-6 / MH-47G / MH-60M (160th SOAR)", 0.034], ["TH-73 / TH-57 trainers", 0.043], ["Other", 0.053]],
+    // 440: Navy battle force surface ships (~210) plus Coast Guard cutters (~230).
+    ships: [["Arleigh Burke-class destroyers", 0.168], ["Ticonderoga-class cruisers (retiring)", 0.016], ["Zumwalt-class destroyers", 0.0068], ["Wasp / America-class assault ships", 0.0205], ["San Antonio-class LPDs", 0.0295],
+      ["Whidbey Island / Harpers Ferry LSDs", 0.016], ["Littoral combat ships", 0.057], ["Avenger mine countermeasures", 0.009], ["Coast Guard national security & medium endurance cutters", 0.0795],
+      ["Coast Guard fast response cutters & patrol boats", 0.307], ["Support & auxiliary (combat logistics, sealift, tenders)", 0.2907]],
+    // 69: 24 Virginia, 24 Los Angeles, 3 Seawolf, 14 Ohio SSBN + 4 Ohio SSGN. About a third of attack subs are in or waiting for maintenance.
+    subs: [["Virginia-class SSN", 0.348], ["Los Angeles-class SSN", 0.348], ["Ohio-class SSBN/SSGN", 0.261], ["Seawolf-class SSN", 0.043]],
+    carriers: [["Nimitz-class carrier", 0.909], ["Gerald R. Ford-class carrier", 0.091]],
   },
   RUS: {
     small: "AK-74M and AK-12 rifles, PKM / Pecheneg machine guns, RPG-7, Kornet anti-tank missiles",
@@ -24,7 +42,7 @@ window.EQUIPMENT = {
     afv: [["BMP-2 / BMP-3", 0.35], ["BTR-80 / BTR-82A", 0.3], ["MT-LB", 0.2], ["BMD-2/4 airborne", 0.1], ["Tigr & Typhoon MRAP", 0.05]],
     arty: [["2S19 Msta-S", 0.2], ["2S3 Akatsiya", 0.2], ["D-30 / 2A65 towed", 0.25], ["BM-21 Grad", 0.2], ["BM-27 / BM-30 Smerch", 0.1], ["Tornado-G/S", 0.05]],
     fighters: [["Su-34 strike fighter", 0.15], ["Su-35S", 0.12], ["Su-30SM/SM2", 0.12], ["MiG-31BM/K", 0.1], ["Su-25SM attack", 0.15], ["MiG-29SMT", 0.1], ["Su-27SM", 0.1], ["Su-24M", 0.12], ["Su-57 Felon", 0.04]],
-    aircraft: [["Il-76MD transports", 0.1], ["An-12 / An-26", 0.1], ["Tu-95MS Bear", 0.0134], ["Tu-22M3 Backfire", 0.0146], ["Tu-160 Blackjack", 0.0039], ["Yak-130 / L-39 trainers", 0.3181], ["Orlan-10 / Orion drones", 0.3], ["A-50 & ISR", 0.15]],
+    aircraft: [["Il-76MD transports", 0.0968], ["An-12 / An-26", 0.0968], ["Tu-95MS Bear", 0.0264], ["Tu-22M3 Backfire", 0.0287], ["Tu-160 Blackjack", 0.0077], ["Yak-130 / L-39 trainers", 0.3080], ["Orlan-10 / Orion drones", 0.2904], ["A-50 & ISR", 0.1452]],
     helis: [["Mi-8 / Mi-17", 0.45], ["Mi-24 / Mi-35", 0.15], ["Mi-28N", 0.12], ["Ka-52 Alligator", 0.12], ["Ka-27 / Ka-29", 0.1], ["Other", 0.06]],
     ships: [["Admiral Gorshkov / Grigorovich frigates", 0.04], ["Udaloy / Sovremenny destroyers", 0.04], ["Slava-class cruisers", 0.01], ["Steregushchiy / Buyan / Karakurt corvettes", 0.15], ["Landing ships", 0.06], ["Patrol & mine warfare", 0.5], ["Auxiliary", 0.2]],
     subs: [["Borei-class SSBN", 0.12], ["Yasen-class SSGN", 0.07], ["Delta IV SSBN", 0.08], ["Akula / Oscar II", 0.2], ["Kilo / Improved Kilo", 0.45], ["Lada", 0.08]],
@@ -36,7 +54,7 @@ window.EQUIPMENT = {
     afv: [["ZBD-04A IFV", 0.15], ["ZBL-08 wheeled IFV", 0.2], ["ZBD-05 amphibious", 0.05], ["ZSL-92 & Type 89", 0.3], ["Dongfeng Mengshi & MRAP", 0.3]],
     arty: [["PLZ-05 155mm SP", 0.15], ["PCL-181 truck howitzer", 0.15], ["PHL-16 / PHL-03 rockets", 0.15], ["PLZ-07 122mm SP", 0.2], ["Towed & older", 0.35]],
     fighters: [["J-10A/C", 0.25], ["J-16", 0.2], ["J-11B / Su-27", 0.15], ["J-20 Mighty Dragon", 0.15], ["J-15 carrier fighter", 0.05], ["JH-7A strike", 0.1], ["J-7 (retiring)", 0.1]],
-    aircraft: [["Y-20 / Y-9 / Y-8 transports", 0.1], ["H-6K/N bombers", 0.07], ["KJ-500 / KJ-2000 AEW", 0.03], ["JL-10 / JL-8 trainers", 0.52], ["Wing Loong / WZ-7 drones", 0.28]],
+    aircraft: [["Y-20 / Y-9 / Y-8 transports", 0.0782], ["H-6K/N bombers", 0.273], ["KJ-500 / KJ-2000 AEW", 0.0235], ["JL-10 / JL-8 trainers", 0.4064], ["Wing Loong / WZ-7 drones", 0.2189]],
     helis: [["Z-20", 0.15], ["Z-10 attack", 0.2], ["Z-8 / Z-18", 0.1], ["Mi-17", 0.25], ["Z-9 / Z-19", 0.3]],
     ships: [["Type 055 destroyers", 0.01], ["Type 052D destroyers", 0.04], ["Type 054A frigates", 0.05], ["Type 056A corvettes", 0.07], ["Type 075 / 071 amphibious", 0.02], ["Type 022 missile boats & patrol", 0.56], ["Auxiliary", 0.25]],
     subs: [["Type 094 Jin SSBN", 0.09], ["Type 093 Shang SSN", 0.09], ["Type 039A/B Yuan", 0.35], ["Type 039 Song", 0.17], ["Kilo", 0.17], ["Older", 0.13]],
@@ -164,7 +182,7 @@ window.EQUIPMENT = {
     afv: [["VTT-323", 0.3], ["BTR-60/152 & M-2010", 0.4], ["Older", 0.3]],
     arty: [["Koksan 170mm SP", 0.05], ["M-1978/1985 240mm rockets", 0.1], ["KN-25 600mm rockets", 0.02], ["Towed & SP 122–152mm", 0.83]],
     fighters: [["MiG-29", 0.07], ["MiG-23", 0.13], ["MiG-21 / J-7", 0.4], ["Su-25", 0.08], ["MiG-15/17/19 & J-5/6", 0.32]],
-    aircraft: [["An-2 infiltration planes", 0.6], ["Il-28 / H-5 bombers", 0.085], ["Il-76 & others", 0.315]],
+    aircraft: [["An-2 infiltration planes", 0.406], ["Il-28 / H-5 bombers", 0.381], ["Il-76 & others", 0.213]],
     helis: [["Mi-8 / Mi-17", 0.3], ["Hughes MD-500 (smuggled)", 0.3], ["Mi-2 & others", 0.4]],
     ships: [["Najin frigates", 0.01], ["Missile & torpedo boats", 0.5], ["Patrol craft", 0.3], ["Landing craft & hovercraft", 0.19]],
     subs: [["Romeo-class", 0.3], ["Sang-O coastal", 0.4], ["Yono midget", 0.25], ["Sinpo / Hero Kim Kun Ok", 0.05]],

@@ -116,7 +116,7 @@
   C.forEach((c, i) => {
     const q = quality(c);
     c.weapons = window.WEAPONS.map(w => {
-      const count = w.key === "aircraft" ? Math.max(0, c.aircraft - c.fighters) : c[w.key];
+      const count = w.key === "aircraft" ? Math.max(0, c.aircraft - c.fighters - c.helis) : c[w.key];
       const valueBn = (count * w.unit * q) / 1000;
       return { ...w, count: c[w.key], valueBn, cost: c[w.key] > 0 ? Math.max(window.MIN_UNLOCK, Math.round(valueBn * window.COINS_PER_BN)) : 0 };
     });

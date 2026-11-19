@@ -10,14 +10,21 @@
 // Countries not listed get a modelled estimate from their army's size and readiness.
 window.SPECIAL_FORCES = {
   USA: [
-    ["1st SFOD-D (Delta Force)", 1000, 10, 10, "Al-Baghdadi raid 2019, Saddam's capture 2003, decades of nightly raids in Iraq and Afghanistan"],
-    ["DEVGRU (SEAL Team Six)", 1500, 10, 10, "Bin Laden raid 2011, Captain Phillips rescue 2009"],
-    ["Navy SEALs", 2700, 9.5, 9.5, "Continuous combat since 2001"],
-    ["Army Special Forces (Green Berets)", 7000, 9, 9.5, "Toppled the Taliban in 2001 with a few hundred men; trained armies worldwide"],
-    ["75th Ranger Regiment", 3600, 9, 9.5, "Mogadishu 1993, Panama, thousands of raids since 2001"],
-    ["160th SOAR (Night Stalkers)", 3000, 10, 10, "The world's best special-operations aviation; flew the bin Laden raid"],
-    ["AFSOC Special Tactics", 1000, 9.5, 9, "Combat controllers and pararescue on every major operation"],
-    ["MARSOC Raiders", 900, 9, 8.5, "Afghanistan, Iraq, Syria"],
+    // Operators are the trained assaulters, aircrews and specialists, not the support staff around them
+    // (analysts' estimates: Naylor's "Relentless Strike", CRS, SOCOM posture statements).
+    ["1st SFOD-D (Delta Force)", 400, 10, 10, "~400 operators of ~1,800 personnel. Al-Baghdadi raid 2019, Saddam's capture 2003, Task Force 714's thousands of raids in Iraq"],
+    ["DEVGRU (SEAL Team Six)", 300, 10, 10, "~300 operators of ~1,800. Bin Laden raid 2011, Captain Phillips rescue 2009, hostage rescues in Somalia and Nigeria"],
+    ["Intelligence Support Activity", 300, 9.5, 9.5, "JSOC's human and signals intelligence unit; found targets for the hunts of Saddam, Zarqawi and others"],
+    ["24th Special Tactics Squadron", 150, 10, 9.5, "JSOC's air force operators: controllers and rescuemen with Delta and DEVGRU"],
+    ["Navy SEALs", 2200, 9.5, 9.5, "Continuous combat since 2001; Red Sea boardings in 2024"],
+    ["Army Special Forces (Green Berets)", 5500, 9, 9.5, "~5,500 qualified operators in 7 groups. Toppled the Taliban in 2001 with a few hundred men; trained armies worldwide"],
+    ["75th Ranger Regiment", 3500, 9, 9.5, "Mogadishu 1993, Panama, thousands of raids since 2001"],
+    ["160th SOAR (Night Stalkers)", 1000, 10, 10, "~1,000 aircrew of ~3,000. The world's best special-operations aviation; flew the bin Laden raid"],
+    ["AFSOC Special Tactics", 600, 9.5, 9, "Combat controllers and pararescue on every major operation"],
+    ["MARSOC Raiders", 850, 9, 8.5, "Afghanistan, Iraq, Syria"],
+    ["82nd Airborne Division", 15000, 8.5, 8.5, "Grenada, Panama, Iraq, Afghanistan; held Kabul airport in the 2021 evacuation; the global response force, ready in 18 hours"],
+    ["101st Airborne Division (Air Assault)", 17000, 8.5, 8.5, "Iraq 2003 and Mosul, Afghanistan; the army's helicopter-borne assault division"],
+    ["173rd Airborne Brigade", 3500, 8.5, 8, "Jumped into northern Iraq in 2003; Afghanistan; Europe's ready brigade"],
   ],
   GBR: [
     ["22 SAS", 350, 10, 10, "Iranian Embassy siege 1980, Falklands, Iraq 2003–09 (Task Force Black), Afghanistan"],
