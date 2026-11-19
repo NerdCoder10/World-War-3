@@ -694,6 +694,10 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
     - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
     - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Upkeep of air forces** (`AIR_UPKEEP`, about 45 countries researched):
+    - **Pilot flying hours** (NATO standard 180 a year): proficiency ×(0.75 + 0.25 × min(1, hours ÷ 180)), applied to air units and the air-superiority contest. Israel 200, India 180 (but weak maintenance), the US ~130 (below NATO's standard and ~2,000 pilots short), Russia ~80, Iran 40, North Korea 20.
+    - **Ground crews:** availability ×(0.85 + 0.015 × crews).
+    - **Pilot fatigue:** in war, sortie surges add 0.5% a day, up to 40%, cutting air power by up to 30%; rest recovers 2% a day.
   - **Upkeep of navies** (`NAVAL_YARDS`, about 35 countries researched): a fleet is only as ready as its shipyards and dry docks.
     - **Yard capacity:** naval readiness ×(0.8 + 0.02 × capacity). China 10 (the world's largest shipbuilding industry), South Korea and Japan 9, the US 6 (four overloaded public yards; about a third of its attack submarines wait for maintenance), Britain 5 (often only one Astute at sea), Russia 4 (the Kuznetsov's floating dock sank in 2018), North Korea 2.
     - **Time at sea:** ships deployed abroad wear down every day, faster with weak yards, up to −30%. They recover only with yard time at home, faster with strong yards.
