@@ -70,12 +70,41 @@
       0.07 * Math.min(1, Math.log10(1 + s.swf) / 3.3);
   });
 
+  // Assessed combat strength: what each force can really do, from the analysis rather than its
+  // paper totals: each kind of unit by its real models and the share mission-capable (js/models.js),
+  // troops by the share really present for duty (js/assessment.js), the whole force by its real
+  // training, experience, leadership and corruption (js/techlevels.js), plus drones, cyber,
+  // intelligence and the missiles that actually work (js/missiles.js).
+  const assessedRaw = (c, share) => {
+    const f = { troops: c.active, tanks: c.tanks, afv: c.afv, arty: c.arty, aircraft: Math.max(0, c.aircraft - c.fighters - c.helis), fighters: c.fighters, helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers };
+    let p = 0;
+    window.UNITS.forEach(u => {
+      const sh = share ? (u.key === "troops" ? share.active : share[u.key]) || 0 : 1;
+      p += (f[u.key] || 0) * sh * u.power * window.unitQuality(c, u.key) * (u.key === "troops" ? window.manning(c) : 1);
+    });
+    const dr = window.droneTech(c.iso3).level, cy = window.cyber(c).off;
+    p *= c.milStats.skill * (1 + 0.025 * dr) * (1 + 0.04 * cy / 10) * (1 + 0.05 * (c.secret.intel || 0) / 10);
+    return p + (c.missiles.bm * 2.5 + c.missiles.cm * 1.5) * window.missileReliability(c) * 0.3;
+  };
+  // Paper strength on the same scale: every unit as officially counted, at its models' face value,
+  // all present and all working.
+  const paperRaw = c => {
+    const f = { troops: c.active, tanks: c.tanks, afv: c.afv, arty: c.arty, aircraft: Math.max(0, c.aircraft - c.fighters - c.helis), fighters: c.fighters, helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers };
+    return window.UNITS.reduce((p, u) => p + (f[u.key] || 0) * u.power * (u.key === "troops" ? 0.35 + 0.13 * c.tech.gen : window.modelMult(c, u.key)), 0) + (c.missiles.bm * 2.5 + c.missiles.cm * 1.5) * 0.3;
+  };
+  C.forEach(c => { c._assessed = assessedRaw(c); c._paper = paperRaw(c); c.realShare = c._paper > 0 ? Math.round((c._assessed / c._paper) * 100) : 0; });
   const top = k => Math.max(...C.map(c => c[k]));
-  const tRaw = top("_raw"), tTrue = top("_rawTrue"), tSec = top("_secretRaw");
+  const tRaw = top("_raw"), tTrue = top("_rawTrue"), tSec = top("_secretRaw"), tAss = top("_assessed");
+  // True strength: 70% assessed combat strength, 30% latent strength (real budget, economy, secret
+  // assets), so a rich country with a hollow army ranks below its spending.
+  const blend = (comb, lat) => 0.7 * Math.sqrt(comb / tAss) + 0.3 * lat / tTrue;
+  C.forEach(c => (c._blend = blend(c._assessed, c._rawTrue)));
+  const tBlend = top("_blend");
   C.forEach(c => {
     c.power = Math.round((c._raw / tRaw) * 1000) / 10;
-    c.truePower = Math.round((c._rawTrue / tTrue) * 1000) / 10;
-    c.hiddenUplift = c._raw > 0 ? Math.round((c._rawTrue / c._raw - 1) * 100) : 0;
+    c.truePower = Math.round((c._blend / tBlend) * 1000) / 10;
+    c.assessedPower = Math.round(Math.sqrt(c._assessed / tAss) * 1000) / 10;
+    c.hiddenUplift = c.power > 0 ? Math.round((c.truePower / c.power - 1) * 100) : 0;
     c.secretIndex = Math.round((c._secretRaw / tSec) * 1000) / 10;
   });
 
@@ -84,6 +113,7 @@
   }
   rank("power", "powerRank");
   rank("truePower", "truePowerRank");
+  rank("assessedPower", "assessedRank");
   rank("gdp", "gdpRank");
   rank("soft", "softRank");
   rank("secretIndex", "secretRank");
@@ -94,7 +124,7 @@
   window.truePowerWith = (c, share) => {
     const sc = { active: share.troops || 0 };
     WEAPON_KEYS.forEach(k => (sc[k] = share[k] || 0));
-    return (rawPower(c, c.secret.trueBudget, sc) * c._mult * c._ready / tTrue) * 100;
+    return (blend(assessedRaw(c, sc), rawPower(c, c.secret.trueBudget, sc) * c._mult * c._ready) / tBlend) * 100;
   };
 
   // ── Valuation: value the world's assets, then give each country its share ──

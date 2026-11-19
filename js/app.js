@@ -3289,10 +3289,15 @@
         ${abroadZ.length ? `<h4 class="zgroup">At home</h4>` : ""}${zoneList(homeZ, 10)}
         ${abroadZ.length ? `<h4 class="zgroup">Abroad</h4>${zoneList(abroadZ, 8)}` : ""}</div>
 
+      <div class="section"><h3>Real strength <small>by the analysis, not official figures</small></h3>
+        <div class="big"><strong>${c.truePower}</strong><span>/ 100 assessed strength · #${c.truePowerRank} <small>(paper #${c.powerRank})</small></span></div>
+        <p class="hint">🔍 Of its paper strength, about <b>${c.realShare}%</b> is real: its units counted by their actual models and the share mission-capable (readiness ${Math.round(c.tech.ready * 100)}%), troops by the share really present for duty (<b>${Math.round(window.manning(c) * 100)}%</b>${window.MANNING[c.iso3] ? `: ${esc(window.MANNING[c.iso3][1])}` : ", estimated from corruption"}), the whole force by its real training (${c.milStats.training}/10), experience, leadership and corruption (${c.milStats.corruption}/10), and missiles by the share that work (${Math.round(window.missileReliability(c) * 100)}%). Assessed combat strength #${c.assessedRank}; the overall score adds 30% for its real budget, economy and secret assets.</p>
+        ${window.ANALYSIS_SOURCES[c.iso3] ? `<p class="hint">📂 <b>Sources beyond official figures:</b> ${esc(window.ANALYSIS_SOURCES[c.iso3])}.</p>` : `<p class="hint">📂 Sources: IISS and open-source estimates, corrected by its known training, corruption and maintenance.</p>`}</div>
+
       <div class="section"><h3>Secret assets <span class="tag">${s.estimated ? "modelled estimate" : "researched profile"}</span></h3>
         <div class="big"><strong>${c.secretIndex}</strong><span>/ 100 secret-assets index · #${c.secretRank}</span></div>
         <dl class="kv">
-          <div><dt>Est. true strength</dt><dd>${c.truePower} <small>#${c.truePowerRank} · ${c.hiddenUplift >= 0 ? "+" : ""}${c.hiddenUplift}% vs declared</small></dd></div>
+          <div><dt>Assessed strength</dt><dd>${c.truePower} <small>#${c.truePowerRank} · paper ${c.power} (#${c.powerRank})</small></dd></div>
           <div><dt>Est. real defence spend</dt><dd>${money(s.trueBudget)} <small>${s.offbook ? "+" + s.offbook + "% off-book" : ""}</small></dd></div>
           <div><dt>Gold reserves</dt><dd>${s.gold ? num(s.gold) + " t" : "minor / unknown"}</dd></div>
           <div><dt>Sovereign funds</dt><dd>${s.swf ? money(s.swf) : "none major"}</dd></div>
@@ -3354,7 +3359,8 @@
   // ── Rankings ───────────────────────────────────────────────
   const RANKS = {
     power: ["Military power (declared)", c => c.power, v => v.toFixed(1)],
-    truePower: ["Est. true strength (incl. secret assets)", c => c.truePower, v => v.toFixed(1)],
+    truePower: ["Assessed real strength (by the analysis)", c => c.truePower, v => v.toFixed(1)],
+    realShare: ["Share of paper strength that is real (%)", c => c.realShare, v => v.toFixed(0)],
     secretIndex: ["Secret-assets index", c => c.secretIndex, v => v.toFixed(1)],
     gdp: ["GDP (nominal)", c => c.gdp, money],
     gdpPerCap: ["GDP per capita", c => c.gdpPerCap, v => "$" + num(v)],
