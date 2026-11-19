@@ -83,6 +83,8 @@
       p += (f[u.key] || 0) * sh * u.power * window.unitQuality(c, u.key) * (u.key === "troops" ? window.manning(c) : 1);
     });
     const dr = window.droneTech(c.iso3).level, cy = window.cyber(c).off;
+    // A budget too small to keep the force running hollows it out (js/upkeep.js).
+    p *= 0.55 + 0.45 * window.budgetSustain(c);
     p *= c.milStats.skill * (1 + 0.025 * dr) * (1 + 0.04 * cy / 10) * (1 + 0.05 * (c.secret.intel || 0) / 10);
     // Paramilitaries add what they would bring to a defence, as far as they are loyal.
     if (!share) p += window.paramilitaries(c).reduce((a, x) => a + x[1] * 10 * window.paraQuality(x) * x[4], 0) * window.manning(c) * c.milStats.skill;

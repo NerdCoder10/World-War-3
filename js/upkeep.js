@@ -58,3 +58,26 @@ window.fiscal = c => {
   const lg = Math.log10(1 + c.gdp / Math.max(c.pop, 0.001)), corr = (c.milStats && c.milStats.corruption) || 5;
   return { cap: Math.round(Math.max(1, Math.min(8, 3 + 1.5 * lg - 0.2 * corr)) * 10) / 10, note: "" };
 };
+
+// Peacetime upkeep: can each country's real budget (including off-book spending, js/intel.js) keep
+// its forces running? Upkeep = pay and keep of every soldier plus the yearly operating and
+// maintenance cost of each tank, jet, ship... at local price levels. Upkeep is normally about
+// 60-70% of a defence budget (the rest buys new kit and research), so a budget below 1.4 x upkeep
+// means maintenance and training are cut: a hollow force (North Korea's vast ageing army on a tiny
+// budget, Greece after its debt crisis). Equipment readiness x(0.55 + 0.45 x budget / (1.4 x upkeep)),
+// troops x(0.85 + 0.15 x the same), never above 1.
+window.UNIT_UPKEEP = { tanks: 0.0006, afv: 0.00015, arty: 0.0002, fighters: 0.006, aircraft: 0.003, helis: 0.0015, ships: 0.03, subs: 0.06, carriers: 0.9 };
+window.BUDGET_OVERRIDE = { FIN: [1, "Keeps a large wartime reserve of equipment in cheap, well-kept storage for its conscript army"], CHE: [1, "A militia army that stores its kit"] };
+window.budgetUpkeep = c => {
+  const pc = c.gdp * 1e9 / Math.max(1, c.pop * 1e6), price = 0.25 + 0.75 * Math.min(1, pc / 50000);
+  const f = { tanks: c.tanks, afv: c.afv, arty: c.arty, fighters: c.fighters, aircraft: Math.max(0, c.aircraft - c.fighters - c.helis), helis: c.helis, ships: c.ships, subs: c.subs, carriers: c.carriers };
+  const people = c.active * 1000 * Math.max(3000, 1.2 * pc) / 1e9;
+  const kit = Object.keys(window.UNIT_UPKEEP).reduce((a, k) => a + (f[k] || 0) * window.UNIT_UPKEEP[k], 0) * price;
+  return people + kit;
+};
+window.budgetSustain = c => {
+  const o = window.BUDGET_OVERRIDE[c.iso3];
+  if (o) return o[0];
+  const need = window.budgetUpkeep(c), have = (c.secret && c.secret.trueBudget) || c.mil;
+  return need > 0 ? Math.min(1, have / (1.4 * need)) : 1;
+};
