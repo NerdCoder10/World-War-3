@@ -81,3 +81,20 @@ window.budgetSustain = c => {
   const need = window.budgetUpkeep(c), have = (c.secret && c.secret.trueBudget) || c.mil;
   return need > 0 ? Math.min(1, have / (1.4 * need)) : 1;
 };
+
+// Naval upkeep: shipyard and dry-dock capacity to keep a fleet at sea (0-10), from the record.
+// A fleet is only as ready as its yards: naval readiness x(0.8 + 0.02 x capacity). Ships deployed
+// abroad wear down every day at sea (faster for countries with weak yards) and recover only with
+// yard time once home (faster with strong yards), up to -30%.
+window.NAVAL_YARDS = {
+  USA: [6, "Four overloaded public naval shipyards: about a third of its attack submarines sit idle waiting for maintenance (GAO), and carrier overhauls run years late"],
+  CHN: [10, "The world's largest shipbuilding industry, with spare dry docks everywhere"], KOR: [9, "World-class yards (Hyundai, Hanwha, Samsung)"], JPN: [9, "World-class yards"],
+  RUS: [4, "Few dry docks big enough for its large ships: the Kuznetsov's floating dock sank in 2018 and a fire followed in 2019"],
+  GBR: [5, "Devonport and Rosyth are stretched: often only one Astute submarine is at sea"], FRA: [6, "Naval Group's yards"], ITA: [6, "Fincantieri"],
+  IND: [5, "Growing yards with long delays"], TUR: [7, "Busy, efficient yards"], DEU: [6, "TKMS submarines and frigates"], ESP: [6, "Navantia"], NLD: [6, "Damen"],
+  NOR: [6, ""], SWE: [6, "Saab Kockums"], SGP: [7, "ST Engineering"], TWN: [6, "CSBC builds its own submarines"], AUS: [4, "Its Collins submarines spent long spells in maintenance"],
+  CAN: [3, "Rebuilding its shipbuilding"], ISR: [4, "Relies on German and US yards"], IRN: [3, "Sanctioned yards"], PRK: [2, "Primitive yards"], POL: [4, ""], GRC: [3, "Its yards nearly collapsed"],
+  EGY: [3, ""], SAU: [2, "Depends on foreign yards"], ARE: [4, ""], PAK: [4, "Chinese-built ships"], VNM: [4, ""], IDN: [4, ""], BRA: [4, ""], UKR: [3, "Its yards were bombed"],
+};
+window.navalYards = c => { const y = window.NAVAL_YARDS[c.iso3]; if (y) return { cap: y[0], note: y[1] };
+  const g = (c.tech && c.tech.gen) || 2; return { cap: Math.round(Math.max(1, Math.min(6, 1.6 * g - 1.5)) * 10) / 10, note: "" }; };

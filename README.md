@@ -694,6 +694,14 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
     - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
     - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Upkeep of navies** (`NAVAL_YARDS`, about 35 countries researched): a fleet is only as ready as its shipyards and dry docks.
+    - **Yard capacity:** naval readiness ×(0.8 + 0.02 × capacity). China 10 (the world's largest shipbuilding industry), South Korea and Japan 9, the US 6 (four overloaded public yards; about a third of its attack submarines wait for maintenance), Britain 5 (often only one Astute at sea), Russia 4 (the Kuznetsov's floating dock sank in 2018), North Korea 2.
+    - **Time at sea:** ships deployed abroad wear down every day, faster with weak yards, up to −30%. They recover only with yard time at home, faster with strong yards.
+  - **Upkeep of paramilitaries:**
+    - **Funding:** they are paid from the defence budget (×0.85–1).
+    - **Fatigue:** wartime duty (rear security, checkpoints, counter-insurgency) adds 0.4% fatigue a day, up to 50%; rest recovers 2% a day; fatigue cuts their value by up to 20%.
+    - **Losses:** they lose half the defenders' daily loss rate when they fight beside the army. Recruiting refills them at a pace set by the country's finances.
+  - **Dossier:** the Maintenance section shows the navy's yards and sea wear and the paramilitaries' condition.
   - **Peacetime economic upkeep:** can each country's real budget, including off-book spending, keep its forces running?
     - **Upkeep:** pay for every soldier plus the yearly operating and maintenance cost of each tank, jet, helicopter, ship, submarine and carrier, at local price levels.
     - **Threshold:** upkeep is normally 60–70% of a defence budget, so a budget under 1.4× upkeep is a hollow force. Equipment readiness falls to ×(0.55 + 0.45 × funding) and troops to ×(0.85 + 0.15 × funding).
