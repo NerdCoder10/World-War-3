@@ -98,3 +98,25 @@ window.NAVAL_YARDS = {
 };
 window.navalYards = c => { const y = window.NAVAL_YARDS[c.iso3]; if (y) return { cap: y[0], note: y[1] };
   const g = (c.tech && c.tech.gen) || 2; return { cap: Math.round(Math.max(1, Math.min(6, 1.6 * g - 1.5)) * 10) / 10, note: "" }; };
+
+// Air-force upkeep: [pilot flying hours a year, maintenance crews 0-10, the record]. Pilots who fly
+// too little lose their edge (NATO's standard is 180 hours a year): proficiency x(0.75 + 0.25 x
+// min(1, hours / 180)). Short or poorly trained maintenance crews keep fewer jets flyable:
+// availability x(0.85 + 0.015 x crews). In war, sortie surges tire pilots and crews (+0.5% a day,
+// up to 40%; -2% a day at rest), cutting air power by up to 30%. Not listed: estimated from
+// readiness and maintenance capacity.
+window.AIR_UPKEEP = {
+  USA: [130, 7, "Fighter pilots fly ~120-150 hours a year, below NATO's 180, and the Air Force is ~2,000 pilots short; F-35 upkeep is a heavy burden"],
+  ISR: [200, 9, "Among the most flying hours and best-kept fleets in the world"], GBR: [150, 7, ""], FRA: [160, 7, ""], DEU: [120, 5, "Eurofighter availability problems leave pilots short of hours"],
+  ITA: [140, 6, ""], ESP: [130, 6, ""], NLD: [150, 7, ""], NOR: [160, 7, ""], SWE: [150, 8, "The Gripen is built to be serviced at dispersed road bases by conscripts"], FIN: [150, 8, ""],
+  POL: [130, 6, ""], TUR: [150, 6, "Lost many pilots in the 2016 purge; since rebuilt"],
+  RUS: [80, 5, "Claims 100+ hours a year, but real figures are lower and its ground crews are stretched by the war"],
+  CHN: [130, 7, "Flying hours rising fast with more realistic training"], IND: [180, 5, "High flying hours but weak maintenance: frequent crashes (the MiG-21 'flying coffin')"],
+  PAK: [170, 6, "Well drilled; punches above its weight"], IRN: [40, 3, "Sanctions grounded much of its fleet; few hours"], PRK: [20, 2, "Pilots fly as little as 15-20 hours a year for lack of fuel"],
+  KOR: [150, 8, ""], JPN: [150, 8, ""], TWN: [150, 6, "Training squeezed by constant Chinese incursions"], SAU: [130, 4, "Depends on foreign contractors to keep its jets flying"],
+  ARE: [150, 6, ""], EGY: [80, 4, ""], UKR: [100, 6, "Jets flown hard and kept going by improvisation and Western help"], AUS: [170, 8, ""], CAN: [130, 5, "Ageing CF-18s, short of technicians"],
+  SGP: [180, 9, ""], GRC: [120, 5, ""], VEN: [30, 2, "Most of its jets are grounded"], SYR: [10, 1, ""], CUB: [20, 2, ""], DZA: [100, 5, ""], MAR: [120, 5, ""],
+  VNM: [60, 4, ""], IDN: [80, 4, ""], THA: [100, 5, ""], BRA: [100, 5, ""], MEX: [80, 4, ""],
+};
+window.airUpkeep = c => { const a = window.AIR_UPKEEP[c.iso3]; if (a) return { hours: a[0], crews: a[1], note: a[2] };
+  const r = (c.tech && c.tech.ready) || 0.5; return { hours: Math.round(30 + 130 * r), crews: Math.round(Math.max(1, Math.min(7, 1 + 7 * r)) * 10) / 10, note: "" }; };

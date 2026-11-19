@@ -545,8 +545,14 @@
   const yardCap = iso => window.navalYards(BY[iso]).cap;
   const seaWear = iso => ((G.state.seaWear || {})[iso] || 0);
   const navalUpkeep = iso => (0.8 + 0.02 * yardCap(iso)) * (1 - seaWear(iso));
+  // Air forces: pilot hours, ground crews and wartime fatigue (js/upkeep.js AIR_UPKEEP).
+  const pilotFat = iso => ((G.state.pilotFat || {})[iso] || 0);
+  const airProf = iso => 0.75 + 0.25 * Math.min(1, window.airUpkeep(BY[iso]).hours / 180);
+  const airUpkeepF = iso => airProf(iso) * (0.85 + 0.015 * window.airUpkeep(BY[iso]).crews) * (1 - 0.3 * pilotFat(iso) / 0.4);
   function navalParaDay() {
     const s = G.state, pf = (s.paraFat = s.paraFat || {}), pl = (s.paraLoss = s.paraLoss || {}), sw = (s.seaWear = s.seaWear || {});
+    const pf2 = (s.pilotFat = s.pilotFat || {});
+    C.forEach(c => { const iso = c.iso3, v = atWar(iso) ? Math.min(0.4, (pf2[iso] || 0) + 0.005) : Math.max(0, (pf2[iso] || 0) - 0.02); if (v > 0.001) pf2[iso] = v; else delete pf2[iso]; });
     const atSea = new Set();
     s.armies.forEach(a => { if (((a.units.ships || 0) + (a.units.subs || 0) + (a.units.carriers || 0)) >= 1) atSea.add(a.nat); });
     s.enemies.forEach(e => { if (((e.units.ships || 0) + (e.units.subs || 0) + (e.units.carriers || 0)) >= 1) atSea.add(e.nat); });
@@ -748,7 +754,7 @@
     const A = armShares(aUnits, aNat), D = armShares(dUnits, dNat), pa = airProfile(aNat), pd = airProfile(dNat);
     // Air-to-air missiles sharpen each side's air contest (×0.7–1.27 by their combat record).
     // ...and air ferocity: pilots who press into danger (×0.92–1.08).
-    const a2aA = A.airA2A * (0.7 + 0.06 * mtype(aNat, "aam")) * (0.92 + 0.016 * ms(aNat).airFer), a2aD = D.airA2A * (0.7 + 0.06 * mtype(dNat, "aam")) * (0.92 + 0.016 * ms(dNat).airFer);
+    const a2aA = A.airA2A * (0.7 + 0.06 * mtype(aNat, "aam")) * (0.92 + 0.016 * ms(aNat).airFer) * airProf(aNat), a2aD = D.airA2A * (0.7 + 0.06 * mtype(dNat, "aam")) * (0.92 + 0.016 * ms(dNat).airFer) * airProf(dNat);
     const edge = a2aA + a2aD > 0 ? a2aA / (a2aA + a2aD * 1.2) : 0.5;
     const aa = effectiveAD(T), aaAtt = effectiveAD(aNat) * 0.4;
     const airA = (0.6 + 0.8 * edge) * (1 - 0.04 * aa), airD = (0.6 + 0.8 * (1 - edge)) * (1 - 0.04 * aaAtt);
@@ -912,7 +918,7 @@
   }
   function partsFactorBase(iso, key) {
     const bs = window.budgetSustain(BY[iso]);
-    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso)) * (key === "troops" ? 0.85 + 0.15 * bs : 0.55 + 0.45 * bs) * (key === "ships" || key === "subs" || key === "carriers" ? navalUpkeep(iso) : 1);
+    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso)) * (key === "troops" ? 0.85 + 0.15 * bs : 0.55 + 0.45 * bs) * (key === "ships" || key === "subs" || key === "carriers" ? navalUpkeep(iso) : key === "fighters" || key === "aircraft" || key === "helis" ? airUpkeepF(iso) : 1);
   }
   function partsFactorCore(iso, key) {
     if (key === "troops") return troopDilution(iso) * window.manning(BY[iso]);
@@ -2756,6 +2762,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, pilotFat, airProf, airUpkeepF, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
