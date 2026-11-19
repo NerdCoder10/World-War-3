@@ -646,6 +646,30 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **United States, by the analysis and not just the official figures.** Sources: IISS Military Balance 2025, the Air & Space Forces almanac, Navy and Marine Corps aviation plans, CRS, GAO mission-capable reports, FAS and the Heritage Index.
+  - **Personnel and ground forces:** 1.316 million active.
+    - **Tanks:** 4,640 Abrams. About 2,640 are active (≈750 SEPv3, ≈1,600 SEPv2, Guard M1A1 SA) and about 1,550 sit in storage at Sierra Army Depot, so fewer of them are ready.
+    - **Armoured vehicles:** 45,600, including ~22,000 JLTVs, ~9,000 MRAPs, Bradleys, Strykers and AMPVs; old M113s are in storage. The Marine amphibious vehicle count was cut from 5,000 to its real ~1,100.
+    - **Artillery:** 2,520 pieces: 671 self-propelled, 1,212 towed and 641 rocket launchers (~440 HIMARS).
+  - **Air forces:**
+    - **Fighters:** 2,930 by model: ~690 F-35s, ~830 F-16s, ~540 Super Hornets, ~310 F-15s, 183 F-22s, ~210 A-10s and the retiring Hornets and Harriers.
+    - **Other aircraft:** ~4,980, including 141 bombers (76 B-52, 45 B-1, 19 B-2), ~520 tankers, 454 Ospreys, 161 Growlers, 129 P-8s and ~470 large drones.
+    - **Helicopters:** 5,840.
+  - **Navy and Coast Guard:**
+    - **Ships:** 440: the Navy battle force (74 Burkes, 7 Ticonderogas, 3 Zumwalts, 9 big-deck amphibs, 25 LCS...) plus ~230 Coast Guard cutters.
+    - **Submarines:** 69: 24 Virginia, 24 Los Angeles, 3 Seawolf and 18 Ohio.
+    - **Carriers and warheads:** 11 carriers; 5,177 warheads (FAS: 3,700 in the stockpile plus those awaiting dismantlement).
+  - **Readiness 0.8 rather than 0.9,** following GAO and the Heritage 2025 Index, which rates the Air Force "very weak" and the Navy "weak". Mission-capable rates now match the reports:
+    - F-35 ~50% and F-22 ~48%
+    - B-1 ~39%
+    - attack submarines ~58%, since about a third are in or waiting for maintenance
+    - armour ~82%
+  - **Missiles and air defence:**
+    - **Cruise missiles:** ~8,300, after the 2024–25 strikes on the Houthis and Iran.
+    - **Ballistic missiles:** ~1,200: ATACMS depleted by transfers to Ukraine, plus PrSM and the first Dark Eagle battery.
+    - **Air defence 7:** about a quarter of all THAAD interceptors were fired defending Israel in June 2025, and the homeland has thin cruise-missile defence.
+  - **Special forces:** counted as operators, not total personnel: Delta ~400, DEVGRU ~300, the ISA and the 24th STS added. The 82nd and 101st Airborne and the 173rd are added too, since Ukraine's air-assault forces and Russia's VDV were already counted.
+- **Helicopters were counted twice, for every country.** Aircraft totals (Global Firepower-style) already include helicopters, but "other aircraft" was the total minus fighters only, so every helicopter was also counted as a transport, trainer or drone. Other aircraft is now the total minus fighters minus helicopters. Bomber shares were rescaled to keep the real counts: Russia ~98, China's H-6 210, North Korea's Il-28 80.
 - **Special forces** (`js/specialforces.js`). 145 real units in 79 countries, each with operators, a training rating, a proven-record rating and its record. Examples: Delta Force (al-Baghdadi raid), DEVGRU (the bin Laden raid), 22 SAS (Iranian Embassy siege), Sayeret Matkal (Entebbe), GIGN (Air France 8969), GSG 9 (Mogadishu), GROM (Umm Qasr), Colombia's AFEUR (Operation Jaque), Peru's Chavín de Huántar rescuers, Iraq's Golden Division (Mosul), Ukraine's SSO and HUR, Russia's KSSO (Crimea) and the VDV (Hostomel), China's untested brigades and North Korea's mass light infantry.
   - **Proven record carries most of the weight.** Quality = 35% training + 65% proven record, and effective strength = operators × quality⁶. A few hundred proven operators outweigh tens of thousands of untested ones. Failures count against a unit: FSB Alpha's hostage deaths at Beslan, the failed Hostomel assault, Egypt's 1978 Larnaca raid. Countries without a researched profile get an estimate from their army's size and readiness.
   - **In every battle** the two sides' special forces contest reconnaissance, raids and target designation behind the lines, up to ±7% each way. Half the contest is effective strength and half the quality of each side's best unit; the defender gets ×1.25 on home ground.

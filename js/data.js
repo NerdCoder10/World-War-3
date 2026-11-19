@@ -190,7 +190,7 @@ window.COUNTRY_ROWS = [
 ["LCA","LC","662","Saint Lucia","North America",0.18,2.6,0,0,0,0,0,0,0,0,0,2,0,0,0,25,"The Pitons, two Nobel laureates per capita record"],
 ["VCT","VC","670","Saint Vincent and the Grenadines","North America",0.1,1.2,0,0,0,0,0,0,0,0,0,2,0,0,0,18,"Mustique celebrity island, Pirates of the Caribbean sets"],
 ["TTO","TT","780","Trinidad and Tobago","North America",1.5,28,0.6,5,0,0,20,10,10,0,6,30,0,0,0,32,"Carnival, steelpan & soca, Nicki Minaj heritage"],
-["USA","US","840","United States","North America",342,30500,997,1330,800,4640,39000,2000,13000,2800,5700,440,68,11,5180,79,"Hollywood, music, tech giants, NBA/NFL, universities, US dollar, English-language media"],
+["USA","US","840","United States","North America",342,30500,997,1316,800,4640,45600,2520,13750,2930,5840,440,69,11,5177,79,"Hollywood, music, tech giants, NBA/NFL, universities, US dollar, English-language media"],
 // ───────────────────────── SOUTH AMERICA (12) ─────────────────────────
 ["ARG","AR","032","Argentina","South America",46,640,4.2,72,0,230,750,300,230,20,90,50,2,0,0,50,"Messi & football, tango, Malbec, Pope Francis legacy, Borges"],
 ["BOL","BO","068","Bolivia","South America",12.5,55,0.6,34,0,40,200,100,70,6,30,160,0,0,0,22,"Salar de Uyuni, Andean indigenous culture, lithium"],
