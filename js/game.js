@@ -752,13 +752,13 @@
   // more against a hated invader and less against one its people would accept. The pressure:
   // 25 × log2(power ratio) + 70 × the war's progress + 0.3 a day. It surrenders when the pressure
   // beats its will, the enemy is at least 3× stronger and its defences are 30% broken.
-  const diehard = iso => ms(iso).patriotism >= 9 || (docF(iso).resist || 1) >= 1.3;
+  const diehard = iso => ms(iso).patriotism >= 9 || (docF(iso).resist || 1) >= 1.3 || window.warAI(BY[iso]).grit >= 0.9;
   function surrenderInfo(T, by, prog, days) {
     const side = sideOf(by), ratio = sideStrength(side) / Math.max(1, sideStrength(sideOf(T)));
     if (diehard(T)) return { diehard: true, surrender: false, ratio };
     const H = happiness(T, side).score;
     const allies = alliedSupport(T, by).strength > 0;
-    const will = 40 + 4 * ms(T).patriotism + (allies ? 15 : 0) + (40 - H) * 0.4;
+    const will = 40 + 4 * ms(T).patriotism + (allies ? 15 : 0) + (40 - H) * 0.4 + 30 * (ai(T).grit - 0.5);
     const pressure = 25 * Math.log2(Math.max(1, ratio)) + 70 * Math.max(0, prog) + 0.3 * Math.max(0, days);
     return { diehard: false, will, pressure, ratio, allies, surrender: pressure > will && ratio >= 3 && prog >= 0.3 };
   }
@@ -781,7 +781,7 @@
   // Cyber hits (js/cyber.js): a blacked-out grid or hacked command and air-defence networks.
   const cyHit = (iso, k) => (((G.state.cyberHit || {})[iso] || {})[k] || -1) >= G.state.turn;
   const cyberDefMult = iso => (cyHit(iso, "grid") ? 0.95 : 1) * (cyHit(iso, "c2") ? 0.93 : 1);
-  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) * interceptMult(iso) * (0.8 + 0.04 * mtype(iso, "sam")) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
+  const effectiveAD = iso => { const r = radarInfo(iso), f = G.state.sites ? siteFrac(iso, "ad") : null; return Math.max(0, Math.min(10, BY[iso].missiles.ad * (0.6 + 0.4 * r.cov) * (f == null ? 1 : 0.4 + 0.6 * f) * interceptMult(iso) * (0.8 + 0.04 * mtype(iso, "sam")) * (0.9 + 0.02 * window.techDomains(BY[iso]).elec) + (r.ew ? 0.5 : 0)) - (cyHit(iso, "c2") ? 2 : 0)); };
   // ── Missile upkeep ──
   // Reliability (js/missiles.js): only that share of missiles fired works. Interceptors: an air
   // defence has ~30 per battery; each missile it stops costs 1.5 (shoot-look-shoot), and below 30%
@@ -812,11 +812,13 @@
       const st = missileStock(iso);
       ["bm", "cm"].forEach(k2 => {
         // Lost missile sites mean fewer launchers to fire from.
-        const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = (fm == null ? 1 : 0.3 + 0.7 * fm) * (docF(iso).missile || 1);
+        const fm = G.state.sites ? siteFrac(iso, "mis") : null, rate = (fm == null ? 1 : 0.3 + 0.7 * fm) * (docF(iso).missile || 1) * (owns(iso) ? 1 : ai(iso).missiles);
         const n = Math.min(st[k2], Math.max(st[k2] > 0 ? 5 : 0, Math.round(st[k2] * 0.04 * rate)));
         const work = n * missileRel(iso);
-        st[k2] -= n; fired += n; hits += work * leak; power += work * leak * (k2 === "bm" ? 2.5 * (0.6 + 0.08 * mtype(iso, "gbm")) : 1.5 * (0.6 + 0.08 * mtype(iso, "agm")));
-        useInterceptors(targetIso, work * (1 - leak));
+        // Hypersonic ballistic missiles slip past air defences: each point cuts its rating by 0.15.
+        const lk = k2 === "bm" ? 1 - 0.08 * Math.max(0, effectiveAD(targetIso) - 0.15 * window.techDomains(BY[iso]).hyp) : leak;
+        st[k2] -= n; fired += n; hits += work * lk; power += work * lk * (k2 === "bm" ? 2.5 * (0.6 + 0.08 * mtype(iso, "gbm")) : 1.5 * (0.6 + 0.08 * mtype(iso, "agm")));
+        useInterceptors(targetIso, work * (1 - lk));
       });
     });
     return { power, fired, hits: Math.round(hits) };
@@ -875,8 +877,11 @@
   // Anti-ship missiles arm warships and submarines (×0.85–1.15); anti-tank missiles arm infantry and
   // armoured vehicles (×0.9–1.1).
   const mtKind = (iso, key) => (key === "ships" || key === "subs" ? 0.85 + 0.03 * mtype(iso, "asm") : key === "troops" || key === "afv" ? 0.9 + 0.02 * mtype(iso, "atgm") : 1);
+  // Technology by domain (js/techdomains.js): aircraft, warships and land forces ×(0.94 + 0.012 × domain).
+  const TECH_KIND = { fighters: "aero", aircraft: "aero", helis: "aero", ships: "naval", subs: "naval", carriers: "naval", tanks: "land", afv: "land", arty: "land" };
+  const techKind = (iso, key) => (TECH_KIND[key] ? 0.94 + 0.012 * window.techDomains(BY[iso])[TECH_KIND[key]] : 1);
   function partsFactor(iso, key) {
-    return partsFactorBase(iso, key) * mtKind(iso, key);
+    return partsFactorBase(iso, key) * mtKind(iso, key) * techKind(iso, key);
   }
   function partsFactorBase(iso, key) {
     return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso));
@@ -1091,7 +1096,7 @@
         const S = o.iso3;
         if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
         const n = spyNet(S, c.iso3);
-        if (n < 55 || (s.turn + S.charCodeAt(0) + c.iso3.charCodeAt(1)) % 10) return;
+        if (n < 55 || (s.turn + S.charCodeAt(0) + c.iso3.charCodeAt(1)) % Math.round(14 - 6 * ai(S).hybrid)) return;
         const ms2 = missileStock(c.iso3); ms2.bm *= 0.9; ms2.cm *= 0.9;
         (s.sabotage = s.sabotage || {})[c.iso3] = s.turn + 2;
         log(`🕵️ ${spyKnownBy(S, c.iso3) ? `${BY[S].name}'s agents` : "Unidentified saboteurs"} struck in ${c.name}: missile stocks −10% and its defences shaken for two days. Sweep for spies in the Intel tab.`, "bad");
@@ -1154,7 +1159,7 @@
       const S = o.iso3;
       if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
       const off = cyOf(S).off;
-      if (off < 6 || (s.turn + S.charCodeAt(2)) % 11) return;
+      if (off < 6 || (s.turn + S.charCodeAt(2)) % Math.round(15 - 8 * ai(S).hybrid)) return;
       const k = kinds[(s.turn + S.charCodeAt(0)) % 3];
       burnCyber(S, k);
       const who = cyOf(T).def + ipf(T).counter / 2 > trade(S) + 3 ? `${BY[S].name}'s hackers` : "Unidentified hackers";
@@ -1264,9 +1269,9 @@
       if (S === s.player || owns(S) || s.owner[S] !== S || isAlly(S) || !(isHostile(S) || s.enemies.some(e => e.nat === S && e.vsPlayer))) return;
       const best = window.sfBest(S); if (!best || window.sfQuality(best) < 0.6) return;
       const mine = Object.keys(ts).find(k => k.startsWith(S + ">") && owns(k.split(">")[1]));
-      if (!mine && home && (s.turn + S.charCodeAt(0)) % 7 === 0) ts[S + ">" + home.iso3] = { u: best[0], at: s.turn, exp: teamEntry(S, home.iso3, best) };
+      if (!mine && home && (s.turn + S.charCodeAt(0)) % Math.round(10 - 6 * ai(S).hybrid) === 0) ts[S + ">" + home.iso3] = { u: best[0], at: s.turn, exp: teamEntry(S, home.iso3, best) };
       const fighting = s.enemies.some(e => e.nat === S && e.vsPlayer) || Object.keys(s.wars).some(w => sideOf(w) === S);
-      if (mine && ts[mine] && fighting && (s.turn + S.charCodeAt(1)) % 12 === 0) {
+      if (mine && ts[mine] && fighting && (s.turn + S.charCodeAt(1)) % Math.round(16 - 8 * ai(S).hybrid) === 0) {
         const T = mine.split(">")[1], x = siteList(T).filter(y => !siteSt(T, y.name)).sort((a, b) => SITE_RANK(a) - SITE_RANK(b))[0];
         if (x) { loseSite(T, x, "x", S); log(`💥 Unidentified commandos destroyed ${x.name} in ${BY[T].name}. Nobody has claimed it; a counter-intelligence sweep may find who is behind it.`, "bad"); exposeTeam(mine, 25 * (ipf(T).counter / 10) * homeF(T) * Math.pow(1 - sfCovert(S, teamUnit(S, ts[mine].u)) / 11, 2)); }
       }
@@ -1391,7 +1396,7 @@
     const t = window.droneTech(nat);
     if (!t.level) return 0;
     const enemy = vs && BY[vs] ? window.droneTech(vs).counter : 0, n = nightInfo(at);
-    return (docF(nat).drone || 1) * 0.03 * t.level * (1 - 0.06 * enemy) * (window.DRONE_WEATHER[weather(at).type] ?? 1) * (t.level >= 6 ? 1 : 1 - 0.3 * n.frac) * Math.min(1, droneStock(nat) / 10);
+    return (0.8 + 0.04 * window.techDomains(BY[nat]).ai) * (docF(nat).drone || 1) * 0.03 * t.level * (1 - 0.06 * enemy) * (window.DRONE_WEATHER[weather(at).type] ?? 1) * (t.level >= 6 ? 1 : 1 - 0.3 * n.frac) * Math.min(1, droneStock(nat) / 10);
   }
   function droneDay() {
     const s = G.state;
@@ -2182,6 +2187,8 @@
   // your empire strike now and then when your border looks weak. Treaty allies stay out of it.
   // Their armies travel and fight round by round like yours.
   const HOSTILE_TURNS = 12;
+  // War AIs (js/warai.js): each country fights by its own personality.
+  const ai = iso => window.warAI(BY[iso]);
   function provoke(iso) { G.state.hostile[iso] = G.state.turn; }
   const isHostile = iso => G.state.hostile[iso] != null && G.state.turn - G.state.hostile[iso] <= HOSTILE_TURNS;
   const enemyPower = e => docAttack(e.units, e.nat) * ms(e.nat).attackFer * (e.nat === "USA" && e.sea ? 1.05 : 1) * (1 + droneEdge(e.nat, e.to, G.state.owner[e.to])) * (1 + spyEdge(e.nat, G.state.owner[e.to])) * powerIn(e.units, e.nat, e.models, e.to) * supply(e.nat, e.to, distKm(e.from || e.nat, e.to), e.sea) * ms(e.nat).skill * isr(e.nat) *
@@ -2207,7 +2214,7 @@
   function launchEnemy(A, T) {
     const s = G.state, f = forces(A), land = (window.NEIGHBORS[A] || []).includes(T), vsPlayer = owns(T);
     // Send about 1.45× what defends the target, within a share of the army that grows with hostility.
-    const cap = Math.min(0.6, (!vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3) * (docF(A).commit || 1));
+    const cap = Math.min(0.75, (!vsPlayer ? 0.45 : isHostile(A) ? 0.45 : 0.3) * (docF(A).commit || 1) * ai(A).commit);
     const want = targetDefence(T, A) * 1.45 / Math.max(1, rawPower(f, A) * ms(A).skill);
     const share = Math.max(0.03, Math.min(cap, want));
     const units = {};
@@ -2284,8 +2291,9 @@
       // for 4 days. An unprovoked neighbour builds tension each day your border looks weak (it
       // outguns it more than 2×) and attacks once that boils over.
       const ten = (s.tension = s.tension || {}), last = (s.lastStrike = s.lastStrike || {});
-      if (hostile) { if (ratio >= 0.4 && s.turn - (last[A] ?? -99) >= 4) { last[A] = s.turn; launchEnemy(A, T); } return; }
-      ten[A] = ratio > 2 ? (ten[A] || 0) + Math.min(0.03, 0.005 * ratio) : Math.max(0, (ten[A] || 0) - 0.05);
+      const P = ai(A);
+      if (hostile) { if (ratio >= 0.6 - 0.4 * P.aggr && s.turn - (last[A] ?? -99) >= P.patience) { last[A] = s.turn; launchEnemy(A, T); } return; }
+      ten[A] = ratio > 2 ? (ten[A] || 0) + Math.min(0.03, 0.005 * ratio) * (0.5 + P.aggr) : Math.max(0, (ten[A] || 0) - 0.05);
       if (ten[A] >= 1) { ten[A] = 0; last[A] = s.turn; launchEnemy(A, T); }
     });
     aiWorldTurn();
@@ -2315,7 +2323,7 @@
       const px = rawPower(forces(x), x) * ms(x).skill, py = rawPower(forces(y), y) * ms(y).skill;
       const [A, T, pa] = px >= py ? [x, y, px] : [y, x, py], key = x + "-" + y;
       if (s.enemies.some(e => e.nat === A || e.nat === T)) return; // already fighting
-      ten[key] = Math.min(1, (ten[key] || 0) + heat);
+      ten[key] = Math.min(1, (ten[key] || 0) + heat * (0.5 + ai(A).aggr));
       if (ten[key] < 1 || active >= 6 || pa < 80) return;
       const before = s.enemies.length;
       launchEnemy(A, T);
@@ -2360,6 +2368,13 @@
     const bm = battleMods(fu, foes[0].nat, forces(T), T, T);
     (s.battle = s.battle || {})[T] = { ...bm, day: s.turn };
     const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - w.start), 0) * bm.att + sE.power, D = defenceOf(T, foes[0].nat).total * bm.def + sD.power, r = E / (E + D);
+    // An attacker whose personality won't take a losing fight pulls back (after the first 2 days).
+    if (s.turn - w.start >= 2 && r < ai(foes[0].nat).retreat) {
+      foes.forEach(e => { const f = forces(e.nat); UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) + (e.units[u.key] || 0))); });
+      s.enemies = s.enemies.filter(e => !foes.includes(e)); delete s.aiWars[T];
+      log(`🌍 ${BY[foes[0].nat].name} pulled its forces back from ${c.name}: the odds (${Math.round(r * 100)}%) were too poor for its leaders.`, "world");
+      return;
+    }
     strikeSites(T, sE.hits, sideOf(w.by)); strikeSites(foes[0].nat, sD.hits, T);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
@@ -2405,6 +2420,12 @@
     (s.battle = s.battle || {})[iso] = { ...bm, day: s.turn };
     const E = foes.reduce((x, e) => x + enemyPower(e) * docEarly(e.nat, s.turn - inv.start), 0) * bm.att + theirs.power, D = homeDefence(iso, foes[0].nat) * (surprised ? 0.85 : 1) * bm.def + mine.power;
     const r = E / (E + D);
+    if (s.turn - inv.start >= 2 && r < ai(foes[0].nat).retreat) {
+      foes.forEach(e => { const f = forces(e.nat); UNITS.forEach(u => (f[u.key] = (f[u.key] || 0) + (e.units[u.key] || 0))); });
+      s.enemies = s.enemies.filter(e => !foes.includes(e)); delete s.invasions[iso];
+      log(`🛡️ ${[...new Set(foes.map(e => BY[e.nat].name))].join(" and ")} pulled back from ${c.name}: its odds (${Math.round(r * 100)}%) were too poor for its leaders.`, "good");
+      return;
+    }
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
     const dl = Math.min(0.6, 0.3 * r);
