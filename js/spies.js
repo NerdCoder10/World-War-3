@@ -67,3 +67,51 @@ window.TRADECRAFT = {
   NOR: [6, "Discreet"], ITA: [5.5, "Mixed record"], ESP: [5.5, "Mixed record"], JOR: [6.5, "The GID is a strong regional service"], QAT: [6, "Discreet"],
 };
 window.tradecraft = c => (window.TRADECRAFT[c.iso3] || [Math.max(2, Math.min(6, 2 + 0.45 * ((c.intelProfile && c.intelProfile.score) || 4)))])[0];
+
+// Homeland security: [alert 0–10, domestic stability 0–10, why]. Alert is how closely the state
+// watches its own territory: domestic security services, police reach, surveillance cameras,
+// border and financial monitoring, and a public primed to report suspicious activity. Stability is
+// whether the state holds together: a stable country notices strangers; one torn by war, coups,
+// mass protest or collapse loses track of who is moving through it. Both multiply how fast foreign
+// spies and special-forces teams are found. Countries not listed: estimated from wealth,
+// counter-intelligence, corruption and war.
+window.HOMELAND = {
+  USA: [9.5, 7, "The FBI's 56 field offices and Joint Terrorism Task Forces, DHS, 18,000 police agencies, FISA surveillance and suspicious-activity reporting since 9/11; stable institutions despite deep polarisation"],
+  CHN: [10, 8, "The world's densest surveillance state: 600+ million cameras, facial recognition, the Ministry of State Security, mandatory reporting and grid-management wardens"],
+  PRK: [10, 6, "A totalitarian police state where every citizen watches every other; a brittle, isolated regime"],
+  RUS: [8, 6, "The FSB and pervasive surveillance, but the 2023 Wagner mutiny and the 2024 Crocus City Hall attack (despite a US warning) showed gaps"],
+  GBR: [8.5, 8, "MI5, counter-terror policing and one of the world's densest CCTV networks"],
+  ISR: [8.5, 6, "Shin Bet and a vigilant public, though the 7 October 2023 failure and deep political rifts showed limits"],
+  FRA: [8, 7, "DGSI and long counter-terror experience; recurrent unrest"], DEU: [7, 8, "BfV, strong policing, privacy limits on surveillance"],
+  JPN: [7, 9, "Orderly society with low crime, but weak counter-espionage laws"], KOR: [8, 7, "NIS and police watching for Northern agents; political crises (the 2024 martial-law episode)"],
+  TWN: [5.5, 7, "Open society heavily penetrated by China"], SGP: [9.5, 9, "Tight policing, cameras everywhere, strong internal security act"],
+  ARE: [9, 8, "Pervasive surveillance (it filmed the 2010 Mossad team in Dubai)"], SAU: [8.5, 7, "State security presidency and pervasive monitoring"],
+  QAT: [8, 8, "Small, closely watched"], TUR: [8, 6, "MIT and a vast police apparatus since 2016; political tension"],
+  IRN: [7, 4, "Pervasive monitoring, yet riddled with Israeli agents; the regime is shaken by protests and the 2025 war"],
+  EGY: [8, 6, "A police state watching its own people"], IND: [6, 7, "Vast and stretched: large, porous borders and cities"],
+  PAK: [6.5, 5, "ISI's internal reach, but insurgencies and political turmoil"], CAN: [7, 8, "CSIS and RCMP, a long open border"],
+  AUS: [7.5, 9, "ASIO and strong policing"], NZL: [6, 9, "Small, stable, lightly watched"], ITA: [7, 7, "Experienced police and anti-Mafia services"],
+  ESP: [7, 7, "Counter-terror experience"], NLD: [7.5, 8, "AIVD, dense digital monitoring"], POL: [7, 8, "ABW counter-espionage, on alert against Russian sabotage"],
+  UKR: [6.5, 5, "SBU hunts saboteurs, but war and displacement make tracking people hard"], BLR: [8.5, 6, "KGB police state, shaken by the 2020 protests"],
+  CUB: [9, 6, "Neighbourhood watch committees and the DI"], VEN: [6, 3, "Cuban-advised repression amid collapse"], SYR: [3, 3, "Rebuilding after the regime's fall"],
+  IRQ: [4.5, 4, "Militias and fractured security"], AFG: [5, 4, "Taliban checkpoints, little else"], YEM: [3, 2, "Divided by war"], LBY: [2, 2, "Rival governments and militias"],
+  SDN: [2, 1, "Collapsed into civil war"], SOM: [2, 2, "Weak state"], MMR: [4, 2, "Civil war"], HTI: [1, 1, "Gangs rule the capital"],
+  MEX: [5, 5, "Cartel violence stretches the state"], BRA: [5.5, 6, "Large and unequal"], COL: [6, 6, "Experienced against insurgents"], NGA: [4, 4, "Insurgencies and banditry"],
+  ZAF: [4.5, 5, "High crime, stretched police"], ETH: [5, 4, "Ethnic conflict"], KAZ: [7, 7, "Watchful post-Soviet state"], AZE: [8, 7, "Tight state security"],
+  ARM: [6, 6, "Political turbulence after 2020"], GEO: [6, 6, "Polarised"], FIN: [7, 9, "Supo and a cohesive society"], SWE: [7, 8, "Säpo, gang violence rising"],
+  NOR: [7, 9, "PST, stable"], DNK: [7, 9, "PET, stable"], CHE: [7.5, 10, "Orderly, watchful"], EST: [7.5, 8, "KAPO catches Russian agents regularly"],
+  LTU: [7.5, 8, "On alert against Russia"], LVA: [7, 7, "On alert against Russia"], HUN: [7, 7, "Watchful"], CZE: [7, 8, "BIS exposed Russian sabotage"],
+  ROU: [6.5, 7, "SRI"], GRC: [6, 7, "Stretched by migration"], PHL: [5, 6, "Insurgencies"], IDN: [6, 7, "Densus 88 counter-terror"], THA: [6, 6, "Coups and protests"],
+  VNM: [8.5, 8, "One-party surveillance state"], MYS: [6.5, 7, "Special Branch"], JOR: [8, 7, "GID watches closely"], MAR: [7.5, 7, "DGST, effective against jihadists"], DZA: [7.5, 6, "Security state"],
+};
+window.homeland = c => {
+  const h = window.HOMELAND[c.iso3];
+  if (h) return { alert: h[0], stab: h[1], note: h[2], est: false };
+  const lg = Math.log10(1 + c.gdp / Math.max(c.pop, 0.001)), m = c.milStats || {}, counter = (c.intelProfile && c.intelProfile.counter) || 3;
+  const war = (m.experience || 0) >= 7;
+  return { alert: Math.round(Math.max(1, Math.min(9, 1 + 0.45 * counter + 1.2 * lg - 0.15 * (m.corruption || 5))) * 10) / 10,
+    stab: Math.round(Math.max(1, Math.min(9, 4 + 1.8 * lg - 0.25 * (m.corruption || 5) - (war ? 2.5 : 0))) * 10) / 10, note: "", est: true };
+};
+// How fast foreign spies and teams are found here, relative to an ordinary state: ×1.03 in the US,
+// ×1.15 in China, ×0.65 in Iran, ×0.3 in a collapsed state.
+window.homelandFactor = c => { const h = window.homeland(c); return (0.4 + 0.08 * h.alert) * (0.4 + 0.07 * h.stab); };
