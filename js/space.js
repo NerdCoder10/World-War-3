@@ -163,7 +163,7 @@ window.COUNTER_INTEL = {
       humint: cl(s.intel * 0.8 + (c.milStats ? c.milStats.experience * 0.15 : 0) + 0.5),
       sigint: cl(s.intel * 0.5 + s.cyber * 0.3 + sat("sigint") * 1.4 + (fiveEyes ? 1.5 : 0)),
       imint: cl(sat("recon") * 3 + lg * 0.6),
-      cyber: cl(s.cyber),
+      cyber: cl(window.cyber ? window.cyber(c).off : s.cyber),
       counter: cl(s.intel * 0.6 + (c.milStats ? (10 - c.milStats.corruption) * 0.25 : 2) + (["RUS", "CHN", "PRK", "IRN", "ISR"].includes(c.iso3) ? 1.2 : 0)),
       shared: fiveEyes ? 2 : nato ? 1 : 0,
     };

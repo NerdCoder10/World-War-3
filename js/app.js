@@ -3226,6 +3226,7 @@
         ${doctrineHtml(c)}
         ${airArtyHtml(c)}
         ${sfHtml(c)}
+        ${cyberHtml(c)}
         ${weatherHtml(c)}
         ${nightHtml(c)}
         ${droneHtml(c)}
@@ -3553,9 +3554,21 @@
       att: { ...b.att, aa: Math.round(window.AD_BATTERIES(BY[b.att.nat]) / 4), bvr: bvr(b.att.nat), ...ability(b.att.nat) },
       def: { ...b.def, aa: window.AD_BATTERIES(BY[T]), bvr: bvr(T), ...ability(T) },
       lossAtt, lossDef, ground, weather, night: !window.sunUp(P[0], P[1], ms, doy),
-      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker; special forces ${Math.round(b.bm.sfEdge * 100)}% to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. Grey units are down for maintenance and sit the battle out; better kit fires faster. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
+      summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker; special forces ${Math.round(b.bm.sfEdge * 100)}% to the attacker; cyber ×${b.bm.cyEdge.toFixed(2)} to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. Grey units are down for maintenance and sit the battle out; better kit fires faster. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
     });
   }
+  // Cyber power (js/cyber.js) and cyber operations against this country.
+  function cyberHtml(c) {
+    const y = window.cyber(c), s = G.state, rank = C.map(o => [o.iso3, window.cyber(o).off]).sort((a, b) => b[1] - a[1]).findIndex(([i]) => i === c.iso3) + 1;
+    const hit = ["grid", "c2"].filter(k => G.cyHit(c.iso3, k)).map(k => (k === "grid" ? "grid down" : "command networks hacked"));
+    const ops = s.player && !G.owns(c.iso3) ? Object.entries(G.CYBER_OPS).map(([k, O]) => { const q = G.cyberQuote(c.iso3, k); return `<button class="btn ghost cyber-op" data-t="${c.iso3}" data-k="${k}" title="${esc(O.what)}">${esc(O.label)} <small>${q.power.toFixed(1)} vs ${q.need.toFixed(1)} · ${q.ok ? "will succeed" : "will fail"}${q.traced ? " · traced" : ""}</small></button>`; }).join("") : "";
+    return `<div class="section"><h3>Cyber <small>offence #${rank} of ${C.length}</small></h3>
+      <div class="meters">${meter("Offence", y.off)}${meter("Defence", y.def)}</div>
+      <p class="hint">${y.note ? esc(y.note) : "No researched profile: estimated from its intelligence services and wealth"}.${hit.length ? ` <b class="bad">Now: ${hit.join(", ")}.</b>` : ""}</p>
+      ${ops ? `<div class="spyops">${ops}</div><p class="hint">No dice: an operation succeeds when your best cyber offence (+1 with a spy network of 30+ inside) beats its defence plus the operation's difficulty; it is traced to you when its defence plus half its counter-intelligence beats your tradecraft + 3, and a traced attack turns it hostile. ${Object.values(G.CYBER_OPS).map(O => `<b>${esc(O.label)}</b>: ${esc(O.what)}.`).join(" ")} Hostile powers with offence 6+ attack your richest nation every 11 days.</p>` : ""}
+      <p class="hint">In battle its offence against the enemy's defence adds up to 6% (command networks, sensors, logistics).</p></div>`;
+  }
+  document.addEventListener("click", e => { const b = e.target.closest && e.target.closest(".cyber-op"); if (!b) return; const err = G.cyberOp(b.dataset.t, b.dataset.k); if (err) return toast(err); toast(G.state.log[0].msg); refresh(); });
   // Special forces (js/specialforces.js): every unit, its training and proven record.
   function sfHtml(c) {
     const us = window.sfUnits(c.iso3).slice().sort((a, b) => window.sfQuality(b) - window.sfQuality(a)), best = us[0], s = G.state;
