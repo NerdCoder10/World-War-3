@@ -646,6 +646,16 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Maintenance of everything.** Every country's dossier has a Maintenance section that brings every kind of upkeep together. New here:
+  - **Artillery ammunition** (`js/upkeep.js` AMMO, about 30 countries researched): stocks in days of high-intensity fire and daily production, from analysis.
+    - **Examples:** Russia 90 days, making 0.85 a day (3–4 million shells a year plus North Korea's); China 150; North Korea 200; the US 60, making 0.15 (40,000 shells a month); Britain 7 and Germany 10 ("days" of shells, as officials warned); Ukraine 15, living on deliveries.
+    - **Use:** each war day burns one day of fire. With under 3 days left the guns fire in proportion (×0.3 at none left). In peace stocks refill to 130%.
+  - **Infantry replacements:** a long war replaces veterans with men trained in weeks, up to −25%. Better-trained armies dilute less.
+  - **Satellites:** at war, jamming, anti-satellite weapons and lost ground stations take ~0.3% of a constellation a day (`SAT_LAUNCH`). Countries with their own launchers replace losses (the US ~170 launches a year, China ~90, Russia ~20); others can't in a war with trade cut. Losses cut the space bonus to intelligence and battle.
+  - **Homeland and border security strained by war:** police, border guards and analysts are pulled to the front, up to −25%, faster in less stable states. Spies and teams get in and stay hidden more easily.
+  - **Radars:** coverage ×(0.75 + 0.25 × maintenance capacity).
+  - **Ports you build** cost 0.2% of their price a day. Unpaid, the costliest falls into disrepair.
+  - **Already in place:** equipment mission-capable rates, war wear, spare parts, fuel, allies' war-weariness, missile reliability, interceptors and shelf life, drone upkeep, cyber sustainment, spy networks and special forces.
 - **Missiles and drones: real stockpiles and their upkeep.**
   - **Stockpiles by the analysis, not official figures:**
     - **Russia:** ~800 ballistic and ~1,200 cruise missiles on hand (Ukrainian intelligence: most new production is fired within weeks).

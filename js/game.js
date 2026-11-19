@@ -510,6 +510,46 @@
   // reaction force). A unit needs 2 days to recover after a raid, 7 after a failed one.
   const sfQ = (u, iso) => (iso ? window.sfQualityOf(iso, u) : window.sfQuality(u));
   const raidHard = (iso, x) => { const d = window.sfBest(sideOf(iso)) ? sideOf(iso) : iso; return 2 + 0.5 * SITE_HARD(x) + 4 * sfQ(window.sfBest(d), d); };
+  // ── Upkeep of ammunition, infantry, satellites, security, radars and ports (js/upkeep.js) ──
+  // Artillery ammunition: a day at war burns a day of fire; production refills it; with under 3 days
+  // left the guns fire in proportion (×0.3 with none left). In peace stocks refill to 130% of the start.
+  const ammoStart = iso => window.ammoProfile(BY[iso]).stock;
+  const ammoDays = iso => { const a = G.state.ammo || {}; return a[iso] == null ? ammoStart(iso) : a[iso]; };
+  const ammoMult = iso => { const d = ammoDays(iso); return d >= 3 ? 1 : 0.3 + 0.7 * d / 3; };
+  // Infantry: a long war kills veterans and fills the ranks with men trained in weeks; the better a
+  // country trains, the less its infantry is diluted (up to −25%).
+  const troopDilution = iso => 1 - Math.min(0.25, 0.0015 * warDaysOf(iso) * (1 - 0.5 * ms(iso).training / 10));
+  // Satellites: at war, jamming, anti-satellite weapons and lost ground stations take ~0.2% of a
+  // constellation a day (~0.3%); own launches replace losses (others only in peacetime, by buying launches).
+  const satLoss = iso => ((G.state.satLoss || {})[iso] || 0);
+  // Homeland and border security strained by war: police, border guards and analysts are pulled to
+  // the front; less stable states strain faster (up to −25%).
+  const warStrain = iso => Math.min(0.25, warDaysOf(iso) * 0.002 * (1.2 - window.homeland(BY[iso]).stab / 10));
+  // Ports you built cost 0.2% of their price a day to keep up; unpaid, the costliest falls into disrepair.
+  const PORT_COST = { harbour: 150, station: 500, base: 2000, major: 8000 };
+  const portUpkeep = () => Object.entries(G.state.ports || {}).reduce((a, [, cls]) => a + (PORT_COST[cls] || 0) * 0.002, 0);
+  function upkeepDay() {
+    const s = G.state, am = (s.ammo = s.ammo || {}), sl = (s.satLoss = s.satLoss || {});
+    C.forEach(c => {
+      const iso = c.iso3, war = atWar(iso), a = window.ammoProfile(c);
+      if (war || am[iso] != null) { const v = ammoDays(iso) + a.prod - (war ? 1 : 0); am[iso] = Math.max(0, Math.min(a.stock * 1.3, v)); if (!war && am[iso] >= a.stock) delete am[iso]; }
+      if (c.space && c.space.govTotal) {
+        const own = (window.SAT_LAUNCH[iso] || [0])[0], rep = own || (warDaysOf(iso) ? 0 : 0.001);
+        const v = (sl[iso] || 0) + (war ? 0.003 : 0) - rep;
+        if (v > 0) sl[iso] = Math.min(0.8, v); else delete sl[iso];
+      }
+    });
+    if (s.player) {
+      let cost = portUpkeep();
+      while (cost > 0 && s.coins < cost) {
+        const k = Object.keys(s.ports || {}).sort((x, y) => (PORT_COST[s.ports[y]] || 0) - (PORT_COST[s.ports[x]] || 0))[0];
+        if (!k) break;
+        log(`⚓ Unpaid upkeep: the ${window.PORT_CLASSES[s.ports[k]].label.toLowerCase()} at ${k.slice(4)} fell into disrepair.`, "bad");
+        delete s.ports[k]; cost = portUpkeep();
+      }
+      s.coins = Math.max(0, s.coins - cost);
+    }
+  }
   // ── Upkeep of special forces ──
   // Fatigue (0–1): each raid +0.15 (+0.25 if it fails), each day a team is in the field +0.004, and
   // every day the country is at war +0.003 for all its units (the Rangers and SEALs after two decades
@@ -724,7 +764,8 @@
     if (radarMemo[iso]) return radarMemo[iso];
     const rows = (window.DEPLOYMENTS[iso] || []).filter(r => !r[7] && window.isRadarSite({ name: r[0], note: r[6] }) && !siteSt(iso, r[0]));
     const ew = rows.filter(r => window.isEarlyWarning({ name: r[0], note: r[6] })).length, need = window.RADARS_NEEDED(BY[iso]);
-    return (radarMemo[iso] = { sites: rows.length, ew, need, cov: need ? Math.min(1, rows.length / need) : 0 });
+    // Radars work only as well as they are maintained: coverage ×(0.75 + 0.25 × maintenance capacity).
+    return (radarMemo[iso] = { sites: rows.length, ew, need, cov: need ? Math.min(1, rows.length / need) * (0.75 + 0.25 * maintCap(iso)) : 0 });
   }
   // Destroyed or captured air-defence sites take their batteries with them.
   // Cyber hits (js/cyber.js): a blacked-out grid or hacked command and air-defence networks.
@@ -820,9 +861,9 @@
   }
   let partsCache = { st: null, turn: -1, v: {} };
   function partsFactor(iso, key) {
-    if (key === "troops") return 1;
-    const d = warDaysOf(iso);
-    if (!d) return 1;
+    if (key === "troops") return troopDilution(iso);
+    const d = warDaysOf(iso), am = key === "arty" ? ammoMult(iso) : 1;
+    if (!d) return am;
     const s = G.state;
     if (partsCache.st !== s || partsCache.turn !== s.turn) partsCache = { st: s, turn: s.turn, v: {} };
     const ck = iso + key;
@@ -830,7 +871,7 @@
       const sk = window.maintSkill(iso), f = sk + (1 - sk) * Math.max(0, 1 - d / window.PARTS_DAYS);
       partsCache.v[ck] = (1 - partsCut(iso, key).share * (1 - f)) * wearFactor(iso, key, d);
     }
-    return partsCache.v[ck];
+    return partsCache.v[ck] * am;
   }
   // Wear from sustained operations: engines, tracks, barrels and airframes wear out faster than
   // depots can turn them round, so availability sinks over the first month of a war to a level set
@@ -1117,12 +1158,12 @@
   // Does the target (and the world) know this network exists? Publicly known penetrations start known.
   const spyKnownBy = (S, T) => !!knownStore()[S + ">" + T] || publicNote(S, T);
   // Homeland security and stability of the target (js/spies.js HOMELAND) scale every detection.
-  const homeF = T => window.homelandFactor(BY[T]);
+  const homeF = T => window.homelandFactor(BY[T]) * (1 - warStrain(T));
   // Border security (js/spies.js BORDERS): agents' couriers, officers and money cross through
   // points of entry; teams are resupplied by the weakest route, land or sea.
   const bord = T => window.border(BY[T]);
-  const spyBorderF = T => 0.8 + 0.04 * bord(T).entry;
-  const weakest = T => Math.min(bord(T).land, bord(T).sea);
+  const spyBorderF = T => 0.8 + 0.04 * bord(T).entry * (1 - warStrain(T));
+  const weakest = T => Math.min(bord(T).land, bord(T).sea) * (1 - warStrain(T));
   const spyDailyExp = (S, T) => 1.2 * (ipf(T).counter / 10) * homeF(T) * spyBorderF(T) * leakOf(S) * (0.5 + spyNet(S, T) / 100);
   const spyDaysLeft = (S, T) => { const r = spyDailyExp(S, T); return r > 0 ? Math.max(1, Math.ceil((100 - spyExposure(S, T)) / r)) : Infinity; };
   function exposeSpy(S, T, amt, how) {
@@ -1347,7 +1388,7 @@
     if (owns(iso)) return Object.keys(s.wars).length > 0 || s.enemies.some(e => e.vsPlayer) || Object.keys(s.revolts).length > 0;
     return !!(s.wars[iso] || (s.aiWars || {})[iso] || s.enemies.some(e => e.nat === iso || e.to === iso));
   }
-  const space = iso => window.spaceMult(BY[iso], atWar(iso));
+  const space = iso => 1 + (window.spaceMult(BY[iso], atWar(iso)) - 1) * (1 - satLoss(iso));
   // Intelligence, surveillance and reconnaissance: satellites (space) times the country's spy
   // agencies (js/space.js intelMult: targeting, early warning, sabotage and cyber).
   const isr = iso => space(iso) * window.intelMult(BY[iso]) * fuel(iso);
@@ -2468,6 +2509,7 @@
     droneDay();
     spyDay();
     munitionsDay();
+    upkeepDay();
     spyUpkeepDay();
     sfDay();
     sfUpkeepDay();
@@ -2639,6 +2681,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

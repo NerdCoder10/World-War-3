@@ -3227,6 +3227,7 @@
         ${airArtyHtml(c)}
         ${sfHtml(c)}
         ${cyberHtml(c)}
+        ${upkeepHtml(c)}
         ${weatherHtml(c)}
         ${nightHtml(c)}
         ${droneHtml(c)}
@@ -3557,6 +3558,34 @@
       lossAtt, lossDef, ground, weather, night: !window.sunUp(P[0], P[1], ms, doy),
       summary: `Today's odds: ${Math.round(b.r * 100)}% to ${esc(b.att.label)}. Air superiority ${Math.round(b.bm.edge * 100)}% to the attacker; ${esc(BY[T].name)}'s air defence ${b.bm.aa.toFixed(1)}/10 against its aircraft; artillery duel ${Math.round(b.bm.aEdge * 100)}% to the attacker; special forces ${Math.round(b.bm.sfEdge * 100)}% to the attacker; cyber ×${b.bm.cyEdge.toFixed(2)} to the attacker. Air combat is fought mostly beyond visual range with radar-guided missiles (${Math.round(bvr(b.att.nat) * 100)}% vs ${Math.round(bvr(T) * 100)}% of each air force can); only the less modern fight close in. Grey units are down for maintenance and sit the battle out; better kit fires faster. In a day like this the attacker loses about ${Math.round(lossAtt * 100)}% of its force and the defender ${Math.round(lossDef * 100)}%.`,
     });
+  }
+  // Every kind of upkeep for this country, in one place.
+  function upkeepHtml(c) {
+    const iso = c.iso3, pct = v => `${Math.round(v * 100)}%`, a = window.ammoProfile(c), war = G.warDaysOf(iso);
+    const kinds = window.UNITS.filter(u => u.key !== "troops" && G.baseForces(c)[u.key] >= 1);
+    const mc = kinds.map(u => `${esc(u.label.toLowerCase())} ${pct(window.mcRate(c, u.key) * G.partsFactor(iso, u.key) / (u.key === "arty" ? G.ammoMult(iso) : 1))}`).join(" · ");
+    const sfu = window.sfUnits(iso), fat = sfu.reduce((x, u) => x + window.sfFatigue(iso, u), 0) / Math.max(1, sfu.length), lost = sfu.reduce((x, u) => x + window.sfLost(iso, u), 0);
+    const cy = G.cyOf(iso), st = G.missileStock(iso), launch = window.SAT_LAUNCH[iso];
+    const rows = [
+      ["🔧 Equipment ready to fight", `${mc || "none"} (mission-capable rate${war ? ", war wear and spare parts" : ""})`],
+      ["💥 Artillery ammunition", `<b>${G.ammoDays(iso).toFixed(0)}</b> days of high-intensity fire, making ${a.prod} a day${a.note ? ` (${esc(a.note)})` : ""}${G.ammoMult(iso) < 1 ? ` <b class="bad">guns at ${pct(G.ammoMult(iso))}</b>` : ""}`],
+      ["🪖 Infantry", G.troopDilution(iso) < 1 ? `ranks diluted by raw replacements: ×${G.troopDilution(iso).toFixed(2)}` : "veteran ranks intact"],
+      ["⛽ Fuel", `×${G.fuel(iso).toFixed(2)} of full supply`],
+      ["🚀 Missiles", `${num(Math.round(st.bm + st.cm))} on hand, ${pct(G.missileRel(iso))} reliable; interceptors ${pct(G.interceptFrac(iso))}`],
+      ["🛩️ Drones", `${G.droneStock(iso).toFixed(0)} days of hard use; ${pct(G.droneParts(iso))} of parts imported`],
+      ["🖥️ Cyber", `sustainment ${pct(cy.sustain)}, offence ${cy.off.toFixed(1)}${cy.burn > 0.05 ? ` (${cy.burn.toFixed(1)} in burned tools)` : ""}, defence ${cy.def.toFixed(1)}`],
+      ["🎯 Special forces", `${fat >= 0.02 ? `average fatigue ${pct(fat)}` : "fresh"}${lost >= 1 ? `, ${num(Math.round(lost))} operators still to replace` : ""}`],
+      ["🛰️ Satellites", `${G.satLoss(iso) > 0.005 ? `<b class="bad">${pct(G.satLoss(iso))} of its constellation lost</b>` : "constellation intact"}; ${launch ? `replaces losses with its own launches (${esc(launch[1])})` : "no launchers of its own: can't replace losses in a war with trade cut"}`],
+      ["🚔 Homeland and borders", G.warStrain(iso) > 0.005 ? `strained by war: ×${(1 - G.warStrain(iso)).toFixed(2)}` : "at full strength"],
+      ["📡 Radars", `coverage ${pct(G.radarInfo(iso).cov)} with its maintenance (${pct(0.75 + 0.25 * G.maintCap(iso))} of what its sites could do)`],
+    ];
+    if (G.state.player && iso === G.state.player) {
+      rows.push(["🕵️ Spy networks", `${G.fmtCoins(Math.round(G.spyUpkeep()))} coins a day; case officers ${G.investedLevels()} of ${G.handlerCap().toFixed(1)}`]);
+      rows.push(["⚓ Ports you built", `${G.fmtCoins(Math.round(G.portUpkeep()))} coins a day`]);
+    }
+    return `<div class="section"><h3>Maintenance <small>everything that has to be kept up</small></h3>
+      ${rows.map(([k, v]) => `<p class="mcline"><b>${k}:</b> ${v}</p>`).join("")}
+      <p class="hint">Each is kept up by money, people, industry and parts, and each runs down in a long war: equipment wears and loses foreign spare parts, guns burn their ammunition, veterans are replaced by raw recruits, missiles and interceptors are fired faster than they are made, drones lose imported parts, hackers burn their tools, special forces tire and lose operators, satellites are jammed and shot down, and police and border guards are pulled to the front.</p></div>`;
   }
   // Cyber power (js/cyber.js) and cyber operations against this country.
   function cyberHtml(c) {
