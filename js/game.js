@@ -534,7 +534,34 @@
   const econStrain = iso => { const d = warDaysOf(iso), cap = warPayDays(iso); return d > cap ? Math.min(0.35, 0.35 * (d - cap) / cap) : 0; };
   // Paramilitaries (js/paramilitary.js) defend their own country as far as they are loyal, worn like
   // the regular troops: the share present for duty, dilution in a long war and the economy's strain.
-  const paraPower = iso => (BY[iso] && G.state.owner[iso] === iso ? window.paramilitaries(BY[iso]).reduce((a, p) => a + p[1] * 10 * window.paraQuality(p) * p[4], 0) * window.manning(BY[iso]) * troopDilution(iso) * (1 - 0.3 * econStrain(iso)) : 0);
+  // Their upkeep: funded from the defence budget (x0.85-1), tired by wartime duty (rear security,
+  // checkpoints, counter-insurgency: +0.4% fatigue a day at war, -2% a day at peace, up to 50%),
+  // and losses when they fight beside the army, refilled by recruiting at a pace the economy can pay for.
+  const paraFat = iso => ((G.state.paraFat || {})[iso] || 0);
+  const paraLoss = iso => ((G.state.paraLoss || {})[iso] || 0);
+  const paraPower = iso => (BY[iso] && G.state.owner[iso] === iso ? window.paramilitaries(BY[iso]).reduce((a, p) => a + p[1] * 10 * window.paraQuality(p) * p[4], 0) * window.manning(BY[iso]) * troopDilution(iso) * (1 - 0.3 * econStrain(iso)) * (0.85 + 0.15 * window.budgetSustain(BY[iso])) * (1 - 0.4 * paraFat(iso)) * (1 - paraLoss(iso)) : 0);
+  const hurtPara = (iso, dl) => { if (!window.paramilitaries(BY[iso]).length) return; const l = (G.state.paraLoss = G.state.paraLoss || {}); l[iso] = Math.min(0.8, (l[iso] || 0) + dl * 0.5); };
+  // Navies: yard capacity and wear from deployments at sea.
+  const yardCap = iso => window.navalYards(BY[iso]).cap;
+  const seaWear = iso => ((G.state.seaWear || {})[iso] || 0);
+  const navalUpkeep = iso => (0.8 + 0.02 * yardCap(iso)) * (1 - seaWear(iso));
+  function navalParaDay() {
+    const s = G.state, pf = (s.paraFat = s.paraFat || {}), pl = (s.paraLoss = s.paraLoss || {}), sw = (s.seaWear = s.seaWear || {});
+    const atSea = new Set();
+    s.armies.forEach(a => { if (((a.units.ships || 0) + (a.units.subs || 0) + (a.units.carriers || 0)) >= 1) atSea.add(a.nat); });
+    s.enemies.forEach(e => { if (((e.units.ships || 0) + (e.units.subs || 0) + (e.units.carriers || 0)) >= 1) atSea.add(e.nat); });
+    C.forEach(c => {
+      const iso = c.iso3;
+      if (window.paramilitaries(c).length) {
+        const v = atWar(iso) ? Math.min(0.5, (pf[iso] || 0) + 0.004) : Math.max(0, (pf[iso] || 0) - 0.02);
+        if (v > 0.001) pf[iso] = v; else delete pf[iso];
+        if (pl[iso]) { pl[iso] = Math.max(0, pl[iso] - 0.003 * (0.5 + window.fiscal(c).cap / 20)); if (!pl[iso]) delete pl[iso]; }
+      }
+      const y = yardCap(iso);
+      const v = atSea.has(iso) ? Math.min(0.3, (sw[iso] || 0) + 0.002 * (1.2 - y / 10)) : Math.max(0, (sw[iso] || 0) - 0.003 * (0.5 + y / 10));
+      if (v > 0.001) sw[iso] = v; else delete sw[iso];
+    });
+  }
   function upkeepDay() {
     const s = G.state, am = (s.ammo = s.ammo || {}), sl = (s.satLoss = s.satLoss || {});
     C.forEach(c => {
@@ -885,7 +912,7 @@
   }
   function partsFactorBase(iso, key) {
     const bs = window.budgetSustain(BY[iso]);
-    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso)) * (key === "troops" ? 0.85 + 0.15 * bs : 0.55 + 0.45 * bs);
+    return partsFactorCore(iso, key) * (1 - 0.3 * econStrain(iso)) * (key === "troops" ? 0.85 + 0.15 * bs : 0.55 + 0.45 * bs) * (key === "ships" || key === "subs" || key === "carriers" ? navalUpkeep(iso) : 1);
   }
   function partsFactorCore(iso, key) {
     if (key === "troops") return troopDilution(iso) * window.manning(BY[iso]);
@@ -2379,6 +2406,7 @@
     strikeSites(T, sE.hits, sideOf(w.by)); strikeSites(foes[0].nat, sD.hits, T);
     foes.forEach(e => scaleUnits(e.units, 1 - Math.min(0.6, 0.3 * (1 - r))));
     scaleUnits(forces(T), 1 - Math.min(0.6, 0.3 * r));
+    hurtPara(T, Math.min(0.6, 0.3 * r));
     s.enemies = s.enemies.filter(e => rawPower(e.units, e.nat) >= 3);
     const left = enemiesAt(T), by = BY[w.by].name;
     if (left.length && w.p0 > 0) captureFront(T, sideOf(w.by), left[0].from || left[0].nat, (1 - rawPower(forces(T), T) / w.p0) / 0.8);
@@ -2430,6 +2458,7 @@
     const el = Math.min(0.6, 0.3 * (1 - r));
     foes.forEach(e => scaleUnits(e.units, 1 - el));
     const dl = Math.min(0.6, 0.3 * r);
+    hurtPara(iso, dl);
     scaleUnits(forces(iso), 1 - dl);
     armiesAt(iso).forEach(a => scaleUnits(a.units, 1 - dl));
     s.armies = s.armies.filter(a => total(a.units) >= 0.05);
@@ -2553,6 +2582,7 @@
     produce();
     droneDay();
     spyDay();
+    navalParaDay();
     munitionsDay();
     upkeepDay();
     spyUpkeepDay();
@@ -2726,6 +2756,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();
