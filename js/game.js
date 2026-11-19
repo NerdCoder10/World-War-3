@@ -507,16 +507,44 @@
   // when its quality ×10 (+1 with a spy network of 30+ inside to guide it) beats the site's
   // defence: 2 + half the site's hardness + 4 × the quality of the defender's best unit (its quick
   // reaction force). A unit needs 2 days to recover after a raid, 7 after a failed one.
-  const sfQ = u => window.sfQuality(u);
-  const raidHard = (iso, x) => 2 + 0.5 * SITE_HARD(x) + 4 * sfQ(window.sfBest(sideOf(iso)) || window.sfBest(iso));
+  const sfQ = (u, iso) => (iso ? window.sfQualityOf(iso, u) : window.sfQuality(u));
+  const raidHard = (iso, x) => { const d = window.sfBest(sideOf(iso)) ? sideOf(iso) : iso; return 2 + 0.5 * SITE_HARD(x) + 4 * sfQ(window.sfBest(d), d); };
+  // ── Upkeep of special forces ──
+  // Fatigue (0–1): each raid +0.15 (+0.25 if it fails), each day a team is in the field +0.004, and
+  // every day the country is at war +0.003 for all its units (the Rangers and SEALs after two decades
+  // of rotations, Russia's VDV and Spetsnaz ground down in Ukraine). Rest recovers 0.02 a day. A tired
+  // unit fights up to 30% below standard. Losses (10% of a unit on a failed raid, a 12-man team when
+  // one is caught) are replaced slowly through its selection pipeline: the more elite the unit, the
+  // fewer candidates pass, so Delta or the SAS take far longer to rebuild than line paratroopers.
+  const sfKey = (iso, name) => iso + ":" + name;
+  const fatStore = () => (G.state.sfFat = G.state.sfFat || {});
+  const lossStore = () => (G.state.sfLoss = G.state.sfLoss || {});
+  window.sfLive = { fat: (iso, name) => (G.state && G.state.sfFat ? G.state.sfFat[sfKey(iso, name)] || 0 : 0), loss: (iso, name) => (G.state && G.state.sfLoss ? G.state.sfLoss[sfKey(iso, name)] || 0 : 0) };
+  const tire = (iso, name, v) => { const f = fatStore(), k = sfKey(iso, name); f[k] = Math.min(1, (f[k] || 0) + v); };
+  const lose = (iso, u, n) => { const l = lossStore(), k = sfKey(iso, u[0]); l[k] = Math.min(u[1] * 0.9, (l[k] || 0) + n); };
+  const pipeline = u => u[1] * 0.0015 * (1.25 - window.sfQuality(u)); // operators replaced per day
+  function sfUpkeepDay() {
+    const s = G.state, f = fatStore(), l = lossStore(), inField = new Set(Object.entries(s.sfTeams || {}).map(([k, t]) => sfKey(k.split(">")[0], t.u)));
+    C.forEach(c => {
+      const iso = c.iso3, war = warDaysOf(iso) > 0;
+      window.sfUnits(iso).forEach(u => {
+        const k = sfKey(iso, u[0]);
+        if (inField.has(k)) f[k] = Math.min(1, (f[k] || 0) + 0.004);
+        else if (war) f[k] = Math.min(0.6, (f[k] || 0) + 0.003);
+        else if (f[k]) f[k] = Math.max(0, f[k] - 0.02);
+        if (f[k] === 0) delete f[k];
+        if (l[k]) { l[k] = Math.max(0, l[k] - pipeline(u)); if (!l[k]) delete l[k]; }
+      });
+    });
+  }
   function raidQuote(iso, name) {
     const s = G.state, x = siteList(iso).find(y => y.name === name);
     if (!x) return { err: "No such site." };
     const cool = s.sfCool || {}, pool = [];
     empire().forEach(c => window.sfUnits(c.iso3).forEach(u => pool.push({ iso: c.iso3, u, ready: (cool[c.iso3 + ":" + u[0]] || 0) <= s.turn })));
-    pool.sort((a, b) => sfQ(b.u) - sfQ(a.u));
+    pool.sort((a, b) => sfQ(b.u, b.iso) - sfQ(a.u, a.iso));
     const pick = pool.find(p => p.ready), intel = myNet(sideOf(iso)) >= 30 ? 1 : 0, team = myTeamIn(iso) ? 2 : 0;
-    const score = pick ? 10 * sfQ(pick.u) + intel + team : 0, need = raidHard(iso, x);
+    const score = pick ? 10 * sfQ(pick.u, pick.iso) + intel + team : 0, need = raidHard(iso, x);
     return { x, pick, score, need, intel, team, ok: score > need, best: pool[0] };
   }
   function sfRaid(iso, name) {
@@ -532,6 +560,8 @@
     s.sfCool = s.sfCool || {};
     provoke(sideOf(iso));
     if (q.team) exposeTeam(s.player + ">" + iso, 20 * (ipf(iso).counter / 10) * homeF(iso) * Math.pow(1 - sfCovert(s.player, teamUnit(s.player, myTeamIn(iso).u)) / 11, 2));
+    tire(q.pick.iso, q.pick.u[0], q.ok ? 0.15 : 0.25);
+    if (!q.ok) lose(q.pick.iso, q.pick.u, Math.round(q.pick.u[1] * 0.1));
     if (q.ok) {
       s.sfCool[key] = s.turn + 2;
       loseSite(iso, q.x, "x", s.player);
@@ -544,7 +574,7 @@
     return null;
   }
   // Counter-insurgency: a ruler's special forces hunt rebel cells, slowing unrest by up to 25%.
-  const sfCalm = iso => 1 - 0.25 * sfQ(window.sfBest(iso) || ["", 0, 0, 0]);
+  const sfCalm = iso => 1 - 0.25 * (window.sfBest(iso) ? sfQ(window.sfBest(iso), iso) : 0);
   // Daily: rebuild destroyed sites 20 days after the owner's wars end; hand back captured sites when
   // the invaders have gone; drop captured marks once the captor holds the whole country.
   function sitesDay() {
@@ -651,7 +681,7 @@
     // designation and sabotage. Half on effective strength (operators × quality⁶), half on the
     // quality of each side's best unit (to the 4th power), so proven record dominates; the
     // defender's own units know the ground (×1.25). Up to ±7% each way.
-    const fa = window.sfPower(aNat) * ((G.state.sfTeams || {})[aNat + ">" + T] ? 1.5 : 1), fd = window.sfPower(dNat) * 1.25, qa = Math.pow(window.sfQuality(window.sfBest(aNat)), 4), qd = Math.pow(window.sfQuality(window.sfBest(dNat)), 4) * 1.25;
+    const fa = window.sfPower(aNat) * ((G.state.sfTeams || {})[aNat + ">" + T] ? 1.5 : 1), fd = window.sfPower(dNat) * 1.25, qa = Math.pow(window.sfQualityOf(aNat, window.sfBest(aNat)), 4), qd = Math.pow(window.sfQualityOf(dNat, window.sfBest(dNat)), 4) * 1.25;
     const sfEdge = 0.5 * (fa + fd > 0 ? fa / (fa + fd) : 0.5) + 0.5 * (qa + qd > 0 ? qa / (qa + qd) : 0.5);
     // Cyber (js/cyber.js): each side's offence against the other's defence, up to +6% (command
     // networks, sensors and logistics disrupted).
@@ -957,7 +987,7 @@
     Object.keys(st).forEach(k => {
       const [S, T] = k.split(">"), r = st[k];
       if (!BY[S] || !BY[T] || spySide(T) === spySide(S)) { delete st[k]; return; }
-      const eq = Math.min(100, spyBase(S, T) + (S === s.player ? 10 * (inv[T] || 0) : 0));
+      const eq = Math.min(100, spyBase(S, T) + (S === s.player ? 10 * (inv[T] || 0) * handlerScale() : 0));
       r.net += (eq - r.net) * 0.03;
       if (Math.abs(r.net - eq) < 0.5 && !(S === s.player && inv[T])) delete st[k];
     });
@@ -1096,6 +1126,7 @@
     const [S, T] = k.split(">");
     delete teamStore()[k];
     (s.sfCool = s.sfCool || {})[S + ":" + t.u] = s.turn + 14;
+    lose(S, teamUnit(S, t.u), 12); tire(S, t.u, 0.2);
     if (S === s.player) {
       const war = atWarWith(T);
       if (!war) provoke(sideOf(T));
@@ -1150,6 +1181,29 @@
         if (x) { loseSite(T, x, "x", S); log(`💥 Unidentified commandos destroyed ${x.name} in ${BY[T].name}. Nobody has claimed it; a counter-intelligence sweep may find who is behind it.`, "bad"); exposeTeam(mine, 25 * (ipf(T).counter / 10) * homeF(T) * Math.pow(1 - sfCovert(S, teamUnit(S, ts[mine].u)) / 11, 2)); }
       }
     });
+  }
+  // ── Upkeep of spy networks ──
+  // Agents must be paid, handled, moved and replaced. Networks above a service's natural level (what
+  // it keeps anyway) cost coins every day: 1% of the recruiting price per level invested. A service has
+  // only so many case officers: it can run 2 + 0.6 × its intelligence score levels of investment at
+  // full strength (the CIA ~8, a small service ~3); spread wider, every invested network gets less.
+  // If upkeep can't be paid, the costliest investment is dropped.
+  const handlerCap = () => (G.state.player ? 2 + 0.6 * ipf(G.state.player).score : 0);
+  const investedLevels = () => Object.values(G.state.spyInv || {}).reduce((a, v) => a + v, 0);
+  const handlerScale = () => { const n = investedLevels(), cap = handlerCap(); return n > cap ? cap / n : 1; };
+  const spyUpkeep = () => Object.entries(G.state.spyInv || {}).reduce((a, [T, v]) => a + (BY[T] ? v * spyCost(T) * 0.01 : 0), 0);
+  function spyUpkeepDay() {
+    const s = G.state, inv = s.spyInv || {};
+    if (!s.player) return;
+    let cost = spyUpkeep();
+    while (cost > 0 && s.coins < cost) {
+      const T = Object.keys(inv).filter(x => inv[x] > 0).sort((a, b) => spyCost(b) - spyCost(a))[0];
+      if (!T) break;
+      inv[T] -= 1; if (!inv[T]) delete inv[T];
+      log(`🕵️ Your services couldn't pay their agents in ${BY[T].name}: the network there was cut back.`, "bad");
+      cost = spyUpkeep();
+    }
+    s.coins = Math.max(0, s.coins - cost);
   }
   // Can your counter-intelligence in `T` see who runs a network there?
   const spyVisible = (S, T) => ipf(T).counter >= ipf(S).score - 2;
@@ -2383,7 +2437,9 @@
     produce();
     droneDay();
     spyDay();
+    spyUpkeepDay();
     sfDay();
+    sfUpkeepDay();
     cyberDay();
     sitesDay();
     portsDay();
@@ -2552,6 +2608,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

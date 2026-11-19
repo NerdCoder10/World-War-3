@@ -646,6 +646,15 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Upkeep of spies and special forces.**
+  - **Spy networks:** agents must be paid, handled and replaced.
+    - **Daily cost:** every level you invest above a service's natural level costs 1% of its recruiting price each day. Unpaid upkeep cuts back the costliest network.
+    - **Case officers:** a service runs 2 + 0.6 × its intelligence score levels of investment at full strength (the US ~8, a small service ~3). Spread wider, every invested network gets proportionally less.
+    - **Intel tab:** shows upkeep and case-officer load.
+  - **Special forces:** units have fatigue and losses.
+    - **Fatigue:** each raid adds 15% fatigue (25% if it fails), each day a team is in the field 0.4%, and each day the country is at war 0.3% for all its units (up to 60%). Rest recovers 2% a day. A tired unit fights up to 30% below standard, in raids, battles and counter-insurgency. After 100 days of war Russia's VDV is 30% worn.
+    - **Losses:** a failed raid costs 10% of the unit and a captured team 12 operators. Replacements arrive through each unit's selection pipeline at 0.15% × (1.25 − quality) of its strength a day, so elite units rebuild slowest. Delta replaces 40 lost operators in about 270 days; line paratroopers recover far faster.
+    - **Dossier:** shows each unit's operators, losses, condition and time to replace them.
 - **Cyber power** (`js/cyber.js`). Every country has a cyber offence and defence (0–10) from the IISS Cyber Capabilities assessments, the Belfer National Cyber Power Index and attributed operations. About 95 are researched with their record; the rest are estimated.
   - **Researched examples:**
     - **US 10/8.5:** Stuxnet, but Volt and Salt Typhoon inside its grid and telecoms.
