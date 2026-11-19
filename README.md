@@ -646,6 +646,22 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **How strong militaries really are** (`js/assessment.js`, `js/model.js`). The strength index the AI, alliances and rankings use is now an assessment, not a paper count.
+  - **Assessed combat strength:** every unit counted by its real models and the share mission-capable. Troops count only by the share present for duty (`MANNING`: ghost soldiers, desertion, unfilled posts, soldiers diverted to construction or business). The whole force is scaled by its real training, experience, leadership and corruption, plus drones, cyber, intelligence, and the missiles that actually work.
+  - **Manning examples:**
+    - **Russia 85%:** captured and leaked 2022 documents showed units at 60–80%.
+    - **Ukraine 85%:** over 100,000 desertion and absence cases by 2025.
+    - **Taiwan 80%; Germany 90%** (~20,000 posts unfilled); **Canada 85%.**
+    - **Iraq 80%:** the 2014 ghost-soldier scandal.
+    - **DR Congo, Somalia, South Sudan, Libya and Venezuela 60%.**
+  - **The overall score** is 70% assessed combat strength (square-root scaled, like the paper index) and 30% latent strength (real budget with off-book spending, economy and secret assets).
+  - **Real share of paper strength:** each dossier shows how much of the paper force is real:
+    - Israel 89%, Singapore 85%, the US and France 83%, Ukraine and Finland 82%, Britain and South Korea 74%.
+    - China 65%, India 59%, Russia 51%, Iran 48%, Saudi Arabia 43%, Egypt 41%.
+    - North Korea 34%, Cuba 30%, Venezuela 23%.
+  - **Unofficial sources:** each dossier also names the sources beyond official figures. Examples: the 2023 Discord leak of Pentagon slides, Oryx and Mediazona counts for Russia, the PLA's own "five incapables" critique and the Rocket Force purges, the Mossad-seized Iranian nuclear archive, KN-23 debris analysis, Indian auditor reports, Germany's Parliamentary Commissioner and a leaked Canadian readiness report.
+  - **Rankings:** an assessed-strength and a real-share-of-paper ranking. The assessed order: US, China, India, Russia, South Korea, Israel, Turkey, Ukraine, Pakistan, North Korea, Japan, France.
+  - **In battle:** troops fight at the share present for duty.
 - **Maintenance of everything.** Every country's dossier has a Maintenance section that brings every kind of upkeep together. New here:
   - **Artillery ammunition** (`js/upkeep.js` AMMO, about 30 countries researched): stocks in days of high-intensity fire and daily production, from analysis.
     - **Examples:** Russia 90 days, making 0.85 a day (3–4 million shells a year plus North Korea's); China 150; North Korea 200; the US 60, making 0.15 (40,000 shells a month); Britain 7 and Germany 10 ("days" of shells, as officials warned); Ukraine 15, living on deliveries.

@@ -861,7 +861,7 @@
   }
   let partsCache = { st: null, turn: -1, v: {} };
   function partsFactor(iso, key) {
-    if (key === "troops") return troopDilution(iso);
+    if (key === "troops") return troopDilution(iso) * window.manning(BY[iso]);
     const d = warDaysOf(iso), am = key === "arty" ? ammoMult(iso) : 1;
     if (!d) return am;
     const s = G.state;
