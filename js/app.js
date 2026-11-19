@@ -2559,7 +2559,7 @@
     return `<button class="bc-strike" ${q.have < q.fire ? "disabled" : ""}>💥 Strike this site <small>${q.fire} missiles · ${Math.floor(q.have)} left</small></button>
       <p class="hint">Its air defence stops ${Math.round((1 - q.leak) * 100)}% of missiles; destroying it takes ${q.need} hits. Radars and air-defence sites first blind the enemy; air and naval bases ground its aircraft and ships.</p>
       ${r.err ? "" : `<button class="bc-raid" ${r.pick ? "" : "disabled"}>🎯 Special-forces raid <small>${r.pick ? `${esc(r.pick.u[0])}: ${r.score.toFixed(1)} vs defence ${r.need.toFixed(1)} · ${r.ok ? "will succeed" : "will fail"}` : "all units recovering"}</small></button>
-      <p class="hint">No missiles needed. A raid succeeds when your best ready unit's quality ×10 (+1 with a spy network of 30+ inside) beats the site's defence: 2 + half its hardness + 4 × the quality of ${esc(BY[G.state.owner[iso]].name)}'s best unit (${esc((window.sfBest(G.state.owner[iso]) || [""])[0])}). Units rest 2 days after a raid, 7 after a failure.</p>`}`;
+      <p class="hint">No missiles needed. A raid succeeds when your best ready unit's quality ×10 (+1 with a spy network of 30+ inside, +2 with a covert team already in the country, which the raid puts at risk) beats the site's defence: 2 + half its hardness + 4 × the quality of ${esc(BY[G.state.owner[iso]].name)}'s best unit (${esc((window.sfBest(G.state.owner[iso]) || [""])[0])}). Units rest 2 days after a raid, 7 after a failure.</p>`}`;
   }
   // Clicking a base pins its card on the map and highlights it in the dossier list.
   function pickZone(z, fly) {
@@ -3437,6 +3437,7 @@
 
   // ── Intel: your spy networks abroad, foreign networks in your empire, the world's spy war ──
   let spyPick = "";
+  let sfPick = "";
   function intelPane() {
     const pane = $("#pane-intel"), s = G.state, open = new Set([...pane.querySelectorAll("details.spy[open]")].map(d => d.dataset.iso));
     const bar = v => `<i style="width:${Math.max(2, v)}%" class="lb-${v >= 60 ? "fights" : v >= 30 ? "limited" : "sits"}"></i>`;
@@ -3451,25 +3452,33 @@
         ${list.map(([T, v]) => { const own = G.spyNet(me, T), base = G.spyBase(me, T), inv = (s.spyInv || {})[T] || 0, err = G.intelError(T);
           return `<details class="lmem spy" data-iso="${T}" ${open.has(T) ? "open" : ""}><summary><span aria-hidden="true">${flag(BY[T].iso2)}</span><span class="nm">${esc(BY[T].name)}${bar(v)}</span><span class="st">${v >= 60 ? "deep" : v >= 30 ? "working" : "thin"}</span><b class="sc">${Math.round(v)}</b></summary>
             <p class="hint">Yours ${Math.round(own)} (natural ${base}${inv ? `, +${inv * 10} invested` : ""})${v > own + 0.5 ? `, ${Math.round(v)} with partners'` : ""} · against counter-intelligence ${ag(T).counter}/10 · estimates ±${Math.round(err * 100)}% · ${v >= 30 ? "warns of its attacks" : "no early warning"} · +${(G.spyEdge(me, T) * 100).toFixed(1)}% in battle.</p>
+            <p class="hint">${G.spyKnownBy(me, T) ? `⚠️ ${esc(BY[T].name)} knows about this network.` : `🫥 ${esc(BY[T].name)} doesn't know it exists.`} Cover: exposure ${Math.round(G.spyExposure(me, T))}/100; at this pace it is found in about ${num(G.spyDaysLeft(me, T))} days (your services' tradecraft ${window.tradecraft(BY[me])}/10 against its counter-intelligence ${ag(T).counter}/10). Operations and its sweeps bring that closer.</p>
             <div class="spyops"><button class="btn ghost" data-spy="recruit" data-t="${T}" ${inv >= 6 ? "disabled" : ""}>Recruit agents <small>${G.fmtCoins(G.spyCost(T))}</small></button>
             ${Object.entries(G.SPY_OPS).map(([k, O]) => `<button class="btn ghost" data-spy="${k}" data-t="${T}" ${own < O.need ? "disabled" : ""} title="${esc(O.what)}">${esc(O.label)} <small>needs ${O.need}</small></button>`).join("")}</div></details>`; }).join("")}
         <div class="rank-ctl"><select id="spy-new" aria-label="Country"><option value="">Start or grow a network in…</option>${C.filter(c => !G.owns(c.iso3)).sort((a, b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.iso3}" ${c.iso3 === spyPick ? "selected" : ""}>${esc(c.name)} (${Math.round(G.spyEff(me, c.iso3))})</option>`).join("")}</select>
           <button class="btn ghost" id="spy-new-go" ${spyPick ? "" : "disabled"}>Recruit${spyPick ? ` <small>${G.fmtCoins(G.spyCost(spyPick))}</small>` : ""}</button></div>
         <p class="hint">Operations burn part of the network and it lies low for 5 days; if it falls under 15 it is blown and the country turns hostile. ${Object.values(G.SPY_OPS).map(O => `<b>${esc(O.label)}</b>: ${esc(O.what)}.`).join(" ")}</p></div>`;
       const inside = [];
-      G.empire().forEach(c => G.spyInside(c.iso3).forEach(([S, v]) => { if (!G.owns(S) && v >= 5) inside.push([S, c.iso3, v]); }));
+      G.empire().forEach(c => G.spyInside(c.iso3).forEach(([S, v]) => { if (!G.owns(S) && v >= 5 && G.spyKnownBy(S, c.iso3)) inside.push([S, c.iso3, v]); }));
       inside.sort((a, b) => b[2] - a[2]);
-      html += `<div class="section"><h3>Foreign spies in your empire <small>${inside.length} networks</small></h3>
-        ${inside.slice(0, 25).map(([S, T, v]) => { const seen = G.spyVisible(S, T); return `<div class="lmem off" style="opacity:1"><span aria-hidden="true">${seen ? flag(BY[S].iso2) : "❔"}</span><span class="nm">${seen ? esc(BY[S].name) : "Unidentified service"} in ${esc(BY[T].name)}${bar(v)}</span><span class="st">${v >= 55 ? "can sabotage" : ""}</span><b class="sc">${Math.round(v)}</b></div>`; }).join("") || `<p class="hint">None detected.</p>`}
+      html += `<div class="section"><h3>Foreign spies in your empire <small>${inside.length} found</small></h3>
+        ${inside.slice(0, 25).map(([S, T, v]) => { const seen = true; return `<div class="lmem off" style="opacity:1"><span aria-hidden="true">${seen ? flag(BY[S].iso2) : "❔"}</span><span class="nm">${seen ? esc(BY[S].name) : "Unidentified service"} in ${esc(BY[T].name)}${bar(v)}</span><span class="st">${v >= 55 ? "can sabotage" : ""}</span><b class="sc">${Math.round(v)}</b></div>`; }).join("") || `<p class="hint">None detected.</p>`}
         <button class="btn diplo" id="spy-sweep">Counter-intelligence sweep <small>${G.fmtCoins(G.sweepCost())}</small></button>
-        <p class="hint">Hostile services with networks of 55+ in your nations sabotage them every ten days. A sweep cuts every foreign network by 4% per point of that nation's counter-intelligence (once every 5 days). Services more skilled than your counter-intelligence stay unidentified.</p></div>`;
+        <p class="hint">These are only the networks your counter-intelligence has found: others may be working undetected. How fast one is found depends on its service's record of staying hidden (Cuba's DI ran a mole in US intelligence for 17 years; Iran's plots are foiled again and again) against your nation's counter-intelligence. A sweep finds hidden networks and teams faster, then cuts every known network by 4% per point of counter-intelligence (once every 5 days). Hostile services with networks of 55+ sabotage your nations every ten days, unidentified until found.</p></div>`;
+      // Covert special-forces teams.
+      const teams = Object.entries(s.sfTeams || {}).filter(([k]) => k.startsWith(me + ">"));
+      html += `<div class="section"><h3>Covert special-forces teams <small>${teams.length} in the field</small></h3>
+        ${teams.map(([k, t]) => { const T = k.split(">")[1]; return `<div class="lmem off" style="opacity:1"><span aria-hidden="true">${flag(BY[T].iso2)}</span><span class="nm">${esc(t.u)} in ${esc(BY[T].name)}${bar(Math.min(100, t.exp))}</span><span class="st">${s.turn - t.at} d · found in ~${num(G.teamDaysLeft(k))} d</span><button class="btn ghost" data-sfout="${T}">Withdraw</button></div>`; }).join("") || `<p class="hint">None.</p>`}
+        <div class="rank-ctl"><select id="sf-new" aria-label="Country"><option value="">Slip a team into…</option>${C.filter(c => !G.owns(c.iso3) && !G.myTeamIn(c.iso3)).sort((a, b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.iso3}" ${c.iso3 === sfPick ? "selected" : ""}>${esc(c.name)} (counter-intel ${ag(c.iso3).counter})</option>`).join("")}</select>
+          <button class="btn ghost" id="sf-new-go" ${sfPick ? "" : "disabled"}>Insert</button></div>
+        <p class="hint">A team inside a country it doesn't know about gives +2 to raids there and ×1.5 to your special forces in battles there. Its cover is your services' tradecraft and the unit's quality against the country's counter-intelligence; raids put it at risk. If it is found, its operators are killed or captured, the unit is out for 14 days, and a country you aren't at war with turns hostile. Hostile powers do the same to you: you won't know their teams are there until your counter-intelligence finds them.</p></div>`;
     }
     const world = [];
-    C.forEach(a => window.SPY_TARGETS[a.iso3] && window.SPY_TARGETS[a.iso3].forEach(([T]) => { if (BY[T]) world.push([a.iso3, T, G.spyNet(a.iso3, T)]); }));
+    C.forEach(a => window.SPY_TARGETS[a.iso3] && window.SPY_TARGETS[a.iso3].forEach(([T]) => { if (BY[T] && (G.spyKnownBy(a.iso3, T) || a.iso3 === s.player)) world.push([a.iso3, T, G.spyNet(a.iso3, T)]); }));
     world.sort((a, b) => b[2] - a[2]);
     const note = (S, T) => (((window.SPY_TARGETS[S] || []).find(x => x[0] === T) || [])[2] || "");
     html += `<div class="section"><h3>The world's spy war <small>deepest networks</small></h3>${world.slice(0, 20).map(([S, T, v]) => `<details class="lmem"><summary><span aria-hidden="true">${flag(BY[S].iso2)}</span><span class="nm">${esc(BY[S].name)} → ${esc(BY[T].name)}${bar(v)}</span><span class="st"></span><b class="sc">${Math.round(v)}</b></summary>${note(S, T) ? `<p class="hint">${esc(note(S, T))}.</p>` : ""}</details>`).join("")}
-      <p class="hint">Starting networks follow each service's real priorities and known penetrations (Mossad in Iran, Russia in Ukraine, China in Taiwan and the US...).</p></div>`;
+      <p class="hint">Only networks that have been exposed are listed: publicly known penetrations (Mossad in Iran, Russia in Ukraine, China in Taiwan and the US...) and those found since. Every service also runs networks nobody has found.</p></div>`;
     pane.innerHTML = html;
     pane.querySelectorAll("[data-spy]").forEach(b => (b.onclick = () => {
       const T = b.dataset.t, k = b.dataset.spy, err = k === "recruit" ? G.spyRecruit(T) : G.spyOp(T, k);
@@ -3478,14 +3487,18 @@
     const sel = pane.querySelector("#spy-new"); if (sel) sel.onchange = () => { spyPick = sel.value; intelPane(); };
     const go = pane.querySelector("#spy-new-go"); if (go) go.onclick = () => { const err = G.spyRecruit(spyPick); if (err) toast(err); refresh(); };
     const sw = pane.querySelector("#spy-sweep"); if (sw) sw.onclick = () => { const err = G.spySweep(); if (err) toast(err); refresh(); };
+    pane.querySelectorAll("[data-sfout]").forEach(b => (b.onclick = () => { const err = G.sfWithdraw(b.dataset.sfout); if (err) toast(err); refresh(); }));
+    const sfs = pane.querySelector("#sf-new"); if (sfs) sfs.onchange = () => { sfPick = sfs.value; intelPane(); };
+    const sfg = pane.querySelector("#sf-new-go"); if (sfg) sfg.onclick = () => { const err = G.sfInsert(sfPick); if (err) return toast(err); sfPick = ""; toast(G.state.log[0].msg); refresh(); };
   }
   // Dossier: who spies on this country, and where its own services are strongest.
   function spyHtml(c) {
-    const inside = G.spyInside(c.iso3).slice(0, 5), abroad = G.spyAbroad(c.iso3).slice(0, 5), you = G.state.player && !G.owns(c.iso3) ? G.myNet(c.iso3) : null;
+    const me = G.state.player, inside = G.spyInside(c.iso3).filter(([S]) => S === me || G.spyKnownBy(S, c.iso3)).slice(0, 5), abroad = G.spyAbroad(c.iso3).filter(([T]) => c.iso3 === me || G.spyKnownBy(c.iso3, T)).slice(0, 5), you = me && !G.owns(c.iso3) ? G.myNet(c.iso3) : null;
     const ls = l => l.map(([i, v]) => `${esc(BY[i].name)} ${Math.round(v)}`).join(", ") || "none";
     return `<div class="section"><h3>Spy networks <small>0–100</small></h3>
       ${you != null ? `<p class="hint">🕵️ Your network here: <b>${Math.round(you)}</b>: estimates ±${Math.round(G.intelError(c.iso3) * 100)}%, ${you >= 30 ? "you'll see its attacks coming" : "no early warning"}, +${(G.spyEdge(G.state.player, c.iso3) * 100).toFixed(1)}% in battle. Manage it in the Intel tab.</p>` : ""}
-      <p class="hint">Spying on it: ${ls(inside)}.</p><p class="hint">Its networks abroad: ${ls(abroad)}.</p></div>`;
+      <p class="hint">Known to be spying on it: ${ls(inside)}.</p><p class="hint">Its known networks abroad: ${ls(abroad)}.</p>
+      <p class="hint">🫥 Only exposed networks are listed. Its services' tradecraft is <b>${window.tradecraft(c)}/10</b>${window.TRADECRAFT[c.iso3] ? `: ${esc(window.TRADECRAFT[c.iso3][1])}` : ""}. The higher it is, the longer its spies and special forces stay hidden abroad.</p></div>`;
   }
 
   // ── Battle scene (js/battle.js) ──
@@ -3547,7 +3560,8 @@
     const qrank = C.map(o => [o.iso3, window.sfQuality(window.sfBest(o.iso3))]).sort((a, b) => b[1] - a[1]).findIndex(([i]) => i === c.iso3) + 1;
     return `<div class="section"><h3>Special forces <small>strength #${rank} · best-unit quality #${qrank} of ${C.length}</small></h3>
       <table class="wetable"><tr><th>Unit</th><th>Operators</th><th>Training</th><th>Proven</th><th>Quality</th><th>Record</th></tr>${us.map(u => `<tr><td>${esc(u[0])}${cool[c.iso3 + ":" + u[0]] > s.turn ? ` <small class="bad">resting ${cool[c.iso3 + ":" + u[0]] - s.turn} d</small>` : ""}</td><td>${num(u[1])}</td><td>${u[2]}/10</td><td><b>${u[3]}/10</b></td><td>${Math.round(window.sfQuality(u) * 100)}%</td><td><small>${esc(u[4])}</small></td></tr>`).join("")}</table>
-      <p class="hint">Effective strength <b>${num(Math.round(pw))}</b> (operators × quality⁶, quality = 35% training + 65% proven record, so a few hundred proven operators outweigh tens of thousands of untested ones). In every battle the two sides' special forces contest reconnaissance, raids and target designation behind the lines, half on effective strength and half on the quality of each side's best unit: up to ±7% (the defender ×1.25 on home ground). Its best unit, ${esc(best[0])}, guards its sites against raids, and its special forces slow unrest in lands it rules by ${Math.round((1 - G.sfCalm(c.iso3)) * 100)}%.${G.owns(c.iso3) ? " At war, open an enemy base to send a raid." : ""}</p></div>`;
+      <p class="hint">Effective strength <b>${num(Math.round(pw))}</b> (operators × quality⁶, quality = 35% training + 65% proven record, so a few hundred proven operators outweigh tens of thousands of untested ones). In every battle the two sides' special forces contest reconnaissance, raids and target designation behind the lines, half on effective strength and half on the quality of each side's best unit: up to ±7% (the defender ×1.25 on home ground). Its best unit, ${esc(best[0])}, guards its sites against raids, and its special forces slow unrest in lands it rules by ${Math.round((1 - G.sfCalm(c.iso3)) * 100)}%.${G.owns(c.iso3) ? " At war, open an enemy base to send a raid." : ""} Covert record ${window.tradecraft(c)}/10 tradecraft: a ${esc(best[0])} team stays hidden abroad by ${(window.tradecraft(c) * 0.5 + 5 * window.sfQuality(best)).toFixed(1)}/10.</p>
+      ${s.player && !G.owns(c.iso3) ? (G.myTeamIn(c.iso3) ? `<p class="hint">🥷 Your ${esc(G.myTeamIn(c.iso3).u)} team is inside ${esc(c.name)}, undetected so far (found in ~${num(G.teamDaysLeft(s.player + ">" + c.iso3))} days at this pace).</p>` : `<button class="btn ghost sf-insert" data-t="${c.iso3}">🥷 Slip a special-forces team into ${esc(c.name)}</button>`) : ""}</div>`;
   }
   // The air force by model, its artillery and its air defence, from js/airspecs.js and js/missiles.js.
   function airArtyHtml(c) {
@@ -3566,6 +3580,7 @@
   // ── Campaign ───────────────────────────────────────────────
   document.addEventListener("change", e => { if (e.target && e.target.id === "occ-by") { occBy = e.target.value; dossier(); } });
   document.addEventListener("click", e => { const b = e.target.closest && e.target.closest(".watch-battle"); if (b) openBattleView(b.dataset.t); });
+  document.addEventListener("click", e => { const b = e.target.closest && e.target.closest(".sf-insert"); if (!b) return; const err = G.sfInsert(b.dataset.t); if (err) return toast(err); toast(G.state.log[0].msg); refresh(); });
   function campaign() {
     const pane = $("#pane-campaign"), s = G.state;
     const groups = {};

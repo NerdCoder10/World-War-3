@@ -42,3 +42,28 @@ window.SPY_TARGETS = {
 };
 // Intelligence alliances share networks: a member gets part of its partners' strength in a target.
 window.SPY_SHARING = { "Five Eyes": ["USA", "GBR", "CAN", "AUS", "NZL"] };
+
+// Tradecraft: how well a country's services have stayed hidden through their history (0–10).
+// It sets how fast their spy networks and special-forces teams are found: a 9 is found ~30 times
+// more slowly than a 3. Earned from the record: decades-long moles and operations never traced
+// count for it; networks rolled up, agents caught on camera and plots foiled count against it.
+window.TRADECRAFT = {
+  CUB: [9.5, "Ran Ana Montes inside the US Defense Intelligence Agency for 17 years and Ambassador Manuel Rocha for 40; rolled up the CIA's Cuban networks in the 1980s"],
+  GBR: [8.5, "The Double Cross system ran every German spy in Britain; Oleg Gordievsky inside the KGB for 11 years; few modern exposures"],
+  ISR: [8.5, "Eli Cohen in Damascus, Iran's nuclear archive stolen in 2018, the 2024 pager operation built for years undetected; but the 2010 Dubai hit squad was filmed and the 1954 Lavon affair and 1973 Lillehammer blunder exposed"],
+  RUS: [7, "The KGB's Cambridge Five, Aldrich Ames (9 years) and Robert Hanssen (22 years); but the 2010 illegals roll-up, and the GRU's Skripal poisoners and Unit 29155 exposed by open sources"],
+  CHN: [7.5, "Penetrated the CIA's China network in 2010–12 and US networks (Volt and Salt Typhoon) for years; but its sheer volume means dozens of cases are caught every year"],
+  UKR: [7.5, "Operation Spiderweb was prepared inside Russia for 18 months undetected; drone and sabotage cells deep in Russia"],
+  USA: [7, "Long-running penetrations of the KGB and GRU (Tolkachev, Polyakov); but lost its China network in 2010–12 and Iranian sources through a flawed covert-communication system"],
+  FRA: [6, "The DGSE was caught sinking the Rainbow Warrior in 1985; solid since"], DEU: [5.5, "The BND was itself penetrated by the Stasi and Russia (the 2022 Linke case)"],
+  PAK: [7, "The ISI ran the Afghan mujahideen and the Taliban network for decades with deniability"], IND: [5.5, "RAW's plots against Sikh separatists in Canada and the US were exposed in 2023"],
+  TUR: [6, "MIT renditions abroad, some exposed"], SAU: [3, "The Khashoggi murder team was filmed and identified within days"], ARE: [6, "Discreet; some hacking exposed"],
+  IRN: [3.5, "Its plots abroad are foiled again and again (Washington 2011, Paris 2018, Europe and the US since), and its own officials keep being recruited by Israel"],
+  PRK: [5, "The Lazarus Group's hacks are attributed quickly, but agents still infiltrate the South"], KOR: [5, "Agents regularly caught by the North"],
+  JPN: [4, "Little foreign espionage capability"], TWN: [4, "Riddled with Chinese penetration"], EGY: [4.5, "Heavy-handed, often exposed"],
+  SYR: [3, "Collapsed with the regime in 2024"], VEN: [5, "Relies on Cuban advisers"], BLR: [5, "Works with Russia's services"],
+  AUS: [7.5, "Five Eyes partner; rarely exposed"], CAN: [7, "Five Eyes partner"], NZL: [7, "Five Eyes partner"], NLD: [7, "The AIVD penetrated Russia's Cozy Bear hackers' own cameras"],
+  POL: [6.5, "Effective counter-intelligence against Russia"], CZE: [6, "Exposed Russia's Vrbětice depot bombing"], SWE: [6, "Discreet"], FIN: [6.5, "Discreet"],
+  NOR: [6, "Discreet"], ITA: [5.5, "Mixed record"], ESP: [5.5, "Mixed record"], JOR: [6.5, "The GID is a strong regional service"], QAT: [6, "Discreet"],
+};
+window.tradecraft = c => (window.TRADECRAFT[c.iso3] || [Math.max(2, Math.min(6, 2 + 0.45 * ((c.intelProfile && c.intelProfile.score) || 4)))])[0];
