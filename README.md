@@ -646,6 +646,17 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Jets:** air-to-air and air-to-ground ratings and generation, with stealth ×1.4. Examples: F-5 ×0.48, MiG-21 ×0.51, A-10 ×0.77, F-16C and Su-35 ×1.26, Rafale ×1.44, J-20 ×1.83, F-35 ×2.09.
   - Hover any unit at a base to see its ratings.
   - **Infantry** quality depends on each army's training, recent combat experience and kit (night vision, body armour, anti-tank and anti-air missiles, drones), from ×0.92 to ×1.16. About 70 armies are profiled: the US, Britain and Israel at ×1.15, Ukraine ×1.10, Russia ×1.05, China ×0.99, North Korea and Taiwan ×0.95. It is shown in the dossier.
+- **Missiles and drones: real stockpiles and their upkeep.**
+  - **Stockpiles by the analysis, not official figures:**
+    - **Russia:** ~800 ballistic and ~1,200 cruise missiles on hand (Ukrainian intelligence: most new production is fired within weeks).
+    - **China:** ~2,700 ballistic and 1,500 cruise (US DoD counts by class).
+    - **North Korea:** 900, after shipping 100+ KN-23s to Russia.
+    - **Starting drone stocks:** Russia 45 days of hard use (Geran-2 stockpiles for 500–800-drone nights), Iran 50, China 60, the US only 20 (few mass-produced small drones).
+  - **Reliability** (`MISSILE_RELIABILITY`): only that share of missiles fired works. US 95%, Russia 80%, China 80% (untested; the 2023 Rocket Force purge reportedly found missiles filled with water instead of fuel), Iran 70%, North Korea 55% (about half the KN-23s fired at Ukraine went astray).
+  - **Interceptors:** each air-defence battery has ~30. Every missile stopped costs 1.5 (shoot-look-shoot). Below 30% of stock, air defence fights at a fraction of its rating. Interceptor makers (US, Russia, China, Israel, France, Italy, Germany, South Korea, Japan, India, Turkey, Iran, Taiwan, Norway, Britain) refill 0.4% a day; importers 0.15%, and none in a war with trade cut.
+  - **Shelf life:** stocks lose up to 0.02% a day to ageing propellant and electronics, more for poorly maintained arsenals.
+  - **Drone upkeep:** production and repair scale with maintenance capacity. In a war with trade cut, it falls by up to 70% of the imported-parts share (`DRONE_PARTS`): Ukraine 60% (Chinese motors and cameras), Russia 40%, Turkey 30% (the TB2's Canadian cameras were cut off in 2020), China 5%.
+  - **Dossier:** shows stocks, reliability, interceptors and drone parts.
 - **Upkeep of spies and special forces.**
   - **Spy networks:** agents must be paid, handled and replaced.
     - **Daily cost:** every level you invest above a service's natural level costs 1% of its recruiting price each day. Unpaid upkeep cuts back the costliest network.
