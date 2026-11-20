@@ -715,6 +715,8 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Funding:** they are paid from the defence budget (×0.85–1).
     - **Fatigue:** wartime duty (rear security, checkpoints, counter-insurgency) adds 0.4% fatigue a day, up to 50%; rest recovers 2% a day; fatigue cuts their value by up to 20%.
     - **Losses:** they lose half the defenders' daily loss rate when they fight beside the army. Recruiting refills them at a pace set by the country's finances.
+    - **Kit upkeep:** their vehicles, weapons and radios are kept up by the country's maintenance capacity (×0.85–1).
+    - **Loyalty depends on pay:** when the budget falls short or a war outruns the economy, loosely tied forces (militias, auxiliaries) drift away while regime guards barely waver. Effective loyalty = loyalty × (1 − (1.1 − loyalty) × (0.6 × war strain + 0.3 × underfunding)). The dossier shows each force's loyalty as things stand.
   - **Dossier:** the Maintenance section shows the navy's yards and sea wear and the paramilitaries' condition.
   - **Peacetime economic upkeep:** can each country's real budget, including off-book spending, keep its forces running?
     - **Upkeep:** pay for every soldier plus the yearly operating and maintenance cost of each tank, jet, helicopter, ship, submarine and carrier, at local price levels.
