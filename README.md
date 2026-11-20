@@ -751,6 +751,14 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Radars:** coverage ×(0.75 + 0.25 × maintenance capacity).
   - **Ports you build** cost 0.2% of their price a day. Unpaid, the costliest falls into disrepair.
   - **Already in place:** equipment mission-capable rates, war wear, spare parts, fuel, allies' war-weariness, missile reliability, interceptors and shelf life, drone upkeep, cyber sustainment, spy networks and special forces.
+- **United States reanalysed (late 2026).** Several figures from 2024 reports were too low by later analysis:
+  - **Readiness and people:** readiness 0.8 → 0.85, as funding and recruiting recovered. Manning 98% → 100%: every service met its 2025 recruiting goals. Patriotism 7 → 8.
+  - **Intelligence:** spy tradecraft 7 → 8 (it published Russia's 2022 invasion plans weeks ahead).
+  - **Drones:** production 300,000 → 600,000 a year and stock 20 → 25 days, as the Army plans to buy a million drones.
+  - **Artillery shells:** 60 → 90 days of reserves (the largest in the world) and output 0.15 → 0.3 a day.
+  - **Air force:** pilot hours 130 → 140 and ground crews 7 → 8.
+  - **Shipyards:** 6 → 7 (private yards, 2025 funding, Korean investment).
+  - **Result:** the US now fields ~97% of its paper strength.
 - **Missiles and drones: real stockpiles and their upkeep.**
   - **Stockpiles by the analysis, not official figures:**
     - **Russia:** ~800 ballistic and ~1,200 cruise missiles on hand (Ukrainian intelligence: most new production is fired within weeks).
