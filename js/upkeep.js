@@ -120,3 +120,23 @@ window.AIR_UPKEEP = {
 };
 window.airUpkeep = c => { const a = window.AIR_UPKEEP[c.iso3]; if (a) return { hours: a[0], crews: a[1], note: a[2] };
   const r = (c.tech && c.tech.ready) || 0.5; return { hours: Math.round(30 + 130 * r), crews: Math.round(Math.max(1, Math.min(7, 1 + 7 * r)) * 10) / 10, note: "" }; };
+
+// Ground-force upkeep: repair and recovery capacity (0-10, the record). Armies get many knocked-out
+// vehicles back: recovery crews drag them off the field and depots rebuild them. Of each day's tank,
+// armoured-vehicle and artillery losses, 20% + 4% x capacity are recoverable (20-60%); they return
+// at 0.3% x capacity of the backlog a day. Capacity also keeps the fleet ready in peace: ground
+// readiness x(0.85 + 0.015 x capacity). Troops held at the front tire without rotation (+0.3% a
+// day at war, less for armies with deep reserves to rotate in, up to 40%; -2% a day at rest),
+// fighting up to 25% below their best. Not listed: estimated from maintenance capacity.
+window.GROUND_REPAIR = {
+  USA: [9, "Anniston, Red River and Letterkenny depots rebuild armour, and every unit has recovery vehicles"],
+  RUS: [6, "Recovers and rebuilds damaged and stored vehicles at scale (Uralvagonzavod and repair plants), but satellite counts show its storage yards emptying by 2025"],
+  UKR: [8, "Repair hubs near the front and in Poland and Slovakia return damaged Western and Soviet vehicles quickly"],
+  ISR: [9, "Repairs tanks under fire and rebuilds them at home, a lesson of 1973"], CHN: [8, "A vast industrial base"], KOR: [8, ""], JPN: [7, ""], TUR: [7, ""],
+  DEU: [6, "Strong industry, slow peacetime depots"], GBR: [5, "Thin depot capacity"], FRA: [6, ""], IND: [6, ""], PAK: [5, ""], POL: [6, ""], IRN: [5, "Keeps old kit running by cannibalising"],
+  PRK: [3, ""], SAU: [3, "Depends on foreign contractors"], EGY: [4, ""], TWN: [6, ""], FIN: [7, ""], SWE: [7, ""], AUS: [6, ""], CAN: [5, ""], ITA: [6, ""], ESP: [6, ""],
+  GRC: [4, ""], ARE: [4, ""], AZE: [5, ""], ARM: [4, ""], VEN: [2, ""], SYR: [2, ""], IRQ: [3, ""], DZA: [4, ""], MAR: [5, ""], VNM: [5, ""], BRA: [5, ""], IDN: [4, ""], THA: [4, ""],
+};
+window.groundRepair = c => { const g = window.GROUND_REPAIR[c.iso3]; if (g) return { cap: g[0], note: g[1] };
+  const m = window.maintSkill ? window.maintSkill(c.iso3) : 0.3, r = (c.tech && c.tech.ready) || 0.5;
+  return { cap: Math.round(Math.max(1, Math.min(7, 2 + 3 * m + 3 * r)) * 10) / 10, note: "" }; };
