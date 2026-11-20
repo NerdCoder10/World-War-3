@@ -724,7 +724,7 @@
     if (!air) ways.push(["civilians reporting troops at the border", Math.max(0, travelH - (sea ? 2 : 8) * conn * (0.5 + eyes)) + (1 - conn) * 6]);
     const bd = window.border(c);
     if (!air) ways.push([sea ? "its coast guard and coastal watch" : "its border guards and frontier surveillance", Math.max(0, travelH - 14 * ((sea ? bd.sea : bd.land) / 10)) + (10 - (sea ? bd.sea : bd.land)) * 0.6]);
-    ways.push(["intelligence analysis", 60 * (1.6 - 0.1 * (ipT.analysis || ipT.score || 0)) * conceal * share]);
+    ways.push(["intelligence analysis", 60 * (1.6 - 0.1 * (ipT.analysis || ipT.score || 0) * intelUpkeep(T)) * conceal * share]);
     const best = ways.reduce((a, b) => (b[1] < a[1] ? b : a));
     const h = Math.max(0.1, Math.min(travelH, best[1]));
     return { h, by: h >= travelH ? null : best[0], ways, shared };
@@ -1199,7 +1199,10 @@
   // 4 months toward what the country's own tech industry can supply (js/maintenance.js maintSkill).
   const cySustain = iso => { const b = window.cyberSustainBase(BY[iso]), d = warDaysOf(iso), sk = window.maintSkill(iso); return d ? b * (sk + (1 - sk) * Math.max(0, 1 - d / window.PARTS_DAYS)) : b; };
   const cyBurnOf = iso => ((G.state.cyberBurn || {})[iso] || 0);
-  const cyOf = iso => { const y = window.cyber(BY[iso]), su = cySustain(iso); return { off: Math.max(0, y.off - cyBurnOf(iso)), def: y.def * (0.8 + 0.2 * su), baseOff: y.off, baseDef: y.def, sustain: su, burn: cyBurnOf(iso) }; };
+  // Incident-response fatigue: each successful attack exhausts the defenders (+0.15, up to 0.3 off
+  // their defence share), recovering 0.03 × sustainment a day.
+  const cyDefFat = iso => ((G.state.cyDefFat || {})[iso] || 0);
+  const cyOf = iso => { const y = window.cyber(BY[iso]), su = cySustain(iso); return { off: Math.max(0, y.off - cyBurnOf(iso)), def: y.def * (0.8 + 0.2 * su) * (1 - cyDefFat(iso)), fatigue: cyDefFat(iso), baseOff: y.off, baseDef: y.def, sustain: su, burn: cyBurnOf(iso) }; };
   const CY_BURN = { finance: 0.4, grid: 0.8, c2: 1.2 };
   const burnCyber = (iso, k) => { const b = (G.state.cyberBurn = G.state.cyberBurn || {}); b[iso] = Math.min(6, (b[iso] || 0) + CY_BURN[k]); };
   const myCyberIso = () => empire().reduce((a, c) => (!a || cyOf(c.iso3).off > cyOf(a).off ? c.iso3 : a), null);
@@ -1209,7 +1212,7 @@
     const traced = cyOf(T).def + ipf(T).counter / 2 > trade(G.state.player) + 3;
     return { power, need, ok: power > need, access, traced };
   }
-  const markHit = (T, k) => { const h = (G.state.cyberHit = G.state.cyberHit || {}); h[T] = Object.assign({}, h[T], { [k]: G.state.turn + 3 }); };
+  const markHit = (T, k) => { const h = (G.state.cyberHit = G.state.cyberHit || {}); h[T] = Object.assign({}, h[T], { [k]: G.state.turn + 3 }); const f = (G.state.cyDefFat = G.state.cyDefFat || {}); f[T] = Math.min(0.3, (f[T] || 0) + 0.15); };
   function cyberOp(T, k) {
     const err = ready(); if (err) return err;
     const s = G.state, O = CYBER_OPS[k], at = (s.cyberAt = s.cyberAt || {});
@@ -1220,7 +1223,7 @@
     at[T] = s.turn;
     burnCyber(myCyberIso(), k);
     if (q.ok) {
-      if (k === "finance") { const g = Math.round(BY[T].gdp * 0.003 * 10); s.coins += g; log(`🖥️ Your hackers raided ${BY[T].name}'s banks: +${fmtCoins(g)} coins.`, "good"); }
+      if (k === "finance") { const g = Math.round(BY[T].gdp * 0.003 * 10); s.coins += g; const f0 = (s.cyDefFat = s.cyDefFat || {}); f0[T] = Math.min(0.3, (f0[T] || 0) + 0.15); log(`🖥️ Your hackers raided ${BY[T].name}'s banks: +${fmtCoins(g)} coins.`, "good"); }
       else { markHit(T, k); log(`🖥️ Your cyber operation hit ${BY[T].name}: ${O.what.toLowerCase()} (offence ${q.power.toFixed(1)} against its defence ${q.need.toFixed(1)}).`, "good"); }
     } else log(`🖥️ Your cyber operation against ${BY[T].name} failed against its defences (${q.power.toFixed(1)} against ${q.need.toFixed(1)}).`, "bad");
     if (q.traced) { provoke(sideOf(T)); log(`🚨 ${BY[T].name} traced the attack to you and turned hostile.`, "bad"); }
@@ -1228,7 +1231,8 @@
   }
   // Hostile powers with real cyber forces (offence 6+) attack your richest nation every 11 days.
   function cyberDay() {
-    const s = G.state, b = s.cyberBurn || {};
+    const s = G.state, b = s.cyberBurn || {}, df = s.cyDefFat || {};
+    Object.keys(df).forEach(iso => { df[iso] = Math.max(0, df[iso] - 0.03 * cySustain(iso)); if (df[iso] < 0.001) delete df[iso]; });
     Object.keys(b).forEach(iso => { b[iso] = Math.max(0, b[iso] - 0.06 * cySustain(iso)); if (!b[iso]) delete b[iso]; });
     if (!s.player) return;
     const home = empire().slice().sort((a, b) => b.gdp - a.gdp)[0];
@@ -1243,7 +1247,7 @@
       burnCyber(S, k);
       const who = cyOf(T).def + ipf(T).counter / 2 > trade(S) + 3 ? `${BY[S].name}'s hackers` : "Unidentified hackers";
       if (off > cyOf(T).def + CYBER_OPS[k].hard) {
-        if (k === "finance") { const g = Math.round(Math.min(s.coins * 0.05, BY[T].gdp * 0.002 * 10)); s.coins = Math.max(0, s.coins - g); log(`🖥️ ${who} raided banks in ${BY[T].name}: −${fmtCoins(g)} coins.`, "bad"); }
+        if (k === "finance") { const f0 = (s.cyDefFat = s.cyDefFat || {}); f0[T] = Math.min(0.3, (f0[T] || 0) + 0.15); const g = Math.round(Math.min(s.coins * 0.05, BY[T].gdp * 0.002 * 10)); s.coins = Math.max(0, s.coins - g); log(`🖥️ ${who} raided banks in ${BY[T].name}: −${fmtCoins(g)} coins.`, "bad"); }
         else { markHit(T, k); log(`🖥️ ${who} ${k === "grid" ? "blacked out the power grid" : "broke into command and air-defence networks"} in ${BY[T].name}: ${CYBER_OPS[k].what.toLowerCase()}.`, "bad"); }
       } else log(`🛡️ ${BY[T].name}'s cyber defences stopped an attack by ${who.replace("'s hackers", "").replace("Unidentified hackers", "an unidentified group")}.`, "good");
     });
@@ -1498,7 +1502,20 @@
   const space = iso => 1 + (window.spaceMult(BY[iso], atWar(iso)) - 1) * (1 - satLoss(iso));
   // Intelligence, surveillance and reconnaissance: satellites (space) times the country's spy
   // agencies (js/space.js intelMult: targeting, early warning, sabotage and cyber).
-  const isr = iso => space(iso) * window.intelMult(BY[iso]) * fuel(iso);
+  // ── Upkeep of intelligence ──
+  // Agencies need funding (analysts, intercept stations, satellites): ×(0.8 + 0.2 × budget funding);
+  // a war that outruns the economy starves them (×(1 − 0.3 × strain)); lost satellites blind
+  // imagery and signals collection (×(1 − 0.4 × share lost)); and every front beyond the first
+  // overloads the analysts (−8% each, up to −30%).
+  function warFronts(iso) {
+    const s = G.state;
+    if (owns(iso)) return Object.keys(s.wars).length + new Set(s.enemies.filter(e => e.vsPlayer).map(e => e.nat)).size;
+    return new Set(s.enemies.filter(e => e.nat === iso || e.to === iso).map(e => (e.nat === iso ? e.to : e.nat))).size;
+  }
+  const intelOverload = iso => Math.min(0.3, 0.08 * Math.max(0, warFronts(iso) - 1));
+  const intelUpkeep = iso => (0.8 + 0.2 * window.budgetSustain(BY[iso])) * (1 - 0.3 * econStrain(iso)) * (1 - 0.4 * satLoss(iso)) * (1 - intelOverload(iso));
+  // The combat bonus from intelligence (above 1) shrinks in proportion when its agencies are run down.
+  const isr = iso => space(iso) * (1 + (window.intelMult(BY[iso]) - 1) * intelUpkeep(iso) - 0.05 * (1 - intelUpkeep(iso))) * fuel(iso);
   // An army's strength where it is: in its own or your territory it fights as a defender (no
   // supply or terrain penalty); invading, it counts by the terrain and its supply line.
   const armyPower = a => {
@@ -2331,7 +2348,7 @@
   // ── Intelligence: what you can see of others ───────────────
   // Your best intelligence score across your nations. Estimates of enemy strength carry an error
   // band that shrinks with your intelligence and widens with their counter-intelligence.
-  const myIntel = () => (G.state.player && empire().length ? Math.max(...empire().map(c => c.intelProfile.score)) : 5);
+  const myIntel = () => (G.state.player && empire().length ? Math.max(...empire().map(c => c.intelProfile.score * intelUpkeep(c.iso3))) : 5);
   function intelError(iso) {
     return Math.max(0.03, Math.min(0.6, 0.55 - 0.045 * myIntel() + 0.03 * BY[iso].intelProfile.counter) * (1 - 0.7 * myNet(spySide(iso)) / 100));
   }
@@ -2811,6 +2828,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, logiCond, supplyWear, logiUpkeep, interdiction, spyUpkeepF: S => (0.8 + 0.2 * window.budgetSustain(BY[S])) * (1 - 0.4 * econStrain(S)), repairCap, troopFat, repairBacklog, pilotFat, airProf, airUpkeepF, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, intelUpkeep, intelOverload, warFronts, logiCond, supplyWear, logiUpkeep, interdiction, spyUpkeepF: S => (0.8 + 0.2 * window.budgetSustain(BY[S])) * (1 - 0.4 * econStrain(S)), repairCap, troopFat, repairBacklog, pilotFat, airProf, airUpkeepF, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

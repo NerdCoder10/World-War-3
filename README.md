@@ -694,6 +694,8 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
     - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
     - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Upkeep of intelligence agencies:** analysts, intercept stations and satellites must be kept up. Agencies run at ×(0.8 + 0.2 × budget funding) × (1 − 0.3 × war strain) × (1 − 0.4 × satellites lost), and analysts are overloaded by 8% for every front beyond the first (up to 30%). This scales the intelligence combat bonus, the accuracy of your estimates of enemy forces, and how fast analysis alone spots an attack.
+  - **Cyber incident-response fatigue:** each successful attack exhausts a country's defenders (−15% of its defence, up to −30%), recovering at 3% × sustainment a day. This comes on top of cyber sustainment, burned tools and network upkeep.
   - **Upkeep of logistics:**
     - **Transport fleets** (trucks, rolling stock, airlifters, sealift) work at ×(0.85 + 0.15 × the average of maintenance capacity and logistics ÷ 10).
     - **Supply-line wear:** every day a country has forces deployed abroad, its supply chain wears out (vehicles break down, depots run dry, roads and rail are worn), faster for weak logistics, up to −35%; it recovers at home.
