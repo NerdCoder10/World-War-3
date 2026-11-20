@@ -1027,7 +1027,28 @@
     let f = sea ? m.sea || 1 : km <= (m.near || 1000) ? m.n || 1 : m.f || 1;
     if (m.allied && blocsOf(to).concat(...(window.NEIGHBORS[to] || []).map(n => blocsOf(n))).some(({ members }) => members.includes(nat))) f = Math.min(f, m.allied);
     if (m.prepos && warDaysOf(nat) <= 10) f *= m.prepos;
-    return Math.max(0.45, 1 - lack * dist * (sea ? 0.5 : 0.35) * (1 + 0.6 * harsh) * f);
+    return Math.max(0.35, Math.max(0.45, 1 - lack * dist * (sea ? 0.5 : 0.35) * (1 + 0.6 * harsh) * f) * logiUpkeep(nat) * (1 - interdiction(nat, to)));
+  }
+  // ── Upkeep of logistics ──
+  // Transport fleets (trucks, rolling stock, airlifters, sealift) only work as well as they are
+  // maintained: ×(0.85 + 0.15 × the average of maintenance capacity and logistics ÷ 10). Every day
+  // a country has forces deployed abroad its supply chain wears (vehicles break down, depots run
+  // dry, rail and roads are worn out), faster for weak logistics, up to −35%; at home it recovers.
+  // The defender attacks the supply lines with drones and missiles (as Ukraine did to Russian depots
+  // with HIMARS and drones): up to −20%.
+  const logiCond = nat => 0.85 + 0.15 * (0.5 * maintCap(nat) + 0.5 * ms(nat).logistics / 10);
+  const supplyWear = nat => ((G.state.supplyWear || {})[nat] || 0);
+  const logiUpkeep = nat => logiCond(nat) * (1 - supplyWear(nat));
+  const interdiction = (nat, to) => { const d = sideOf(to); if (!BY[d] || d === sideOf(nat)) return 0; return Math.min(0.2, 0.012 * window.droneTech(d).level + 0.008 * window.missileTypes(BY[d]).gbm); };
+  function logisticsDay() {
+    const s = G.state, w = (s.supplyWear = s.supplyWear || {}), away = new Set();
+    s.armies.forEach(a => { if (a.to && !owns(a.to)) away.add(a.nat || s.player); });
+    s.enemies.forEach(e => away.add(e.nat));
+    C.forEach(c => {
+      const iso = c.iso3, lg = ms(iso).logistics;
+      const v = away.has(iso) ? Math.min(0.35, (w[iso] || 0) + 0.004 * (1.2 - lg / 10) * (1.2 - maintCap(iso))) : Math.max(0, (w[iso] || 0) - 0.01 * (0.5 + lg / 20));
+      if (v > 0.001) w[iso] = v; else delete w[iso];
+    });
   }
   // Good logistics also moves armies faster: travel times ×1.3 − 0.03 × logistics (US ×1.0).
   const travelMult = nat => 1.3 - 0.03 * ms(nat).logistics;
@@ -2615,6 +2636,7 @@
     produce();
     droneDay();
     spyDay();
+    logisticsDay();
     navalParaDay();
     munitionsDay();
     upkeepDay();
@@ -2789,6 +2811,6 @@
     isLocked: iso => !G.state.unlocked.includes(iso),
     save, replaceState, baseSource, moveUnits, moveQuote, fortMult, canCommand, tick, setPaused, fmtDur, clockLabel, etaLeft, SPEED, owns, empire, empireStrength, empireSoft, empireGdp, empireMissiles, missileStock, income, accessLvl, accessShare, accessible, accessQuote, techQuote, techShare, usable, bonus, techLvl, upgradeTech, industryCoins,
     forces, baseForces, rawPower, enemyPower, atWar, estimate, fuzzUnits, intelError, myIntel, fronts, heldShare, enemiesAt, homeDefence, isHostile, armyPower, defenceOf, armiesAt, arrived, sources, preview, dispatch, recall, disband, warProgress, loyalPower,
-    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, spyUpkeepF: S => (0.8 + 0.2 * window.budgetSustain(BY[S])) * (1 - 0.4 * econStrain(S)), repairCap, troopFat, repairBacklog, pilotFat, airProf, airUpkeepF, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
+    inRevolt, liftMult, unitList, borderMult, empireEcon, countryEcon, econOf, fuel, warDaysOf, mobOf, supply, travelMult, isAlly, allies, allianceTerms, surrenderInfo, diehard, airProfile, artyProfile, battleMods, jetReach, portBuilt, portBuilding, portCoastal, portQuote, buildPort, doc, docMix, docCombined, docEarly, detectTime, seaWhy, siteStatus, siteList, siteFrac, strikeSite, strikeQuote, atWarWith, radarInfo, effectiveAD, spyNet, spyEff, spyBase, myNet, spyEdge, spyRecruit, spyOp, spySweep, spyCost, sweepCost, spyAbroad, spyInside, spyVisible, SPY_OPS, nightInfo, nightKind, nightCap, droneEdge, droneStock, droneSustain, weather, weatherKind, weatherMix, dateOf, airAW, navAW, happiness, occupation, partsInfo, partsFactor, logiCond, supplyWear, logiUpkeep, interdiction, spyUpkeepF: S => (0.8 + 0.2 * window.budgetSustain(BY[S])) * (1 - 0.4 * econStrain(S)), repairCap, troopFat, repairBacklog, pilotFat, airProf, airUpkeepF, paraFat, paraLoss, yardCap, seaWear, navalUpkeep, paraPower, econStrain, warPayDays, mtype, ammoDays, ammoMult, troopDilution, satLoss, warStrain, portUpkeep, missileRel, interceptFrac, interceptMult, droneParts, handlerCap, investedLevels, handlerScale, spyUpkeep, CYBER_OPS, cyberQuote, cyberOp, cyHit, cyOf, cySustain, spyKnownBy, spyExposure, spyDaysLeft, sfInsert, sfWithdraw, teamDaysLeft, myTeamIn, sfCovert, raidQuote, sfRaid, sfCalm, wearFactor, maintCap, projection, reachOf, reachWhy, loyalty, blocsOf, blocMembers, blocReport, blocReliability, alliedSupport, allyLoyalty, sideStrength, proposeAlliance, leaveAlliance, allyHelp, isr, endTurn, diplomacyOdds, influence, choose, newGame, resetAll, bordersEmpire, raiseAccess, redeem, buy, fmtCoins,
   });
 })();

@@ -694,6 +694,10 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
     - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
     - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Upkeep of logistics:**
+    - **Transport fleets** (trucks, rolling stock, airlifters, sealift) work at ×(0.85 + 0.15 × the average of maintenance capacity and logistics ÷ 10).
+    - **Supply-line wear:** every day a country has forces deployed abroad, its supply chain wears out (vehicles break down, depots run dry, roads and rail are worn), faster for weak logistics, up to −35%; it recovers at home.
+    - **Interdiction:** the defender's drones and missiles cut an invader's supply by up to 20%, as Ukraine's HIMARS and drones did to Russian depots.
   - **Upkeep of ground forces** (`GROUND_REPAIR`, about 40 countries researched):
     - **Repair and recovery:** recovery crews and depots get knocked-out tanks, armoured vehicles and guns back. 20% + 4% × capacity of each day's losses are recoverable and return at 0.3% × capacity of the backlog a day. Examples: the US and Israel 9 (Anniston and Red River depots; repairing under fire since 1973), Ukraine 8 (front-line repair hubs and workshops in Poland and Slovakia), Russia 6 (rebuilds at scale but its storage yards are emptying), Britain 5, North Korea 3.
     - **Peacetime readiness** ×(0.85 + 0.015 × capacity).
