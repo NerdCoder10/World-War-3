@@ -694,6 +694,10 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
     - **Russia ×0.85:** Kyiv 2022, Chechnya 1994.
     - **France and Britain ×0.92:** 1940 and the Sahel; Basra and Helmand.
     - **Iraq ×0.85, Saudi Arabia ×0.9.**
+  - **Upkeep of ground forces** (`GROUND_REPAIR`, about 40 countries researched):
+    - **Repair and recovery:** recovery crews and depots get knocked-out tanks, armoured vehicles and guns back. 20% + 4% × capacity of each day's losses are recoverable and return at 0.3% × capacity of the backlog a day. Examples: the US and Israel 9 (Anniston and Red River depots; repairing under fire since 1973), Ukraine 8 (front-line repair hubs and workshops in Poland and Slovakia), Russia 6 (rebuilds at scale but its storage yards are emptying), Britain 5, North Korea 3.
+    - **Peacetime readiness** ×(0.85 + 0.015 × capacity).
+    - **Troop rotation:** troops held at the front tire by 0.3% a day, less for armies with deep reserves to rotate in, up to 40%, fighting up to 25% below their best; rest recovers 2% a day.
   - **Upkeep of air forces** (`AIR_UPKEEP`, about 45 countries researched):
     - **Pilot flying hours** (NATO standard 180 a year): proficiency ×(0.75 + 0.25 × min(1, hours ÷ 180)), applied to air units and the air-superiority contest. Israel 200, India 180 (but weak maintenance), the US ~130 (below NATO's standard and ~2,000 pilots short), Russia ~80, Iran 40, North Korea 20.
     - **Ground crews:** availability ×(0.85 + 0.015 × crews).
