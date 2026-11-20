@@ -67,7 +67,7 @@ window.groundSpec = (key, model) => {
 //   Infantry fight ×(0.8 + 0.04 × the average), on top of the country's tech and readiness:
 //   ×0.92 for a poorly trained, poorly equipped army, ×1.16 for the best.
 window.INFANTRY = {
-  USA: [9, 7, 10, "All-volunteer, long training; two decades of combat in Iraq and Afghanistan; night vision, Javelin and Stinger at squad level"],
+  USA: [9, 8, 10, "All-volunteer, long training; two decades of combat in Iraq and Afghanistan; night vision, Javelin and Stinger at squad level"],
   GBR: [9, 6, 9, "Professional, Iraq and Afghanistan veterans, NLAW and Javelin"], FRA: [8.5, 7, 8.5, "Professional, constant operations in the Sahel and Middle East"],
   ISR: [8.5, 9, 9, "Conscripts with a large trained reserve; years of combat in Gaza and Lebanon"], AUS: [8.5, 5, 8.5, "Small, professional, Afghanistan veterans"],
   CAN: [8, 4, 8, "Professional, Afghanistan veterans"], DEU: [7, 3, 7.5, "Professional but under-exercised and short of kit"], NLD: [7.5, 3, 8, "Professional"],

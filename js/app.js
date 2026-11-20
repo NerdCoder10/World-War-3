@@ -3296,7 +3296,7 @@
 
       <div class="section"><h3>Real strength <small>by the analysis, not official figures</small></h3>
         <div class="big"><strong>${c.truePower}</strong><span>/ 100 assessed strength · #${c.truePowerRank} <small>(paper #${c.powerRank})</small></span></div>
-        <p class="hint">🔍 Of its paper strength, about <b>${c.realShare}%</b> is real: its units counted by their actual models and the share mission-capable (readiness ${Math.round(c.tech.ready * 100)}%), troops by the share really present for duty (<b>${Math.round(window.manning(c) * 100)}%</b>${window.MANNING[c.iso3] ? `: ${esc(window.MANNING[c.iso3][1])}` : ", estimated from corruption"}), the whole force by its real training (${c.milStats.training}/10), experience, leadership and corruption (${c.milStats.corruption}/10), and missiles by the share that work (${Math.round(window.missileReliability(c) * 100)}%). Assessed combat strength #${c.assessedRank}; the overall score adds 30% for its real budget, economy and secret assets.</p>
+        <p class="hint">🔍 ${c.realShare > 100 ? `It is <b>stronger than its paper strength suggests (${c.realShare}%)</b>, because its quality outweighs its counts:` : `Of its paper strength, about <b>${c.realShare}%</b> is real:`} its units counted by their actual models and the share mission-capable (readiness ${Math.round(c.tech.ready * 100)}%), troops by the share really present for duty (<b>${Math.round(window.manning(c) * 100)}%</b>${window.MANNING[c.iso3] ? `: ${esc(window.MANNING[c.iso3][1])}` : ", estimated from corruption"}), the whole force by its real training (${c.milStats.training}/10), experience, leadership and corruption (${c.milStats.corruption}/10), and missiles by the share that work (${Math.round(window.missileReliability(c) * 100)}%). Assessed combat strength #${c.assessedRank}; the overall score adds 30% for its real budget, economy and secret assets.</p>
         ${window.paramilitaries(c).length ? `<p class="hint">🛡️ <b>Paramilitaries</b> (separate from its military; they defend the country as far as they are loyal): ${window.paramilitaries(c).map(p => `${esc(p[0])}: ${num(p[1] * 1000)}, training ${p[2]}/10, kit ${p[3]}/10, ${Math.round(p[4] * 100)}% loyal${p[5] ? ` (${esc(p[5])})` : ""}`).join("; ")}. Now worth ${num(Math.round(G.paraPower(c.iso3)))} combat power at home.</p>` : ""}
         ${window.ANALYSIS_SOURCES[c.iso3] ? `<p class="hint">📂 <b>Sources beyond official figures:</b> ${esc(window.ANALYSIS_SOURCES[c.iso3])}.</p>` : `<p class="hint">📂 Sources: IISS and open-source estimates, corrected by its known training, corruption and maintenance.</p>`}</div>
 
@@ -3598,11 +3598,12 @@
       ["🚀 Missiles", `${num(Math.round(st.bm + st.cm))} on hand, ${pct(G.missileRel(iso))} reliable; interceptors ${pct(G.interceptFrac(iso))}`],
       ["🛩️ Drones", `${G.droneStock(iso).toFixed(0)} days of hard use; ${pct(G.droneParts(iso))} of parts imported`],
       ["🖥️ Cyber", `sustainment ${pct(cy.sustain)}, offence ${cy.off.toFixed(1)}${cy.burn > 0.05 ? ` (${cy.burn.toFixed(1)} in burned tools)` : ""}, defence ${cy.def.toFixed(1)}`],
-      ["🎯 Special forces", `${fat >= 0.02 ? `average fatigue ${pct(fat)}` : "fresh"}${lost >= 1 ? `, ${num(Math.round(lost))} operators still to replace` : ""}`],
+      ["🎯 Special forces", `kit and funding ×${window.sfUpkeep(iso).toFixed(2)} (maintenance, budget and war strain); ${fat >= 0.02 ? `average fatigue ${pct(fat)}` : "fresh"}${lost >= 1 ? `, ${num(Math.round(lost))} operators still to replace` : ""}`],
       ["🛰️ Satellites", `${G.satLoss(iso) > 0.005 ? `<b class="bad">${pct(G.satLoss(iso))} of its constellation lost</b>` : "constellation intact"}; ${launch ? `replaces losses with its own launches (${esc(launch[1])})` : "no launchers of its own: can't replace losses in a war with trade cut"}`],
       ["🚔 Homeland and borders", G.warStrain(iso) > 0.005 ? `strained by war: ×${(1 - G.warStrain(iso)).toFixed(2)}` : "at full strength"],
       ["📡 Radars", `coverage ${pct(G.radarInfo(iso).cov)} with its maintenance (${pct(0.75 + 0.25 * G.maintCap(iso))} of what its sites could do)`],
     ];
+    rows.push(["🕵️ Spy service", `keeps its networks at ×${G.spyUpkeepF(iso).toFixed(2)} of their reach (funding and war strain)`]);
     if (G.state.player && iso === G.state.player) {
       rows.push(["🕵️ Spy networks", `${G.fmtCoins(Math.round(G.spyUpkeep()))} coins a day; case officers ${G.investedLevels()} of ${G.handlerCap().toFixed(1)}`]);
       rows.push(["⚓ Ports you built", `${G.fmtCoins(Math.round(G.portUpkeep()))} coins a day`]);

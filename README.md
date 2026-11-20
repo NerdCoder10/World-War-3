@@ -751,6 +751,13 @@ The game runs in turns. Give as many orders as you like, then press **End turn**
   - **Radars:** coverage ×(0.75 + 0.25 × maintenance capacity).
   - **Ports you build** cost 0.2% of their price a day. Unpaid, the costliest falls into disrepair.
   - **Already in place:** equipment mission-capable rates, war wear, spare parts, fuel, allies' war-weariness, missile reliability, interceptors and shelf life, drone upkeep, cyber sustainment, spy networks and special forces.
+- **United States reanalysed again**, moving from the conservative end of analysts' ranges to the middle:
+  - **Budget and reserves:** defence budget $997bn → $1,010bn (FY2026 with the 2025 reconciliation money); reserves 800k → 1.04m (including the Individual Ready Reserve).
+  - **Special forces:** Delta Force 400 → 1,000 operators, DEVGRU 300 → 500, SEALs 2,200 → 2,500, Green Berets 5,500 → 7,000.
+  - **Historical performance** ×1.1 → ×1.15; **infantry combat experience** 7 → 8; **intelligence analysis** 8 → 9.
+- **Upkeep of special forces and spy services, beyond fatigue and costs:**
+  - **Special forces** fight at ×(0.9 + 0.1 × maintenance capacity) × (0.9 + 0.1 × budget funding) × (1 − 0.3 × war strain).
+  - **Spy services** keep their networks at ×(0.8 + 0.2 × funding) × (1 − 0.4 × war strain) of their reach.
 - **United States reanalysed (late 2026).** Several figures from 2024 reports were too low by later analysis:
   - **Readiness and people:** readiness 0.8 → 0.85, as funding and recruiting recovered. Manning 98% → 100%: every service met its 2025 recruiting goals. Patriotism 7 → 8.
   - **Intelligence:** spy tradecraft 7 → 8 (it published Russia's 2022 invasion plans weeks ahead).

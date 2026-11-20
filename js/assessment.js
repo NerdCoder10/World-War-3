@@ -81,7 +81,7 @@ window.FEROCITY = {
 // [multiplier on combat skill, the record]. Some militaries have repeatedly beaten the forecasts
 // and others repeatedly fallen short of them.
 window.HIST_PERF = {
-  USA: [1.1, "Beat the forecasts again and again: analysts warned of 10,000+ US dead in Desert Storm (148 were killed in action) and it reached Baghdad in three weeks in 2003"],
+  USA: [1.15, "Beat the forecasts again and again: analysts warned of 10,000+ US dead in Desert Storm (148 were killed in action) and it reached Baghdad in three weeks in 2003"],
   ISR: [1.12, "Won in 1948, 1967 and 1973 against larger coalitions; in 2024–25 it dismantled Hezbollah's leadership and took control of Iran's skies, beyond almost every forecast"],
   RUS: [0.85, "Expected to take Kyiv in days in 2022, it failed and lost far more than predicted, as it did in Chechnya in 1994–95"],
   FRA: [0.92, "Collapsed in 1940 despite a larger army; left the Sahel in 2022–25 after a decade without defeating the jihadists"],
