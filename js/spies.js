@@ -216,7 +216,7 @@ window.TRADECRAFT = {
   RUS: [7, "The KGB's Cambridge Five, Aldrich Ames (9 years) and Robert Hanssen (22 years); but the 2010 illegals roll-up, and the GRU's Skripal poisoners and Unit 29155 exposed by open sources"],
   CHN: [7.5, "Penetrated the CIA's China network in 2010–12 and US networks (Volt and Salt Typhoon) for years; but its sheer volume means dozens of cases are caught every year"],
   UKR: [7.5, "Operation Spiderweb was prepared inside Russia for 18 months undetected; drone and sabotage cells deep in Russia"],
-  USA: [7, "Long-running penetrations of the KGB and GRU (Tolkachev, Polyakov); but lost its China network in 2010–12 and Iranian sources through a flawed covert-communication system"],
+  USA: [8, "Long-running penetrations of the KGB and GRU (Tolkachev, Polyakov) and of Russia's leadership deep enough to publish the 2022 invasion plans weeks ahead; but lost its China network in 2010–12 and Iranian sources through a flawed covert-communication system"],
   FRA: [6, "The DGSE was caught sinking the Rainbow Warrior in 1985; solid since"], DEU: [5.5, "The BND was itself penetrated by the Stasi and Russia (the 2022 Linke case)"],
   PAK: [7, "The ISI ran the Afghan mujahideen and the Taliban network for decades with deniability"], IND: [5.5, "RAW's plots against Sikh separatists in Canada and the US were exposed in 2023"],
   TUR: [6, "MIT renditions abroad, some exposed"], SAU: [3, "The Khashoggi murder team was filmed and identified within days"], ARE: [6, "Discreet; some hacking exposed"],

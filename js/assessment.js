@@ -5,7 +5,7 @@
 // soldiers on payrolls, desertion, unfilled posts, soldiers diverted to construction or business.
 // [share, evidence]. Not listed: estimated from corruption.
 window.MANNING = {
-  USA: [0.98, "Missed recruiting targets in 2022–23; recovered by 2025"],
+  USA: [1, "Every service met its recruiting goals in 2025, the Army months early, after missing them in 2022–23"],
   RUS: [0.85, "Captured and leaked 2022 documents showed units at 60–80% strength; contract recruiting has since refilled them, at the cost of quality"],
   UKR: [0.85, "Over 100,000 desertion and absence cases opened by 2025 (prosecutor general); many brigades far below strength"],
   CHN: [0.95, "Recruiting shortfalls in technical branches reported in the PLA's own press"],

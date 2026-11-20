@@ -7,7 +7,7 @@
 window.DRONE_TECH = {
   UKR: [10, 4000, 8, "Millions of FPV drones a year, Liutyi and other long-range strike drones, Magura and Sea Baby naval drones that drove Russia's fleet from the western Black Sea, interceptor drones"],
   RUS: [8, 2000, 8, "Geran-2 (licence-built Shahed) at thousands a month, Lancet loitering munitions, Orlan-10 scouts, fibre-optic FPV drones immune to jamming, dense electronic warfare"],
-  USA: [9, 300, 8, "MQ-9 Reaper, MQ-1C Gray Eagle, RQ-4 Global Hawk, Switchblade loitering munitions, the 2025 'drone dominance' drive for mass small drones, Coyote interceptors"],
+  USA: [9, 600, 8, "MQ-9 Reaper, MQ-1C Gray Eagle and RQ-4 Global Hawk, Switchblade loitering munitions and Coyote interceptors; the 2025 drone-dominance drive aims to buy a million small drones for the Army by 2027"],
   CHN: [9, 3000, 8, "The world's largest drone industry (DJI), Wing Loong and CH-series strike drones, WZ-7 and WZ-8 high-altitude scouts, swarm and drone-carrier programmes"],
   ISR: [9, 150, 9, "Pioneer of military drones: Heron, Hermes, Harop and Harpy loitering munitions; Iron Dome and the Iron Beam laser against drones"],
   TUR: [8, 200, 7, "Bayraktar TB2, TB3 and Akıncı, Anka, Kızılelma jet drone and Kargu loitering munitions; the world's leading strike-drone exporter"],
@@ -43,7 +43,7 @@ window.DRONE_WEATHER = { clear: 1, frost: 0.9, rain: 0.7, fog: 0.7, snow: 0.6, m
 // Iran built up Shaheds for years; the US has few mass-produced small drones despite its 2025 push.
 window.DRONE_STOCK = {
   RUS: [45, "Stockpiles Geran-2s from the Alabuga plant to launch 500–800 in a single night"], UKR: [40, "Millions of FPV drones a year, used as fast as they are made"],
-  IRN: [50, "Built up Shahed stocks for years"], CHN: [60, "The world's largest drone industry"], USA: [20, "Few mass-produced small drones despite the 2025 'drone dominance' drive; large Reapers and Gray Eagles"],
+  IRN: [50, "Built up Shahed stocks for years"], CHN: [60, "The world's largest drone industry"], USA: [25, "Building mass small-drone stocks under the 2025 drone-dominance drive, on top of large Reaper and Gray Eagle fleets"],
   ISR: [30, "Heron, Hermes and loitering munitions"], TUR: [35, "Large Bayraktar fleets"], PRK: [15, "Small, Russian-assisted"], YEM: [30, "Iranian-supplied stocks"],
 };
 // Imported parts in its drones (motors, magnets, cameras, chips, engines), 0–1: cut off in a war

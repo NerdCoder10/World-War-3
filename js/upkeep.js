@@ -7,7 +7,7 @@
 //   North Korea; the US makes ~40,000 a month (rising toward 100,000); European armies were found to
 //   hold days to weeks of shells; China and North Korea hold huge stocks.
 window.AMMO = {
-  USA: [60, 0.15, "~40,000 155 mm shells a month in 2025, rising toward 100,000; large stocks partly sent to Ukraine and Israel"],
+  USA: [90, 0.3, "The largest war reserves in the world (including stocks pre-positioned in Korea and Israel); shell output ramping from ~40,000 a month in 2025 toward 100,000"],
   RUS: [90, 0.85, "Makes ~3–4 million shells a year and has received millions from North Korea; still rations fire"],
   CHN: [150, 1, "The world's largest munitions industry"], PRK: [200, 0.6, "Huge stockpiles, millions of shells shipped to Russia since 2023"],
   UKR: [15, 0.6, "Lives on deliveries: European and US shells and its own growing production"], IND: [40, 0.2, "Long-standing shortfalls in war reserves"],
@@ -87,7 +87,7 @@ window.budgetSustain = c => {
 // abroad wear down every day at sea (faster for countries with weak yards) and recover only with
 // yard time once home (faster with strong yards), up to -30%.
 window.NAVAL_YARDS = {
-  USA: [6, "Four overloaded public naval shipyards: about a third of its attack submarines sit idle waiting for maintenance (GAO), and carrier overhauls run years late"],
+  USA: [7, "Four overloaded public naval shipyards (about a third of its attack submarines wait for maintenance, GAO), but large private yards (Newport News, Electric Boat, Bath, Ingalls) and 2025 funding and Korean investment (Hanwha's Philly yard) are adding capacity"],
   CHN: [10, "The world's largest shipbuilding industry, with spare dry docks everywhere"], KOR: [9, "World-class yards (Hyundai, Hanwha, Samsung)"], JPN: [9, "World-class yards"],
   RUS: [4, "Few dry docks big enough for its large ships: the Kuznetsov's floating dock sank in 2018 and a fire followed in 2019"],
   GBR: [5, "Devonport and Rosyth are stretched: often only one Astute submarine is at sea"], FRA: [6, "Naval Group's yards"], ITA: [6, "Fincantieri"],
@@ -106,7 +106,7 @@ window.navalYards = c => { const y = window.NAVAL_YARDS[c.iso3]; if (y) return {
 // up to 40%; -2% a day at rest), cutting air power by up to 30%. Not listed: estimated from
 // readiness and maintenance capacity.
 window.AIR_UPKEEP = {
-  USA: [130, 7, "Fighter pilots fly ~120-150 hours a year, below NATO's 180, and the Air Force is ~2,000 pilots short; F-35 upkeep is a heavy burden"],
+  USA: [140, 8, "Fighter pilots fly ~130-150 hours a year, a little below NATO's 180, but with the world's best simulators and largest exercises (Red Flag); its maintainer shortage has largely closed, though F-35 upkeep is a heavy burden"],
   ISR: [200, 9, "Among the most flying hours and best-kept fleets in the world"], GBR: [150, 7, ""], FRA: [160, 7, ""], DEU: [120, 5, "Eurofighter availability problems leave pilots short of hours"],
   ITA: [140, 6, ""], ESP: [130, 6, ""], NLD: [150, 7, ""], NOR: [160, 7, ""], SWE: [150, 8, "The Gripen is built to be serviced at dispersed road bases by conscripts"], FIN: [150, 8, ""],
   POL: [130, 6, ""], TUR: [150, 6, "Lost many pilots in the 2016 purge; since rebuilt"],
