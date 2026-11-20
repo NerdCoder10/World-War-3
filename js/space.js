@@ -138,7 +138,7 @@ Object.assign(window.INTEL_AGENCIES, {
 // intelligence (battlefield reconnaissance and targeting; it adds to the combat bonus).
 // [osint, analysis, military intelligence, record]. Not listed: estimated.
 window.INTEL_EXTRA = {
-  USA: [10, 8, 10, "The world's largest open-source and data-analytics effort (NGA, commercial imagery, Palantir); called Russia's 2022 invasion weeks ahead, though it missed 9/11, got Iraq's weapons wrong and misjudged Kabul's fall in 2021; unmatched battlefield intelligence from drones, satellites and special-operations targeting"],
+  USA: [10, 9, 10, "The world's largest open-source and data-analytics effort (NGA, commercial imagery, Palantir); called Russia's 2022 invasion weeks ahead, though it missed 9/11, got Iraq's weapons wrong and misjudged Kabul's fall in 2021; unmatched battlefield intelligence from drones, satellites and special-operations targeting"],
   ISR: [9, 7, 10, "Unit 8200's data mining and Unit 9900's imagery; its analysis failed catastrophically before 7 October 2023 (the 'concept' that Hamas was deterred), yet its targeting of Hezbollah and Iran in 2024–25 was superb"],
   GBR: [9, 8.5, 8, "GCHQ and a strong open-source culture; the Joint Intelligence Committee's assessments are generally sound"],
   RUS: [7, 4, 7, "Strong cyber and disinformation, but its analysis failed badly in 2022: the FSB told the Kremlin Ukrainians would welcome Russian troops"],

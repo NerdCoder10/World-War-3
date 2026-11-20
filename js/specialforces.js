@@ -24,12 +24,12 @@ window.SPECIAL_FORCES = {
   USA: [
     // Operators are the trained assaulters, aircrews and specialists, not the support staff around them
     // (analysts' estimates: Naylor's "Relentless Strike", CRS, SOCOM posture statements).
-    ["1st SFOD-D (Delta Force)", 400, 10, 10, "~400 operators of ~1,800 personnel. Al-Baghdadi raid 2019, Saddam's capture 2003, Task Force 714's thousands of raids in Iraq"],
-    ["DEVGRU (SEAL Team Six)", 300, 10, 10, "~300 operators of ~1,800. Bin Laden raid 2011, Captain Phillips rescue 2009, hostage rescues in Somalia and Nigeria"],
+    ["1st SFOD-D (Delta Force)", 1000, 10, 10, "Estimates run from a few hundred to over 1,000 operators among ~1,800-2,000 personnel. Al-Baghdadi raid 2019, Saddam's capture 2003, Task Force 714's thousands of raids in Iraq"],
+    ["DEVGRU (SEAL Team Six)", 500, 10, 10, "~300-600 operators among ~1,800 personnel. Bin Laden raid 2011, Captain Phillips rescue 2009, hostage rescues in Somalia and Nigeria"],
     ["Intelligence Support Activity", 300, 9.5, 9.5, "JSOC's human and signals intelligence unit; found targets for the hunts of Saddam, Zarqawi and others"],
     ["24th Special Tactics Squadron", 150, 10, 9.5, "JSOC's air force operators: controllers and rescuemen with Delta and DEVGRU"],
-    ["Navy SEALs", 2200, 9.5, 9.5, "Continuous combat since 2001; Red Sea boardings in 2024"],
-    ["Army Special Forces (Green Berets)", 5500, 9, 9.5, "~5,500 qualified operators in 7 groups. Toppled the Taliban in 2001 with a few hundred men; trained armies worldwide"],
+    ["Navy SEALs", 2500, 9.5, 9.5, "Continuous combat since 2001; Red Sea boardings in 2024"],
+    ["Army Special Forces (Green Berets)", 7000, 9, 9.5, "~7,000 Green Berets in 5 active and 2 National Guard groups. Toppled the Taliban in 2001 with a few hundred men; trained armies worldwide"],
     ["75th Ranger Regiment", 3500, 9, 9.5, "Mogadishu 1993, Panama, thousands of raids since 2001"],
     ["160th SOAR (Night Stalkers)", 1000, 10, 10, "~1,000 aircrew of ~3,000. The world's best special-operations aviation; flew the bin Laden raid"],
     ["AFSOC Special Tactics", 600, 9.5, 9, "Combat controllers and pararescue on every major operation"],
@@ -185,7 +185,11 @@ window.sfLive = null;
 window.sfFatigue = (iso, u) => (window.sfLive ? window.sfLive.fat(iso, u[0]) : 0);
 window.sfLost = (iso, u) => (window.sfLive ? window.sfLive.loss(iso, u[0]) : 0);
 // Quality as it is today: a worn-out unit fights up to 30% below its standard.
-window.sfQualityOf = (iso, u) => (u ? window.sfQuality(u) * (1 - 0.3 * window.sfFatigue(iso, u)) : 0);
+// Upkeep beyond fatigue: their kit (night vision, radios, aircraft, boats) only works as well as the
+// country maintains and funds it, and a war that outruns the economy starves them too
+// (×0.8–1, set by the game).
+window.sfUpkeep = iso => (window.sfLive && window.sfLive.upkeep ? window.sfLive.upkeep(iso) : 1);
+window.sfQualityOf = (iso, u) => (u ? window.sfQuality(u) * (1 - 0.3 * window.sfFatigue(iso, u)) * window.sfUpkeep(iso) : 0);
 window.sfOperators = (iso, u) => Math.max(0, u[1] - window.sfLost(iso, u));
 window.sfPower = iso => window.sfUnits(iso).reduce((a, u) => a + window.sfOperators(iso, u) * Math.pow(window.sfQualityOf(iso, u), 6), 0);
 // The best unit: the one sent on raids.
